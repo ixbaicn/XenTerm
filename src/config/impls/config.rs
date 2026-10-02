@@ -3691,6 +3691,66 @@ mod tests {
     }
 
     #[test]
+    fn failed_editor_save_keeps_password_until_database_accepts_retry() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        let mut original = sample_session("editor-save-fixture");
+        original.password = Secret::new("fixture-password");
+        let id = original.id.clone();
+        store.upsert_and_save(original.clone()).unwrap();
+        let before = disk_row(&store, &id);
+        let parked = keyring::Entry::new(ConfigStore::KEYRING_SERVICE, &id).unwrap();
+        assert_eq!(parked.get_password().unwrap(), "fixture-password");
+
+        // A real SQLite transaction failure, after opening the database. The
+        // keyring is in-memory test infrastructure, never the user's credentials.
+        let connection = rusqlite::Connection::open(&store.path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER refuse_editor_update BEFORE UPDATE ON sessions
+                 BEGIN SELECT RAISE(ABORT, 'fixture refuses the update'); END;",
+            )
+            .unwrap();
+        let mut cleared = original.clone();
+        cleared.password = Secret::default();
+        cleared.name = "edited-fixture".into();
+        assert!(store.upsert_and_save(cleared.clone()).is_err());
+        assert_eq!(store.sessions().len(), 1);
+        assert_eq!(store.get(&id).unwrap().name, original.name);
+        assert_eq!(
+            store.get(&id).unwrap().password.as_str(),
+            "fixture-password"
+        );
+        assert_eq!(disk_row(&store, &id), before);
+        assert_eq!(parked.get_password().unwrap(), "fixture-password");
+
+        connection
+            .execute_batch("DROP TRIGGER refuse_editor_update")
+            .unwrap();
+        // An unrelated save must not leak the failed edit back onto disk.
+        store.save().unwrap();
+        assert_eq!(disk_row(&store, &id), before);
+        store.upsert_and_save(cleared).unwrap();
+        assert_eq!(store.sessions().len(), 1);
+        assert_eq!(store.get(&id).unwrap().name, "edited-fixture");
+        assert!(store.get(&id).unwrap().password.is_empty());
+        assert!(matches!(
+            parked.get_password(),
+            Err(keyring::Error::NoEntry)
+        ));
+        let disk: Session = serde_json::from_str(&disk_row(&store, &id)).unwrap();
+        assert_eq!(disk.name, "edited-fixture");
+        assert!(disk.password.is_empty());
+
+        drop(connection);
+        let _ = fs::remove_file(&store.path);
+    }
+
+    #[test]
     fn master_key_entry_decoding_roundtrips_and_rejects_other_shapes() {
         let key = [11u8; 32];
         let stored = URL_SAFE_NO_PAD.encode(key);
