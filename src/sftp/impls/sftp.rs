@@ -1687,6 +1687,13 @@ pub(crate) fn download_target_path(remote: &str, local_dir: &str) -> PathBuf {
 /// `None` means the user cancelled. A target that does not exist is not a question at
 /// all, and that is the whole of what can be tested here — the rest is a native dialog
 /// and blocks until it is answered.
+#[cfg(not(feature = "desktop"))]
+pub(crate) fn choose_download_conflict(remote: &str, local_dir: &str) -> Option<DownloadConflict> {
+    // No UI is available to authorize replacing an existing local file.
+    (!download_target_path(remote, local_dir).exists()).then_some(DownloadConflict::Replace)
+}
+
+#[cfg(feature = "desktop")]
 pub(crate) fn choose_download_conflict(remote: &str, local_dir: &str) -> Option<DownloadConflict> {
     let target = download_target_path(remote, local_dir);
     if !target.is_file() {
