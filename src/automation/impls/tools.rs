@@ -16,6 +16,7 @@ pub(crate) async fn call(name: &str, arguments: &Value, frontend: Frontend) -> R
     match name {
         "list_sessions" => list_sessions(arguments, frontend),
         "get_session" => get_session(arguments, frontend),
+        "import_sessions" => import_sessions(arguments, frontend),
         "run_command" => run_command(arguments, frontend).await,
         "list_remote_files" => list_remote_files(arguments, frontend).await,
         "read_remote_text_file" => read_remote_text_file(arguments, frontend).await,
@@ -23,6 +24,27 @@ pub(crate) async fn call(name: &str, arguments: &Value, frontend: Frontend) -> R
         "download_file" => download_file(arguments, frontend).await,
         _ => Err(anyhow!("unknown tool: {name}")),
     }
+}
+
+/// Import is append-only, preview-by-default for protocol callers, and requires
+/// a process-level opt-in in addition to the persisted file-transfer gate.
+fn import_sessions(arguments: &Value, frontend: Frontend) -> Result<Value> {
+    let object = arguments.as_object().ok_or_else(|| anyhow!("import arguments must be an object"))?;
+    if object.keys().any(|key| !matches!(key.as_str(), "local_path" | "dry_run")) {
+        return Err(anyhow!("unknown import argument"));
+    }
+    let path = required_string(arguments, "local_path")?;
+    if path.trim().is_empty() || path.chars().any(char::is_control) {
+        return Err(anyhow!("local_path must be a nonempty valid path"));
+    }
+    let dry_run = optional_bool(arguments, "dry_run")?.unwrap_or(true);
+    if !dry_run && !frontend.allows_config_import() {
+        return Err(anyhow!("configuration import is disabled; restart MCP with --allow-config-import to apply imports"));
+    }
+    let mut store = load_store(frontend)?;
+    enforce_transfer_permissions(&store, frontend)?;
+    let summary = store.import_from_preview(std::path::Path::new(path), dry_run)?;
+    Ok(json!({"added": summary.added, "skipped": summary.skipped, "dry_run": dry_run}))
 }
 
 async fn upload_file(arguments: &Value, frontend: Frontend) -> Result<Value> {
@@ -438,6 +460,13 @@ fn optional_string<'a>(arguments: &'a Value, key: &str) -> Result<Option<&'a str
     }
 }
 
+fn optional_bool(arguments: &Value, key: &str) -> Result<Option<bool>> {
+    match arguments.get(key) {
+        None => Ok(None),
+        Some(value) => value.as_bool().map(Some).ok_or_else(|| anyhow!("invalid boolean argument: {key}")),
+    }
+}
+
 fn optional_u64(arguments: &Value, key: &str) -> Result<Option<u64>> {
     match arguments.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -451,6 +480,33 @@ fn optional_u64(arguments: &Value, key: &str) -> Result<Option<u64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn import_arguments_are_strict_before_loading_a_profile() {
+        assert_eq!(optional_bool(&json!({}), "dry_run").unwrap(), None);
+        assert_eq!(optional_bool(&json!({"dry_run": false}), "dry_run").unwrap(), Some(false));
+        for bad in [json!(null), json!("false"), json!(0)] {
+            assert!(optional_bool(&json!({"dry_run": bad}), "dry_run").is_err());
+        }
+        assert!(import_sessions(&json!({"local_path": "fixture", "overwrite": true}), Frontend::Cli).is_err());
+        assert!(import_sessions(&json!({"local_path": ""}), Frontend::Cli).is_err());
+    }
+
+    #[test]
+    fn session_metadata_never_serializes_credential_or_note_fields() {
+        let mut session = Session::new_empty();
+        let sentinel = "synthetic-secret-redaction-sentinel";
+        session.password = crate::config::Secret::new(sentinel);
+        session.private_key_inline = crate::config::Secret::new(sentinel);
+        session.private_key_path = sentinel.into();
+        session.proxy = format!("socks5://fixture:{sentinel}@127.0.0.1:1080");
+        session.note = sentinel.into();
+        session.triggers.push(crate::config::SessionTrigger {response: crate::config::Secret::new(sentinel), ..Default::default()});
+        let value = safe_session(&session);
+        assert!(!value.to_string().contains(sentinel));
+        assert_eq!(value["has_saved_password"], true);
+        assert_eq!(value["has_private_key"], true);
+    }
 
     #[test]
     fn numeric_arguments_are_strict() {

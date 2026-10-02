@@ -4,6 +4,20 @@ use serde_json::{json, Value};
 pub(super) fn definitions() -> Value {
     json!([
         {
+            "name": "import_sessions",
+            "description": "Preview or append sessions from a local MeatShell/XenTerm v1 portable export, native sessions.json, or FinalShell JSON. Defaults to dry_run=true. Applying requires --allow-config-import; all calls require the MCP file-transfer permission. Existing sessions are never overwritten: equivalent complete profiles are skipped and distinct aliases get fresh IDs. Returns counts only. Export files contain reversible credential obfuscation and must be kept private.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "local_path": {"type": "string", "minLength": 1, "description": "JSON file on the server host, at most 16 MiB."},
+                    "dry_run": {"type": "boolean", "default": true}
+                },
+                "required": ["local_path"],
+                "additionalProperties": false
+            },
+            "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+        },
+        {
             "name": "list_sessions",
             "description": "List saved XenTerm sessions without exposing passwords, private keys, or other secrets. Requires the MCP saved-credentials permission.",
             "inputSchema": {
