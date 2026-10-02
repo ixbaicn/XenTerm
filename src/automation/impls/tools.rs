@@ -13,6 +13,10 @@ const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
 pub(crate) async fn call(name: &str, arguments: &Value, frontend: Frontend) -> Result<Value> {
+    crate::ssh::connection::with_automation_cancellation(call_inner(name, arguments, frontend)).await
+}
+
+async fn call_inner(name: &str, arguments: &Value, frontend: Frontend) -> Result<Value> {
     match name {
         "list_sessions" => list_sessions(arguments, frontend),
         "get_session" => get_session(arguments, frontend),

@@ -177,7 +177,7 @@ impl ServerHandler for HttpTools {
             _ = context.ct.cancelled() => return Err(ErrorData::internal_error("request cancelled", None)),
             _ = session_cancel.0.cancelled() => return Err(ErrorData::internal_error("session closed", None)),
             _ = tokio::time::sleep(remaining) => return Err(ErrorData::internal_error("request deadline or access token expiry reached", None)),
-            result = crate::ssh::connection::with_automation_cancellation(super::tools::call_mcp(&request.name, &args, self.allow_config_import)) => result,
+            result = super::tools::call_mcp(&request.name, &args, self.allow_config_import) => result,
         };
         Ok(match result {
             Ok(value) => CallToolResult::structured(value),

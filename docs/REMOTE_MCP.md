@@ -346,6 +346,7 @@ separately in the intended deployment before calling the service connected.
 ```sh
 cargo test --no-default-features --features headless --bin xenterm
 cargo build --no-default-features --features headless
+python3 tests/stdio_mcp_e2e.py --exe target/debug/xenterm
 python3 tests/remote_mcp_e2e.py --exe target/debug/xenterm
 python3 tests/config_import_e2e.py --exe target/debug/xenterm
 # Synthetic HTTP and SSH/SFTP tests require Python cryptography + paramiko:

@@ -21,6 +21,7 @@ jobs:
       - name: Headless unit tests (no GUI system dependencies)
         run: env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy cargo test --locked --no-default-features --features headless
       - run: cargo build --locked --no-default-features --features headless
+      - run: python tests/stdio_mcp_e2e.py --exe target/debug/xenterm
       - run: python tests/remote_mcp_e2e.py --exe target/debug/xenterm --path /mcp
       - run: python tests/remote_mcp_e2e.py --exe target/debug/xenterm --nginx /usr/sbin/nginx --path /xenterm/mcp
       - run: python tests/remote_mcp_e2e.py --exe target/debug/xenterm --nginx /usr/sbin/nginx --path /xenterm/mcp --protocol-version 2025-11-25
