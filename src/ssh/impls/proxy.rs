@@ -39,22 +39,22 @@ fn resolve_with_env(
     if !s.is_empty() {
         return parse(s)
             .map(Some)
-            .ok_or_else(|| invalid_proxy_url(s, "session proxy"));
+            .ok_or_else(|| invalid_proxy_url("session proxy"));
     }
     for var in ["ALL_PROXY", "all_proxy"] {
         if let Some(v) = env(var) {
             if !v.trim().is_empty() {
                 let v = v.trim();
-                return parse(v).map(Some).ok_or_else(|| invalid_proxy_url(v, var));
+                return parse(v).map(Some).ok_or_else(|| invalid_proxy_url(var));
             }
         }
     }
     Ok(None)
 }
 
-fn invalid_proxy_url(url: &str, source: &str) -> anyhow::Error {
+fn invalid_proxy_url(source: &str) -> anyhow::Error {
     anyhow!(
-        "invalid {source} URL {url:?}: expected socks5://, socks5h:// or http:// \
+        "invalid {source} URL: expected socks5://, socks5h:// or http:// \
          [user:pass@]host:port"
     )
 }
@@ -216,6 +216,22 @@ mod tests {
         // bypass the proxy the user configured (audit M-13).
         for bad in ["socks9://proxy:1080", "http://proxy:notaport", "http://"] {
             assert!(resolve(bad).is_err(), "{bad} should not resolve");
+        }
+    }
+
+    #[test]
+    fn malformed_proxy_errors_never_echo_credentials_or_endpoints() {
+        let malformed = "socks9://synthetic-user:synthetic-secret@private.example:1080";
+        for error in [
+            resolve(malformed).unwrap_err(),
+            resolve_with_env("", |name| (name == "ALL_PROXY").then(|| malformed.to_string())).unwrap_err(),
+        ] {
+            let diagnostic = format!("{error:#}");
+            for hidden in [malformed, "synthetic-user", "synthetic-secret", "private.example"] {
+                assert!(!diagnostic.contains(hidden));
+            }
+            assert!(diagnostic.contains("invalid"));
+            assert!(diagnostic.contains("expected socks5://"));
         }
     }
 

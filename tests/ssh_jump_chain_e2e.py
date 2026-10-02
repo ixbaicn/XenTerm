@@ -184,7 +184,7 @@ def session(name, host, port, jump=""):
 class Fixture:
     def __init__(self, binary, directory):
         self.root = pathlib.Path(directory)
-        self.explicit_profile = False
+        self.explicit_profile = True
         self.exe = self.root / "xenterm.exe"
         shutil.copy2(binary, self.exe)
         self.config = self.root / "config"
@@ -192,6 +192,8 @@ class Fixture:
         self.env = os.environ.copy()
         for key in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
             self.env.pop(key, None)
+        self.env.pop("XENTERM_DATA_DIR", None)
+        self.env.pop("MEATSHELL_DATA_DIR", None)
         self.env["HOME"] = str(self.root)
         self.env["XDG_CONFIG_HOME"] = str(self.root / "xdg")
         self.nodes = [Node("outer"), Node("inner"), Node("target")]
@@ -281,7 +283,7 @@ class Fixture:
         return value
 
     def check(self, regression_only=False):
-        self.explicit_profile = False
+        self.explicit_profile = not regression_only
         if regression_only:
             result = self.mcp("run_command", session_id="target", command="fixture",
                               timeout_seconds=5)
@@ -305,7 +307,7 @@ class Fixture:
             assert not result.get("isError"), result
             assert "fixture" in json.dumps(result), result
         print("PASS: two-hop SFTP listing and reading")
-        cli = subprocess.run([str(self.exe), "cli", "exec", "target", "--json", "--",
+        cli = subprocess.run([str(self.exe), "--data-dir", str(self.config), "cli", "exec", "target", "--json", "--",
                               "fixture"], capture_output=True, text=True, encoding="utf-8", timeout=30, env=self.env)
         assert cli.returncode == 0 and "multi-hop-command:target" in cli.stdout, cli.stderr
         print("PASS: CLI uses the same nested route")
