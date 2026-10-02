@@ -156,6 +156,7 @@ pub(super) fn page(
                     let e = editor.clone();
                     row = row.child(
                         Button::new(SharedString::from(format!("jump-{suffix}-{index}")))
+                            .debug_selector(move || format!("jump-{suffix}-{index}"))
                             .icon(icon)
                             .ghost()
                             .small()
@@ -178,6 +179,7 @@ pub(super) fn page(
                 let e = editor.clone();
                 row = row.child(
                     Button::new(SharedString::from(format!("jump-remove-{index}")))
+                        .debug_selector(move || format!("jump-remove-{index}"))
                         .icon(IconName::Trash)
                         .ghost()
                         .small()
@@ -354,18 +356,17 @@ mod ui_tests {
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
         });
-        view.update(cx, |probe, cx| {
+        view.read_with(cx, |probe, _| {
             assert_eq!(
                 route(&probe.draft.borrow(), &probe.store.borrow()).unwrap(),
                 ["outer", "inner"]
             );
-            edit_route(
-                &probe.draft,
-                &probe.store,
-                &probe.editor.downgrade(),
-                cx,
-                |ids| ids.swap(0, 1),
-            );
+        });
+        let down = cx
+            .debug_bounds("jump-down-0")
+            .expect("visible reorder button");
+        cx.simulate_click(down.center(), gpui_kit::Modifiers::default());
+        view.update(cx, |probe, cx| {
             assert_eq!(probe.draft.borrow().jump_session_ids, ["inner", "outer"]);
             assert!(probe.draft.borrow().jump_session_id.is_empty());
             assert_eq!(
@@ -376,31 +377,28 @@ mod ui_tests {
                 probe.store.borrow().get("target").unwrap().jump_session_id,
                 "inner"
             );
+            // The real editor is the observed owner; this isolated page probe
+            // deliberately owns a separate entity, so refresh it explicitly.
+            cx.notify();
         });
-        cx.update(|window, cx| {
-            window.draw(cx).clear(cx);
-        });
-        view.update(cx, |probe, cx| {
-            edit_route(
-                &probe.draft,
-                &probe.store,
-                &probe.editor.downgrade(),
-                cx,
-                |ids| {
-                    ids.remove(0);
-                },
-            );
-            edit_route(
-                &probe.draft,
-                &probe.store,
-                &probe.editor.downgrade(),
-                cx,
-                Vec::clear,
-            );
-            assert!(route(&probe.draft.borrow(), &probe.store.borrow())
-                .unwrap()
-                .is_empty());
-        });
+        for remaining in [1, 0] {
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+            });
+            let remove = cx
+                .debug_bounds("jump-remove-0")
+                .expect("visible remove button");
+            cx.simulate_click(remove.center(), gpui_kit::Modifiers::default());
+            view.update(cx, |probe, cx| {
+                assert_eq!(
+                    route(&probe.draft.borrow(), &probe.store.borrow())
+                        .unwrap()
+                        .len(),
+                    remaining
+                );
+                cx.notify();
+            });
+        }
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
         });
