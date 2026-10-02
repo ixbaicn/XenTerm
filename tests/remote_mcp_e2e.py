@@ -140,6 +140,7 @@ def main():
                 if session is not None:
                     hdr['Mcp-Session-Id'] = session
                 hdr.update(headers or {})
+                hdr = {k: v for k, v in hdr.items() if v is not None}
                 body = raw if raw is not None else (json.dumps(payload) if payload is not None else None)
                 client.request(method, path, body=body, headers=hdr)
                 response = client.getresponse()
@@ -169,13 +170,14 @@ def main():
                 status, _, value = request(method='GET', path=path)
                 assert status == 200 and value['resource'] == resource
                 assert value['authorization_servers'] == [issuer] and 'sessions' not in json.dumps(value)
-            for invalid in ['bad', alice[:-5]+'AAAAA', token(exp=int(time.time())-1), token(aud='https://other.invalid/mcp'),
+            for invalid in ['bad', alice[:-5]+'AAAAA', token(exp=int(time.time())-1), token(aud='https://other.invalid/mcp'), token(aud=resource.replace(args.path, '/another/mcp')),
                             token(iss='https://other.invalid'), token(exp=None), token(aud=None), token(nbf=int(time.time())+600)]:
                 assert request(init, invalid)[0] == 401
             for denied in [token(sub='mallory'), token(scope='other'), token(scope=None)]:
                 assert request(init, denied)[0] == 403
             assert request(init, alice, headers={'Origin': 'https://evil.invalid'})[0] == 403
             assert request(init, alice, headers={'Host': 'evil.invalid'})[0] == 403
+            assert request(init, alice, path=args.path + '/unrelated')[0] == 404
             assert request(init, alice, headers={'Origin': 'https://client.example.invalid'})[0] == 200
             status, hdr, _ = request(init, headers={'Origin': 'https://client.example.invalid'})
             assert status == 401 and hdr.get('access-control-allow-origin') == 'https://client.example.invalid'
@@ -196,6 +198,15 @@ def main():
                 assert request(dict(jsonrpc='2.0', method='notifications/initialized'), auth, session)[0] == 202
                 return session
 
+            for requested in ['2026-07-28', '2099-01-01']:
+                newer = dict(init, params=dict(init['params'], protocolVersion=requested))
+                for version_header in [requested, None]:
+                    status, hdr, value = request(newer, alice, headers={'MCP-Protocol-Version': version_header})
+                    assert status == 200 and value['result']['protocolVersion'] == '2025-11-25'
+                    assert request(auth=alice, session=hdr['mcp-session-id'], method='DELETE',
+                                   headers={'MCP-Protocol-Version': '2025-11-25'})[0] in (200, 202)
+                assert request(newer, alice, headers={'MCP-Protocol-Version': '2025-11-25'})[0] == 400
+            print('PASS: newer/unknown initialization negotiates the supported 2025 lifecycle')
             a, b = initialize(alice), initialize(bob)
             assert a != b
             listing = dict(jsonrpc='2.0', id=2, method='tools/list')
@@ -238,6 +249,7 @@ def main():
             config['mcp_enabled'] = True
             save_config(config)
             assert request(listing, alice, a, headers={'MCP-Protocol-Version': 'not-supported'})[0] == 400
+            assert request(listing, alice, a, headers={'MCP-Protocol-Version': '2026-07-28'})[0] == 400
             print('PASS: redacted read tool; command, file transfer, import, MCP enable and saved-credential gates')
 
             assert request(auth=alice, session=a, raw='x'*(1024*1024+1))[0] == 413

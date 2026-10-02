@@ -33,6 +33,16 @@ use tokio_util::sync::CancellationToken;
 const MAX_BODY: usize = 1024 * 1024;
 const SESSION_TTL: u64 = 15 * 60;
 const MAX_SESSIONS: usize = 64;
+// This adapter deliberately implements the stateful 2025 lifecycle. The SDK
+// knows a newer stateless revision too; do not accidentally negotiate it while
+// retaining our session ownership/cancellation contract.
+const LATEST_HTTP_PROTOCOL: &str = "2025-11-25";
+const HTTP_PROTOCOLS: &[&str] = &[
+    "2024-11-05",
+    "2025-03-26",
+    "2025-06-18",
+    LATEST_HTTP_PROTOCOL,
+];
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -378,12 +388,14 @@ async fn authenticated_guard(state: Arc<Boundary>, request: Request, next: Next)
     };
     let method = request.method().clone();
     let (mut parts, body) = request.into_parts();
-    let body = match tokio::time::timeout(Duration::from_secs(5), to_bytes(body, MAX_BODY)).await {
+    let mut body = match tokio::time::timeout(Duration::from_secs(5), to_bytes(body, MAX_BODY))
+        .await
+    {
         Ok(Ok(body)) => body,
         Ok(Err(_)) => return failure(StatusCode::PAYLOAD_TOO_LARGE, "request body exceeds limit"),
         Err(_) => return failure(StatusCode::REQUEST_TIMEOUT, "request body timed out"),
     };
-    let parsed = if method == Method::POST {
+    let mut parsed = if method == Method::POST {
         match serde_json::from_slice::<Value>(&body) {
             Ok(value) if value.is_object() => Some(value),
             _ => return failure(StatusCode::BAD_REQUEST, "invalid JSON-RPC object"),
@@ -391,6 +403,58 @@ async fn authenticated_guard(state: Arc<Boundary>, request: Request, next: Next)
     } else {
         None
     };
+    if let Some(request) = parsed
+        .as_mut()
+        .filter(|value| value["method"] == "initialize")
+    {
+        if let Some(requested) = request["params"]["protocolVersion"]
+            .as_str()
+            .map(str::to_owned)
+        {
+            if parts
+                .headers
+                .get("mcp-protocol-version")
+                .is_some_and(|header| header.to_str().ok() != Some(requested.as_str()))
+            {
+                return failure(
+                    StatusCode::BAD_REQUEST,
+                    "protocol header does not match initialization version",
+                );
+            }
+            if !HTTP_PROTOCOLS.contains(&requested.as_str()) {
+                // MCP permits responding with our supported fallback. Constrain
+                // the SDK's built-in negotiation rather than claiming support
+                // for a transport lifecycle this boundary does not implement.
+                request["params"]["protocolVersion"] = json!(LATEST_HTTP_PROTOCOL);
+                if parts
+                    .headers
+                    .get("mcp-protocol-version")
+                    .and_then(|v| v.to_str().ok())
+                    == Some(&requested)
+                {
+                    parts.headers.insert(
+                        "mcp-protocol-version",
+                        HeaderValue::from_static(LATEST_HTTP_PROTOCOL),
+                    );
+                }
+                body = serde_json::to_vec(request)
+                    .expect("JSON value serializes")
+                    .into();
+                parts.headers.remove(header::CONTENT_LENGTH);
+            }
+        }
+    }
+    if parts
+        .headers
+        .get("mcp-protocol-version")
+        .is_some_and(|version| {
+            !version
+                .to_str()
+                .is_ok_and(|version| HTTP_PROTOCOLS.contains(&version))
+        })
+    {
+        return failure(StatusCode::BAD_REQUEST, "unsupported MCP protocol version");
+    }
     let has_id = parsed
         .as_ref()
         .is_some_and(|value| value.get("id").is_some());
@@ -563,7 +627,7 @@ pub(super) fn run(path: &str, allow_config_import: bool) -> Result<()> {
         let service = StreamableHttpService::new(move || Ok(HttpService(tools.clone())), sessions,
             StreamableHttpServerConfig::default().with_allowed_hosts([public_authority, config.bind.to_string()])
                 .with_cancellation_token(shutdown.child_token()));
-        let mcp = Router::new().nest_service(&endpoint, service)
+        let mcp = Router::new().route_service(&endpoint, service)
             .layer(middleware::from_fn_with_state(state.clone(), guard));
         let metadata = state.oauth.metadata();
         let metadata2 = metadata.clone();

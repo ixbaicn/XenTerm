@@ -87,7 +87,7 @@ impl OAuth {
                 && resource.path() != "/" && !resource.path().ends_with('/')
                 && !resource.path().contains('%')
                 && !resource.path().contains('{') && !resource.path().contains('}')
-                && resource.path().split('/').all(|part| part != "." && part != ".."),
+                && resource.path().split('/').all(|part| part != "." && part != ".." && !part.starts_with(':') && !part.starts_with('*')),
             "OAuth resource must be a canonical HTTPS endpoint path without trailing slash, escapes or route parameters"
         );
         ensure!(
