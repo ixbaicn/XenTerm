@@ -11,6 +11,20 @@ pub(crate) enum Frontend {
 }
 
 impl Frontend {
+    pub(crate) fn is_mcp(self) -> bool {
+        matches!(self, Self::Mcp { .. })
+    }
+
+    pub(crate) fn allows_config_import(self) -> bool {
+        matches!(
+            self,
+            Self::Cli
+                | Self::Mcp {
+                    allow_config_import: true
+                }
+        )
+    }
+
     /// Whether this caller has to pass the persisted gates before reaching a
     /// session's credentials, running a command or transferring a file.
     ///

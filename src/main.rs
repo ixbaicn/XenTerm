@@ -1,7 +1,10 @@
 // Entry point. Wires the UI shell to the config store, system sampler and
 // SSH session manager.
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(not(debug_assertions), feature = "desktop"),
+    windows_subsystem = "windows"
+)]
 
 mod allocator;
 
@@ -52,7 +55,23 @@ impl StartMode {
 }
 
 fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    config::configure_profile(&mut args)?;
+    if args.get(1).is_some_and(|a| a == "--config-info") {
+        anyhow::ensure!(
+            args.len() == 2,
+            "--config-info does not accept command arguments"
+        );
+        let store = config::ConfigStore::load()?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "executable": std::env::current_exe()?, "version": env!("CARGO_PKG_VERSION"),
+                "data_dir": config::data_dir(), "session_count": store.sessions().len()
+            })
+        );
+        return Ok(());
+    }
 
     let mode = StartMode::detect(&args);
     if matches!(mode, StartMode::Version) {
@@ -60,10 +79,18 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Refuse before initializing file logging: a service launch must not even
+    // touch the default desktop profile when an explicit profile is missing.
+    if matches!(mode, StartMode::Mcp) && args.iter().any(|arg| arg == "--http-config") {
+        anyhow::ensure!(
+            config::has_explicit_data_dir(),
+            "HTTP service requires an explicitly selected --data-dir or XENTERM_DATA_DIR profile"
+        );
+    }
     init_tracing();
 
     match mode {
-        StartMode::Mcp => mcp::run_stdio(),
+        StartMode::Mcp => mcp::run(&args),
         StartMode::Cli => cli::run(&args),
         StartMode::Ui => ui::run(),
         StartMode::Version => unreachable!("handled above"),
