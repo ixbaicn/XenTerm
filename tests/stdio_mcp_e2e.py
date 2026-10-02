@@ -1,5 +1,6 @@
 """Stdio framing and detached-worker timeout regression, using loopback only.
 
+Run against a --no-default-features --features headless build.
 No real profile, credentials, SSH host trust or external server is used.
 """
 import argparse
@@ -24,7 +25,18 @@ def main():
            and k not in ('XENTERM_DATA_DIR', 'MEATSHELL_DATA_DIR')}
     with tempfile.TemporaryDirectory(prefix='xenterm-stdio-fixture-') as temp:
         root = Path(temp)
-        profile = root / 'profile'
+        untouched = root / 'must-remain-absent'
+        isolated_env = dict(env, HOME=str(untouched), XDG_CONFIG_HOME=str(untouched / 'config'),
+                            XDG_DATA_HOME=str(untouched / 'data'))
+        for command in [['cli', 'sessions'], ['mcp', 'serve'], ['--config-info'], []]:
+            result = subprocess.run([str(args.exe.resolve()), *command], env=isolated_env,
+                                    input='', capture_output=True, text=True, timeout=5)
+            assert result.returncode != 0 and '--data-dir' in result.stderr
+            assert not untouched.exists(), 'headless startup touched an implicit desktop profile'
+        assert subprocess.run([str(args.exe.resolve()), '--version'], env=isolated_env,
+                              capture_output=True, timeout=5).returncode == 0
+        print('PASS: all headless profile operations require an explicit profile before touching defaults')
+        profile = root / 'profile' 
         profile.mkdir(mode=0o700)
         session = dict(id='fixture', name='Fixture', host='127.0.0.1', port=1,
                        user='fixture', auth='password', password='synthetic-stdio-secret', kind='ssh')

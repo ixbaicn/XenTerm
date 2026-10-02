@@ -17,7 +17,14 @@ do not constitute an end-to-end ChatGPT login test.
 
 Run under a dedicated unprivileged OS account. Create a private profile directory
 (mode 0700 on Linux) and select it explicitly with `--data-dir` or
-`XENTERM_DATA_DIR`. HTTP mode refuses to use an implicit default/sidecar profile.
+`XENTERM_DATA_DIR`. HTTP mode refuses to use an implicit default/sidecar profile. A headless build
+requires an explicit profile for CLI, stdio MCP and `--config-info` too (except
+`--version`), before it opens logging or configuration files. Headless builds do
+not use the desktop OS keyring. Export from the desktop and import into a separate
+service profile; do not point headless at an installed desktop profile whose key
+may live only in the OS keyring. Do not concurrently write the same profile from
+different GUI/service instances. The explicit path is a deliberate choice of
+storage, not a conversion of desktop keyring credentials.
 You can import an export using the existing CLI, or configure that profile in
 the desktop application. Never place profile files, credentials or SSH keys in
 web roots or release packages.

@@ -60,6 +60,16 @@ impl StartMode {
 fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().collect();
     config::configure_profile(&mut args)?;
+    let mode = StartMode::detect(&args);
+    if matches!(mode, StartMode::Version) {
+        println!("xenterm {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "desktop"))]
+    anyhow::ensure!(config::has_explicit_data_dir(),
+        "headless CLI/MCP requires --data-dir <independent-service-profile> or XENTERM_DATA_DIR; import an export into that profile instead of opening the default desktop profile");
+
     if args.get(1).is_some_and(|a| a == "--config-info") {
         anyhow::ensure!(
             args.len() == 2,
@@ -73,12 +83,6 @@ fn main() -> anyhow::Result<()> {
                 "data_dir": config::data_dir(), "session_count": store.sessions().len()
             })
         );
-        return Ok(());
-    }
-
-    let mode = StartMode::detect(&args);
-    if matches!(mode, StartMode::Version) {
-        println!("xenterm {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
