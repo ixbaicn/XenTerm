@@ -23,6 +23,28 @@ BASH = shutil.which("bash")
 INSTALL = shutil.which("install")
 VALIDATOR = shutil.which("desktop-file-validate")
 
+# Captured verbatim from the installer's pre-prefix-support desktop heredoc.
+LEGACY_DESKTOP = """[Desktop Entry]
+Type=Application
+Name=xenterm
+GenericName=SSH Client
+Comment=Lightweight Rust + GPUI SSH/SFTP client
+Comment[zh_CN]=轻量级 Rust + GPUI SSH/SFTP 客户端
+Exec=xenterm
+Icon=xenterm
+Terminal=false
+Categories=Network;TerminalEmulator;
+Keywords=ssh;sftp;terminal;shell;
+StartupNotify=true
+StartupWMClass=xenterm
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[zh_CN]=新建窗口
+Exec=xenterm --new-window
+"""
+
 
 class InstallerTest(unittest.TestCase):
     def setUp(self):
@@ -44,7 +66,7 @@ class InstallerTest(unittest.TestCase):
         self.tools = self.root / "tools"
         self.tools.mkdir()
         self.log = self.root / "commands.jsonl"
-        for command in ("cat", "dirname", "readlink", "mktemp", "rm", "grep"):
+        for command in ("cat", "dirname", "readlink", "mktemp", "rm", "grep", "cmp"):
             (self.tools / command).symlink_to(shutil.which(command))
         self.make_tool("id", "print(os.environ.get('FIXTURE_UID', '1000'))")
         self.make_tool("install", f"""
@@ -236,6 +258,31 @@ sys.exit(int(os.environ.get('FIXTURE_CACHE_EXIT', '0')))
         self.run_installer("--user", success=False)
         self.assertEqual(desktop.read_text(), content)
         self.assertEqual(self.commands("install"), [])
+
+    def test_exact_legacy_launcher_is_upgraded_and_marked(self):
+        desktop = self.prefix / "share/applications/xenterm.desktop"
+        desktop.parent.mkdir(parents=True)
+        desktop.write_text(LEGACY_DESKTOP)
+        self.run_installer("--prefix", self.prefix)
+        self.assert_installed(self.prefix)
+        self.assertIn("X-XenTerm-Installer=true\n", desktop.read_text())
+        self.assertIn(str(self.prefix / "bin/xenterm"), desktop.read_text())
+
+    def test_modified_legacy_launcher_is_not_overwritten(self):
+        desktop = self.prefix / "share/applications/xenterm.desktop"
+        desktop.parent.mkdir(parents=True)
+        variants = (
+            LEGACY_DESKTOP + "X-Custom-Setting=true\n",
+            LEGACY_DESKTOP.replace("Exec=xenterm\n", "Exec=xenterm --custom\n"),
+            LEGACY_DESKTOP.replace("Exec=xenterm --new-window", "Exec=/custom/xenterm"),
+            LEGACY_DESKTOP + "# User customization\n",
+        )
+        for content in variants:
+            with self.subTest(content=content):
+                desktop.write_text(content)
+                self.run_installer("--prefix", self.prefix, success=False)
+                self.assertEqual(desktop.read_text(), content)
+                self.assertEqual(self.commands("install"), [])
 
     def test_missing_icon_and_missing_or_failing_cache_tools(self):
         (self.package / "icon@512.png").unlink()

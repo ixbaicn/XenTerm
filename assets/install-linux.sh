@@ -104,10 +104,37 @@ ICON_DIR="${PREFIX%/}/share/icons/hicolor/512x512/apps"
 APP_DIR="${PREFIX%/}/share/applications"
 DESKTOP="$APP_DIR/xenterm.desktop"
 
+# Exact output of the original installer, before managed-launcher markers.
+# Keep this frozen: matching only Name/Exec would overwrite custom launchers.
+legacy_desktop() {
+    cat <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=xenterm
+GenericName=SSH Client
+Comment=Lightweight Rust + GPUI SSH/SFTP client
+Comment[zh_CN]=轻量级 Rust + GPUI SSH/SFTP 客户端
+Exec=xenterm
+Icon=xenterm
+Terminal=false
+Categories=Network;TerminalEmulator;
+Keywords=ssh;sftp;terminal;shell;
+StartupNotify=true
+StartupWMClass=xenterm
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Name[zh_CN]=新建窗口
+Exec=xenterm --new-window
+EOF
+}
+
 # Don't overwrite a hand-written or package-managed launcher at the destination.
 # Launchers at other locations are also left alone, even if they mention xenterm.
 if [ -e "$DESKTOP" ] || [ -L "$DESKTOP" ]; then
     grep -qx 'X-XenTerm-Installer=true' "$DESKTOP" ||
+        cmp -s -- "$DESKTOP" <(legacy_desktop) ||
         die "launcher already exists: $DESKTOP; review and move it before retrying"
 fi
 

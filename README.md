@@ -235,10 +235,11 @@ For a custom prefix outside the desktop's search path, also add `<prefix>/share`
 `XDG_DATA_DIRS` in your desktop session environment, then log out and back in.
 
 Other user launchers are preserved; the installer warns if one may override the new
-installation. If the destination launcher already exists and is not marked as managed
-by this installer (including older versions), installation stops before changing files.
-Review and move that launcher before retrying. Launchers created by this installer can
-be updated by rerunning it.
+installation. Rerunning the installer updates launchers marked as managed by it, and
+also upgrades the original installer's unchanged launcher (an exact content match).
+If an existing destination launcher is unmarked and differs from that original
+template, installation stops before changing files. Review and move that customized
+launcher before retrying.
 
 > Requires glibc ≥ 2.35 (Ubuntu 22.04+ / Debian 12+). If you need an older baseline, the
 > `-glibc228` tarballs are built against glibc 2.28 (Debian 10).
