@@ -2090,6 +2090,27 @@ mod dock_tests {
                 });
             }
             assert!(cx.debug_bounds("file-panel-dock").is_some());
+            let reopened = cx.debug_bounds("terminal-pane-area").unwrap();
+            assert_eq!(reopened.size, before.size, "reopening restores the dock extent");
+            let mut resized_back = false;
+            while let Ok(command) = receiver.try_recv() {
+                assert!(!matches!(command, SessionCommand::Close));
+                resized_back |= matches!(command, SessionCommand::Resize(_, _));
+            }
+            assert!(resized_back, "reopening also resizes the idle PTY");
+            // Repeated tab-bar toggles use the same state and keep the reopen
+            // control reachable even when the panel itself is absent.
+            for collapsed in [true, false] {
+                let toggle = cx.debug_bounds("toggle-sftp-panel").unwrap();
+                cx.simulate_click(toggle.center(), Modifiers::default());
+                for _ in 0..3 {
+                    cx.update(|window, cx| {
+                        window.simulate_next_frame(cx);
+                        window.draw(cx).clear(cx);
+                    });
+                }
+                assert_eq!(cx.debug_bounds("file-panel-dock").is_none(), collapsed);
+            }
             view.read_with(cx, |page, _| {
                 assert!(!page.sftp_collapsed);
                 assert_eq!(page.sftp.entity_id(), original_panel);
