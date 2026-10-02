@@ -33,6 +33,20 @@ Existing profile settings remain authoritative:
 - Unknown/changed SSH host keys fail closed. Seed verified host trust as described
   below before using SSH/SFTP through the headless service; never bypass this check
 
+The command permission permits arbitrary non-interactive commands on saved SSH
+sessions, under each session's remote account. Existing risky-command approval
+rules still apply; without an operator approving through the authorized workflow,
+headless requests time out or are denied. OAuth never approves those prompts.
+
+The file permission is broad: clients may read/write remote paths accessible to
+the saved SSH account, upload local files readable by the service OS account, and
+download into its writable local directories. There is no per-directory sandbox
+or per-subject path allowlist in this adapter. Import previews also read the
+specified local export file; applying an import additionally needs the explicit
+startup capability. Use a dedicated OS account, private profile and systemd
+filesystem restrictions to narrow the accessible files. Do not enable these gates
+for untrusted users or profiles containing unrelated servers or credentials.
+
 OAuth authorization adds an outer boundary; it does **not** enable these gates.
 Authorized subjects all access the same selected profile and the OS user's
 filesystem permissions. This is a **single-owner / trusted-operator** service,
