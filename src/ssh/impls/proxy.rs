@@ -26,6 +26,15 @@ use crate::config::Secret;
 /// **error**, not a silent direct connection — a typo'd URL must never quietly
 /// bypass the proxy the user asked for (audit M-13).
 pub fn resolve(session_proxy: &str) -> Result<Option<ProxyConfig>> {
+    resolve_with_env(session_proxy, |name| std::env::var(name).ok())
+}
+
+/// Keep environment lookup injectable so tests need not mutate process-global
+/// proxy settings while other tests may be resolving connections.
+fn resolve_with_env(
+    session_proxy: &str,
+    mut env: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<ProxyConfig>> {
     let s = session_proxy.trim();
     if !s.is_empty() {
         return parse(s)
@@ -33,7 +42,7 @@ pub fn resolve(session_proxy: &str) -> Result<Option<ProxyConfig>> {
             .ok_or_else(|| invalid_proxy_url(s, "session proxy"));
     }
     for var in ["ALL_PROXY", "all_proxy"] {
-        if let Ok(v) = std::env::var(var) {
+        if let Some(v) = env(var) {
             if !v.trim().is_empty() {
                 let v = v.trim();
                 return parse(v).map(Some).ok_or_else(|| invalid_proxy_url(v, var));
@@ -184,8 +193,21 @@ mod tests {
 
     #[test]
     fn empty_setting_means_direct() {
-        assert!(resolve("").unwrap().is_none());
-        assert!(resolve("   ").unwrap().is_none());
+        assert!(resolve_with_env("", |_| None).unwrap().is_none());
+        assert!(resolve_with_env("   ", |_| None).unwrap().is_none());
+    }
+
+    #[test]
+    fn empty_setting_uses_the_environment_proxy_when_present() {
+        for variable in ["ALL_PROXY", "all_proxy"] {
+            let proxy = resolve_with_env("", |name| {
+                (name == variable).then(|| "socks5://proxy.example:1080".to_string())
+            })
+            .unwrap()
+            .expect("an environment proxy is a supported fallback");
+            assert_eq!(proxy.host, "proxy.example");
+            assert_eq!(proxy.port, 1080);
+        }
     }
 
     #[test]
