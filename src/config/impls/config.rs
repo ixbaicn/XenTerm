@@ -73,6 +73,12 @@ use uuid::Uuid;
 
 use super::structs::*;
 
+/// The database save failed and the original keyring credential could not be
+/// restored and verified. Callers must not describe this as a complete rollback.
+#[derive(Debug, thiserror::Error)]
+#[error("the session was not saved, and its original keyring credential could not be restored")]
+pub(crate) struct SessionCredentialRollbackFailed;
+
 // ── Data directory resolution (portable-first, #141) ──────────────────────────
 //
 // All user data — sessions.db, secret.key, known_hosts, error.log — lives in
@@ -1068,6 +1074,11 @@ impl ConfigStore {
     /// database write fails. A failed save must not become visible to another
     /// view, or be persisted later by an unrelated settings change.
     pub fn upsert_and_save(&mut self, mut session: Session) -> Result<()> {
+        // Include credential snapshot and compensation in the same ordering
+        // boundary as the database write; no background save may slip between.
+        let _ordered = Self::save_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if is_reserved_session_group(session.group.trim()) {
             session.group.clear();
         }
@@ -1076,17 +1087,31 @@ impl ConfigStore {
         let clear_password = self.keyring_enabled
             && session.password.is_empty()
             && index.is_some_and(|i| !self.cache.sessions[i].password.is_empty());
+        // SQLite cannot roll back a keyring write. Snapshot the actual credential,
+        // including its absence, before persist can replace it. If the keyring
+        // cannot be read, use our normal encrypted-file fallback for this save
+        // instead of risking an overwrite that we could not undo.
+        let writes_password = self.keyring_enabled && !session.password.is_empty();
+        let credential_before = writes_password
+            .then(|| Self::read_keyring_password(&id).ok())
+            .flatten();
+        let use_keyring = self.keyring_enabled && (!writes_password || credential_before.is_some());
         let previous = if let Some(index) = index {
             Some(std::mem::replace(&mut self.cache.sessions[index], session))
         } else {
             self.cache.sessions.push(session);
             None
         };
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_impl_locked(None, use_keyring) {
             if let (Some(index), Some(previous)) = (index, previous) {
                 self.cache.sessions[index] = previous;
             } else {
                 self.cache.sessions.pop();
+            }
+            if let Some(credential_before) = credential_before {
+                if Self::restore_keyring_password(&id, credential_before.as_ref()).is_err() {
+                    return Err(error.context(SessionCredentialRollbackFailed));
+                }
             }
             return Err(error);
         }
@@ -1094,6 +1119,27 @@ impl ConfigStore {
         // accepted the edit. Otherwise a failed save could erase its password.
         if clear_password {
             Self::forget_keyring_password(&id);
+        }
+        Ok(())
+    }
+
+    fn read_keyring_password(id: &str) -> Result<Option<Secret>> {
+        match Self::keyring_entry(id)?.get_password() {
+            Ok(password) => Ok(Some(Secret::new(password))),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn restore_keyring_password(id: &str, previous: Option<&Secret>) -> Result<()> {
+        let expected = previous.map(Secret::as_str);
+        let matches = |current: &Option<Secret>| current.as_ref().map(Secret::as_str) == expected;
+        if Self::read_keyring_password(id).as_ref().is_ok_and(matches) {
+            return Ok(());
+        }
+        Self::keyring_set_password(id, expected.unwrap_or_default())?;
+        if !matches(&Self::read_keyring_password(id)?) {
+            bail!("could not verify the original keyring credential after a failed save");
         }
         Ok(())
     }
@@ -2395,17 +2441,25 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
     // ── Saving ────────────────────────────────────────────────────────────
 
     pub fn save(&self) -> Result<()> {
-        self.save_impl(None)
+        self.save_impl(None, self.keyring_enabled)
     }
 
     /// Save with the diff plan forced to "everything" — for one-time
     /// migrations whose cache changed semantically without necessarily
     /// changing per-row content.
     fn save_all(&self) -> Result<()> {
-        self.save_impl(Some(SavePlan::all()))
+        self.save_impl(Some(SavePlan::all()), self.keyring_enabled)
     }
 
-    fn save_impl(&self, forced: Option<SavePlan>) -> Result<()> {
+    fn save_impl(&self, forced: Option<SavePlan>, keyring_enabled: bool) -> Result<()> {
+        let _ordered = Self::save_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.save_impl_locked(forced, keyring_enabled)
+    }
+
+    /// The caller holds `save_lock`, including during saved-state bookkeeping.
+    fn save_impl_locked(&self, forced: Option<SavePlan>, keyring_enabled: bool) -> Result<()> {
         let saved = self
             .saved_state
             .lock()
@@ -2415,13 +2469,13 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         if plan.is_empty() {
             return Ok(());
         }
-        let new_state = Self::persist(
+        let new_state = Self::persist_locked(
             self.cache.clone(),
             plan,
             self.key,
             self.path.clone(),
             self.backup_dir.clone(),
-            self.keyring_enabled,
+            keyring_enabled,
         )?;
         *self
             .saved_state
@@ -2518,6 +2572,18 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         let _ordered = Self::save_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self::persist_locked(cache, plan, key, path, backup_dir, keyring_enabled)
+    }
+
+    /// The caller holds `save_lock`; editor compensation must share that lock.
+    fn persist_locked(
+        cache: ConfigFile,
+        plan: SavePlan,
+        key: [u8; 32],
+        path: PathBuf,
+        backup_dir: Option<PathBuf>,
+        keyring_enabled: bool,
+    ) -> Result<SavedState> {
         let mut conn = Self::open_db(&path)?;
         let plan = if Self::db_has_state(&conn)? {
             plan
@@ -3488,7 +3554,9 @@ mod tests {
         }
 
         static READBACK: AtomicBool = AtomicBool::new(true);
+        static READ_ERROR: AtomicBool = AtomicBool::new(false);
         static WRITES: AtomicUsize = AtomicUsize::new(0);
+        static FAIL_WRITES_AFTER: AtomicUsize = AtomicUsize::new(usize::MAX);
 
         pub fn install() {
             keyring::set_default_credential_builder(Box::new(Builder));
@@ -3497,11 +3565,24 @@ mod tests {
         pub fn clear() {
             map().lock().unwrap().clear();
             READBACK.store(true, Ordering::SeqCst);
+            READ_ERROR.store(false, Ordering::SeqCst);
             WRITES.store(0, Ordering::SeqCst);
+            FAIL_WRITES_AFTER.store(usize::MAX, Ordering::SeqCst);
         }
 
         pub fn set_readback(enabled: bool) {
             READBACK.store(enabled, Ordering::SeqCst);
+        }
+
+        pub fn fail_reads(enabled: bool) {
+            READ_ERROR.store(enabled, Ordering::SeqCst);
+        }
+
+        pub fn fail_writes_after(successful_writes: usize) {
+            FAIL_WRITES_AFTER.store(
+                WRITES.load(Ordering::SeqCst) + successful_writes,
+                Ordering::SeqCst,
+            );
         }
 
         /// How many secrets have been written since the last clear/reset —
@@ -3531,7 +3612,10 @@ mod tests {
 
         impl CredentialApi for SharedCredential {
             fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
-                WRITES.fetch_add(1, Ordering::SeqCst);
+                if WRITES.fetch_add(1, Ordering::SeqCst) >= FAIL_WRITES_AFTER.load(Ordering::SeqCst)
+                {
+                    return Err(keyring::Error::NoEntry);
+                }
                 map()
                     .lock()
                     .unwrap()
@@ -3540,6 +3624,11 @@ mod tests {
             }
 
             fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+                if READ_ERROR.load(Ordering::SeqCst) {
+                    return Err(keyring::Error::PlatformFailure(Box::new(
+                        std::io::Error::other("fixture keyring is unavailable"),
+                    )));
+                }
                 if !READBACK.load(Ordering::SeqCst) {
                     return Err(keyring::Error::NoEntry);
                 }
@@ -3747,6 +3836,158 @@ mod tests {
         assert!(disk.password.is_empty());
 
         drop(connection);
+        let _ = fs::remove_file(&store.path);
+    }
+
+    fn refuse_session_writes(store: &ConfigStore) -> rusqlite::Connection {
+        let connection = rusqlite::Connection::open(&store.path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER refuse_session_write BEFORE INSERT ON sessions
+                 BEGIN SELECT RAISE(ABORT, 'fixture refuses the write'); END;",
+            )
+            .unwrap();
+        connection
+    }
+
+    #[test]
+    fn failed_password_update_restores_keyring_before_retry() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        let mut original = sample_session("password-update-fixture");
+        original.password = Secret::new("old-fixture-password");
+        store.upsert_and_save(original.clone()).unwrap();
+        let before = disk_row(&store, &original.id);
+        let connection = refuse_session_writes(&store);
+        let mut edited = original.clone();
+        edited.password = Secret::new("new-fixture-password");
+
+        let error = store.upsert_and_save(edited.clone()).unwrap_err();
+        assert!(!error.is::<SessionCredentialRollbackFailed>());
+        assert_eq!(disk_row(&store, &original.id), before);
+        assert_eq!(
+            store.get(&original.id).unwrap().password.as_str(),
+            original.password.as_str()
+        );
+        assert_eq!(
+            fake_keyring::get(ConfigStore::KEYRING_SERVICE, &original.id).as_deref(),
+            Some("old-fixture-password")
+        );
+        assert_eq!(
+            fake_keyring::write_count(),
+            3,
+            "initial, failed edit, compensation"
+        );
+
+        connection
+            .execute_batch("DROP TRIGGER refuse_session_write")
+            .unwrap();
+        store.upsert_and_save(edited).unwrap();
+        assert_eq!(store.sessions().len(), 1);
+        assert_eq!(
+            fake_keyring::get(ConfigStore::KEYRING_SERVICE, &original.id).as_deref(),
+            Some("new-fixture-password")
+        );
+        drop(connection);
+        let _ = fs::remove_file(&store.path);
+    }
+
+    #[test]
+    fn failed_new_session_save_removes_its_keyring_credential() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        store.save().unwrap();
+        let connection = refuse_session_writes(&store);
+        let mut session = sample_session("new-password-fixture");
+        session.password = Secret::new("new-fixture-password");
+        let error = store.upsert_and_save(session.clone()).unwrap_err();
+        assert!(!error.is::<SessionCredentialRollbackFailed>());
+        assert!(store.sessions().is_empty());
+        assert!(fake_keyring::get(ConfigStore::KEYRING_SERVICE, &session.id).is_none());
+        let rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+
+        connection
+            .execute_batch("DROP TRIGGER refuse_session_write")
+            .unwrap();
+        store.upsert_and_save(session.clone()).unwrap();
+        assert_eq!(store.sessions().len(), 1);
+        assert_eq!(
+            fake_keyring::get(ConfigStore::KEYRING_SERVICE, &session.id).as_deref(),
+            Some("new-fixture-password")
+        );
+        drop(connection);
+        let _ = fs::remove_file(&store.path);
+    }
+
+    #[test]
+    fn a_failed_keyring_compensation_reports_that_the_password_may_have_changed() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        let mut original = sample_session("compensation-failure-fixture");
+        original.password = Secret::new("old-fixture-password");
+        store.upsert_and_save(original.clone()).unwrap();
+        let before = disk_row(&store, &original.id);
+        let connection = refuse_session_writes(&store);
+        fake_keyring::fail_writes_after(1);
+        let mut edited = original.clone();
+        edited.password = Secret::new("new-fixture-password");
+
+        let error = store.upsert_and_save(edited).unwrap_err();
+        assert!(error.is::<SessionCredentialRollbackFailed>());
+        assert_eq!(disk_row(&store, &original.id), before);
+        assert_eq!(
+            store.get(&original.id).unwrap().password.as_str(),
+            original.password.as_str()
+        );
+        assert_eq!(
+            fake_keyring::get(ConfigStore::KEYRING_SERVICE, &original.id).as_deref(),
+            Some("new-fixture-password"),
+            "the error must accurately report the incomplete compensation"
+        );
+        drop(connection);
+        let _ = fs::remove_file(&store.path);
+    }
+
+    #[test]
+    fn an_unreadable_keyring_is_not_overwritten_by_an_editor_save() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        let mut original = sample_session("unreadable-keyring-fixture");
+        original.password = Secret::new("old-fixture-password");
+        store.upsert_and_save(original.clone()).unwrap();
+        let writes_before = fake_keyring::write_count();
+        fake_keyring::fail_reads(true);
+        let mut edited = original.clone();
+        edited.password = Secret::new("new-fixture-password");
+        store.upsert_and_save(edited).unwrap();
+
+        assert_eq!(fake_keyring::write_count(), writes_before);
+        assert_eq!(
+            fake_keyring::get(ConfigStore::KEYRING_SERVICE, &original.id).as_deref(),
+            Some("old-fixture-password")
+        );
+        let disk: Session = serde_json::from_str(&disk_row(&store, &original.id)).unwrap();
+        assert!(disk.password.as_str().starts_with(ConfigStore::ENC_PREFIX));
+        assert_eq!(
+            ConfigStore::try_decrypt(&store.key, disk.password.as_str()).as_deref(),
+            Some("new-fixture-password")
+        );
+        fake_keyring::fail_reads(false);
         let _ = fs::remove_file(&store.path);
     }
 

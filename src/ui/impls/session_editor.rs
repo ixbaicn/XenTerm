@@ -419,6 +419,12 @@ impl SessionEditor {
 
 /// Actionable persistence errors without interpolating a session or raw error text.
 fn save_failure_message(error: &anyhow::Error) -> &'static str {
+    if error.is::<crate::config::SessionCredentialRollbackFailed>() {
+        return crate::i18n::t(
+            "保存失败，且无法确认系统钥匙串中的原密码已恢复。输入已保留；钥匙串中的密码可能已改变，请检查后再重试。",
+            "Could not save or verify that the original keyring password was restored. Your entries are kept, but the keyring password may have changed; check it before retrying.",
+        );
+    }
     if let Some(rusqlite::Error::SqliteFailure(failure, _)) = error.downcast_ref() {
         match failure.code {
             rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => {
@@ -1184,6 +1190,7 @@ impl Render for SessionEditor {
             );
 
         let cancel = Button::new("editor-cancel")
+            .debug_selector(|| "editor-cancel".to_string())
             .icon(IconName::X)
             .label(crate::i18n::t("取消", "Cancel"))
             .ghost()
@@ -1193,6 +1200,7 @@ impl Render for SessionEditor {
             }));
 
         let save = Button::new("editor-save")
+            .debug_selector(|| "editor-save".to_string())
             .icon(IconName::Check)
             .label(crate::i18n::t("保存", "Save"))
             .primary()
@@ -1239,6 +1247,7 @@ impl Render for SessionEditor {
                         footer.child(
                             div()
                                 .id("editor-save-error")
+                                .debug_selector(|| "editor-save-error".to_string())
                                 .text_sm()
                                 .text_color(theme.danger)
                                 .child(error),
@@ -1458,6 +1467,16 @@ mod tests {
     fn save_diagnostics_do_not_echo_error_details() {
         let error = anyhow::anyhow!("fixture-secret-in-an-arbitrary-error");
         assert!(!save_failure_message(&error).contains("fixture-secret"));
+        let uncertain = error.context(crate::config::SessionCredentialRollbackFailed);
+        let message = save_failure_message(&uncertain);
+        assert!(!message.contains("fixture-secret"));
+        assert_eq!(
+            message,
+            crate::i18n::t(
+                "保存失败，且无法确认系统钥匙串中的原密码已恢复。输入已保留；钥匙串中的密码可能已改变，请检查后再重试。",
+                "Could not save or verify that the original keyring password was restored. Your entries are kept, but the keyring password may have changed; check it before retrying.",
+            )
+        );
         for code in [rusqlite::ffi::SQLITE_BUSY, rusqlite::ffi::SQLITE_FULL] {
             let error = anyhow::Error::new(rusqlite::Error::SqliteFailure(
                 rusqlite::ffi::Error::new(code),
