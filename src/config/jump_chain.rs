@@ -288,22 +288,15 @@ mod editor_tests {
     }
 
     #[test]
-    fn saved_editor_options_round_trip_and_old_configs_default_to_no_reveal() {
+    fn ordered_routes_round_trip_and_old_configs_default_to_legacy() {
         let mut target = saved("target");
         target.jump_session_ids = vec!["a".into(), "b".into()];
-        target.allow_secret_reveal = true;
         let json = serde_json::to_value(&target).unwrap();
         let restored: Session = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(restored.jump_session_ids, ["a", "b"]);
-        assert!(restored.allow_secret_reveal);
         let mut legacy = json;
         legacy.as_object_mut().unwrap().remove("jump_session_ids");
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("allow_secret_reveal");
         let restored: Session = serde_json::from_value(legacy).unwrap();
         assert!(restored.jump_session_ids.is_empty());
-        assert!(!restored.allow_secret_reveal);
     }
 }

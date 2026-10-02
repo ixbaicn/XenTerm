@@ -25,6 +25,9 @@ pub fn configure_profile(args: &mut Vec<String>) -> Result<()> {
     if !path.is_dir() {
         bail!("explicit data directory must be a directory");
     }
+    // Run before pinning, tracing or any key/migration initialization. Rejected
+    // existing profiles must remain byte-for-byte untouched.
+    super::ConfigStore::preflight_explicit_profile(&path)?;
     PINNED_DATA_DIR
         .set(path)
         .map_err(|_| anyhow::anyhow!("configuration directory is already initialized"))?;
@@ -62,7 +65,9 @@ fn profile_argument(args: &[String], env: Option<PathBuf>) -> Result<(Option<Pat
     }
     let path = selected.or(env);
     if let Some(path) = &path {
-        if path.as_os_str().is_empty() || path.to_string_lossy().chars().any(char::is_control) {
+        if path.to_string_lossy().trim().is_empty()
+            || path.to_string_lossy().chars().any(char::is_control)
+        {
             bail!("data directory environment variable must contain a valid path");
         }
     }

@@ -13,6 +13,10 @@ const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
 pub(crate) async fn call(name: &str, arguments: &Value, frontend: Frontend) -> Result<Value> {
+    crate::ssh::connection::with_automation_cancellation(call_inner(name, arguments, frontend)).await
+}
+
+async fn call_inner(name: &str, arguments: &Value, frontend: Frontend) -> Result<Value> {
     match name {
         "list_sessions" => list_sessions(arguments, frontend),
         "get_session" => get_session(arguments, frontend),
@@ -44,7 +48,9 @@ fn import_sessions(arguments: &Value, frontend: Frontend) -> Result<Value> {
     let mut store = load_store(frontend)?;
     enforce_transfer_permissions(&store, frontend)?;
     let summary = store.import_from_preview(std::path::Path::new(path), dry_run)?;
-    Ok(json!({"added": summary.added, "skipped": summary.skipped, "dry_run": dry_run}))
+    let mut result = serde_json::to_value(summary)?;
+    result["dry_run"] = json!(dry_run);
+    Ok(result)
 }
 
 async fn upload_file(arguments: &Value, frontend: Frontend) -> Result<Value> {
@@ -283,7 +289,7 @@ fn load_store(frontend: Frontend) -> Result<ConfigStore> {
     // through `is_unattended`. This is not a rule about what a caller may do, it
     // is the MCP server's own on-switch: turning the server off must stop MCP
     // clients and must leave everything else working, including a plugin.
-    if frontend == Frontend::Mcp && !store.mcp_enabled() {
+    if frontend.is_mcp() && !store.mcp_enabled() {
         return Err(anyhow!("MCP is disabled in Settings > Interface > MCP"));
     }
     Ok(store)

@@ -218,7 +218,8 @@ fn preview_is_repeatable_and_never_changes_cache_disk_or_saved_state() {
                 .unwrap(),
             ImportSummary {
                 added: 1,
-                skipped: 1
+                skipped: 1,
+                warnings: Vec::new()
             }
         );
         assert_eq!(snapshot(&store), before);
@@ -501,4 +502,271 @@ fn unrelated_existing_invalid_routes_do_not_prevent_valid_imports() {
         (1, 0)
     );
     cleanup(&store);
+}
+
+#[test]
+fn reserved_groups_match_editor_semantics_and_stay_idempotent() {
+    let mut store = temp_store();
+    let mut imported = session("group");
+    imported.group = "system".into();
+    let raw = native(vec![imported]);
+    assert_eq!(store.import_json(&raw).unwrap(), (1, 0));
+    assert!(store.sessions()[0].group.is_empty());
+    assert_eq!(store.import_json(&raw).unwrap(), (0, 1));
+    cleanup(&store);
+}
+
+#[test]
+#[cfg(not(feature = "desktop"))]
+fn headless_master_key_remains_file_backed_and_survives_restarts() {
+    let dir = std::env::temp_dir().join(format!("xenterm-headless-key-{}", Uuid::new_v4()));
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("secret.key"), [42u8; 32]).unwrap();
+    for portable in [false, true, false] {
+        assert_eq!(
+            ConfigStore::resolve_master_key(&dir, portable).unwrap(),
+            [42u8; 32]
+        );
+        assert_eq!(fs::read(dir.join("secret.key")).unwrap(), [42u8; 32]);
+    }
+    let mut stored = session("keyring-placeholder");
+    stored.password = Secret::new(ConfigStore::KEYRING_MARKER);
+    ConfigStore::session_from_disk_form(&mut stored, &[42u8; 32]);
+    assert!(stored.password.is_empty());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn absolute_dns_hostnames_remain_compatible_without_accepting_empty_labels() {
+    let mut store = temp_store();
+    let mut imported = session("absolute-dns");
+    imported.host = "fixture.example.invalid.".into();
+    assert_eq!(store.import_json(&native(vec![imported])).unwrap(), (1, 0));
+    assert_eq!(store.sessions()[0].host, "fixture.example.invalid.");
+    let before = disk(&store);
+    let mut invalid = session("invalid-dns");
+    invalid.host = "fixture.example.invalid..".into();
+    assert!(store.import_json(&native(vec![invalid])).is_err());
+    assert_eq!(disk(&store), before);
+    cleanup(&store);
+}
+
+#[test]
+fn compatibility_warnings_are_explicit_non_sensitive_and_preview_matches_apply() {
+    let mut imported = serde_json::to_value(session("legacy-options")).unwrap();
+    let sentinel = "SYNTHETIC_PRIVATE_VALUE_NEVER_ECHOED";
+    imported["session_log"] = serde_json::json!("on");
+    imported["allow_secret_reveal"] = serde_json::json!(true);
+    imported["rdp_domain"] = serde_json::json!(sentinel);
+    imported[sentinel] = serde_json::json!(sentinel);
+    let raw = serde_json::json!({"meatshell_export": 1, "sessions": [imported]}).to_string();
+    let mut store = temp_store();
+    let preview = store.import_json_preview(&raw, true).unwrap();
+    assert_eq!(preview.warnings.len(), 4);
+    assert!(!serde_json::to_string(&preview).unwrap().contains(sentinel));
+    assert_eq!(preview.warnings[0].field, "session_log");
+    assert_eq!(preview.warnings[1].field, "allow_secret_reveal");
+    assert!(!store.path.exists());
+    let applied = store.import_json_preview(&raw, false).unwrap();
+    assert_eq!(applied, preview);
+    let stored = serde_json::to_value(&store.sessions()[0]).unwrap();
+    assert!(stored.get("allow_secret_reveal").is_none());
+    assert!(stored.get("session_log").is_none());
+    let repeated = store.import_json_preview(&raw, false).unwrap();
+    assert_eq!((repeated.added, repeated.skipped), (0, 1));
+    assert_eq!(repeated.warnings, applied.warnings);
+    cleanup(&store);
+}
+
+#[test]
+fn unsupported_transports_reject_the_whole_batch_without_echoing_values() {
+    for kind in ["rdp", "SYNTHETIC_PRIVATE_KIND"] {
+        let mut unsupported = serde_json::to_value(session("unsupported")).unwrap();
+        unsupported["kind"] = serde_json::json!(kind);
+        let raw = serde_json::json!({"sessions": [session("valid"), unsupported]}).to_string();
+        let mut store = temp_store();
+        let error = store.import_json(&raw).unwrap_err().to_string();
+        assert!(error.contains("supported kinds"));
+        assert!(!error.contains("SYNTHETIC_PRIVATE_KIND"));
+        assert!(store.sessions().is_empty());
+        assert!(!store.path.exists());
+    }
+}
+
+fn profile_files(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (
+                path.file_name().unwrap().to_string_lossy().to_string(),
+                fs::read(path).unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn explicit_profile_preflight_rejects_missing_foreign_keys_and_keyring_without_changes() {
+    for case in [
+        "missing-key",
+        "wrong-key",
+        "keyring",
+        "json-keyring",
+        "proxy-key",
+    ] {
+        let directory = std::env::temp_dir().join(format!("xenterm-preflight-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let mut store = temp_store();
+        store.path = directory.join("sessions.db");
+        let mut saved = session("preflight");
+        saved.password = Secret::new("synthetic-secret");
+        if case == "proxy-key" {
+            saved.password = Secret::default();
+            saved.proxy = "socks5://fixture:synthetic-proxy-secret@127.0.0.1:1080".into();
+        }
+        store.cache.sessions.push(saved);
+        store.save().unwrap();
+        if case == "wrong-key" {
+            fs::write(directory.join("secret.key"), [99; 32]).unwrap();
+        }
+        if case == "keyring" {
+            let conn = rusqlite::Connection::open(&store.path).unwrap();
+            let mut value = serde_json::to_value(&store.sessions()[0]).unwrap();
+            value["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+            conn.execute("UPDATE sessions SET data=?1", [value.to_string()])
+                .unwrap();
+        }
+        if case == "json-keyring" {
+            cleanup(&store);
+            let mut value = serde_json::to_value(&store.cache).unwrap();
+            value["sessions"][0]["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+            fs::write(directory.join("sessions.json"), value.to_string()).unwrap();
+        }
+        let before = profile_files(&directory);
+        let error = ConfigStore::preflight_explicit_profile(&directory).unwrap_err();
+        assert!(error.to_string().contains("portable export"));
+        assert!(!format!("{error:#}").contains("synthetic-secret"));
+        assert_eq!(profile_files(&directory), before);
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn explicit_profile_preflight_reads_live_wal_without_touching_source_sidecars() {
+    let directory = std::env::temp_dir().join(format!("xenterm-preflight-wal-{}", Uuid::new_v4()));
+    fs::create_dir(&directory).unwrap();
+    let mut store = temp_store();
+    store.path = directory.join("sessions.db");
+    store.cache.sessions.push(session("wal"));
+    store.save().unwrap();
+    let conn = rusqlite::Connection::open(&store.path).unwrap();
+    let mut value = serde_json::to_value(&store.sessions()[0]).unwrap();
+    value["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+    conn.execute("UPDATE sessions SET data=?1", [value.to_string()])
+        .unwrap();
+    assert!(directory.join("sessions.db-wal").exists());
+    let before = profile_files(&directory);
+    assert!(ConfigStore::preflight_explicit_profile(&directory).is_err());
+    assert_eq!(profile_files(&directory), before);
+    drop(conn);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn explicit_profile_preflight_allows_plaintext_legacy_and_matching_local_ciphertext() {
+    let directory = std::env::temp_dir().join(format!("xenterm-preflight-ok-{}", Uuid::new_v4()));
+    fs::create_dir(&directory).unwrap();
+    let mut imported = session("plaintext");
+    imported.password = Secret::new("synthetic-legacy-secret");
+    fs::write(
+        directory.join("sessions.json"),
+        native(vec![imported.clone()]),
+    )
+    .unwrap();
+    let before = profile_files(&directory);
+    ConfigStore::preflight_explicit_profile(&directory).unwrap();
+    assert_eq!(profile_files(&directory), before);
+    assert!(!directory.join("secret.key").exists());
+    let mut store = temp_store();
+    store.path = directory.join("sessions.db");
+    store.cache.sessions.push(imported);
+    store.save().unwrap();
+    fs::write(directory.join("secret.key"), store.key).unwrap();
+    let before = profile_files(&directory);
+    ConfigStore::preflight_explicit_profile(&directory).unwrap();
+    assert_eq!(profile_files(&directory), before);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn proxy_forms_share_connection_mapping_storage_export_and_preflight_semantics() {
+    for scheme in ["", "socks5://", "socks5h://", "http://", "SOCKS5://"] {
+        for password in [
+            "synthetic-proxy-secret",
+            "synthetic%40%3A%25secret",
+            "synthetic:p@ss%word",
+            "enc:v1:synthetic-literal",
+        ] {
+            let proxy = format!("{scheme}fixture:{password}@127.0.0.1:1080");
+            let parsed = crate::config::validation::split_proxy_url(&proxy);
+            assert_eq!(parsed.auth.unwrap().1, password);
+            let directory =
+                std::env::temp_dir().join(format!("xenterm-proxy-forms-{}", Uuid::new_v4()));
+            fs::create_dir(&directory).unwrap();
+            let mut source = temp_store();
+            source.path = directory.join("sessions.db");
+            let mut imported = session("proxy-forms");
+            imported.proxy = proxy.clone();
+            source.cache.sessions.push(imported);
+            source.save().unwrap();
+            let mut stored = disk_session(&source, 0);
+            assert!(!stored.proxy.contains(password));
+            assert!(stored
+                .proxy
+                .starts_with(&format!("{scheme}fixture:enc:v1:")));
+            let before = profile_files(&directory);
+            assert!(ConfigStore::preflight_explicit_profile(&directory).is_err());
+            assert_eq!(profile_files(&directory), before);
+            fs::write(directory.join("secret.key"), source.key).unwrap();
+            ConfigStore::preflight_explicit_profile(&directory).unwrap();
+            ConfigStore::session_from_disk_form(&mut stored, &source.key);
+            assert_eq!(stored.proxy, proxy);
+            let (export, _) = source.export_json().unwrap();
+            assert!(!export.contains(password));
+            let mut destination = temp_store();
+            destination.key = [9; 32];
+            assert_eq!(destination.import_json(&export).unwrap(), (1, 0));
+            assert_eq!(destination.sessions()[0].proxy, proxy);
+            assert!(!disk(&destination).to_string().contains(password));
+            let mut reloaded = disk_session(&destination, 0);
+            ConfigStore::session_from_disk_form(&mut reloaded, &destination.key);
+            assert_eq!(reloaded.proxy, proxy);
+            assert_eq!(
+                crate::config::validation::split_proxy_url(&reloaded.proxy).auth.unwrap().1,
+                password
+            );
+            cleanup(&destination);
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+}
+
+#[test]
+fn proxy_password_mapping_preserves_empty_and_missing_auth() {
+    for proxy in [
+        "127.0.0.1:1080",
+        "fixture@127.0.0.1:1080",
+        "fixture:@127.0.0.1:1080",
+        "http://fixture:@127.0.0.1:1080",
+    ] {
+        assert!(ConfigStore::map_proxy_password(proxy, |_| panic!("no password to map")).is_none());
+        let mut imported = session("empty-proxy-password");
+        imported.proxy = proxy.into();
+        let mut store = temp_store();
+        store.import_json(&native(vec![imported])).unwrap();
+        assert_eq!(store.sessions()[0].proxy, proxy);
+        assert_eq!(disk_session(&store, 0).proxy, proxy);
+        cleanup(&store);
+    }
 }

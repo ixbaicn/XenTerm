@@ -162,16 +162,27 @@ fn option_value<'a>(args: &'a [String], option: &str) -> Result<Option<&'a str>>
 
 fn print_human(command: CliCommand, value: &Value) {
     match command {
-        CliCommand::Import => println!(
-            "{} {} sessions, skipped {} duplicates",
-            if value.get("dry_run").and_then(Value::as_bool) == Some(true) {
-                "Would import"
-            } else {
-                "Imported"
-            },
-            value.get("added").and_then(Value::as_u64).unwrap_or(0),
-            value.get("skipped").and_then(Value::as_u64).unwrap_or(0)
-        ),
+        CliCommand::Import => {
+            println!(
+                "{} {} sessions, skipped {} duplicates",
+                if value.get("dry_run").and_then(Value::as_bool) == Some(true) {
+                    "Would import"
+                } else {
+                    "Imported"
+                },
+                value.get("added").and_then(Value::as_u64).unwrap_or(0),
+                value.get("skipped").and_then(Value::as_u64).unwrap_or(0)
+            );
+            if let Some(warnings) = value.get("warnings").and_then(Value::as_array) {
+                for warning in warnings {
+                    eprintln!(
+                        "Warning ({} entries): {}",
+                        warning.get("entries").and_then(Value::as_u64).unwrap_or(0),
+                        text(warning, "message")
+                    );
+                }
+            }
+        }
         CliCommand::Sessions => {
             if let Some(sessions) = value.get("sessions").and_then(Value::as_array) {
                 for session in sessions {

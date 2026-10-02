@@ -6,7 +6,7 @@
 /// whether the MCP server itself is enabled.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Frontend {
-    Mcp,
+    Mcp { allow_config_import: bool },
     Cli,
 }
 
@@ -35,6 +35,6 @@ impl Frontend {
     /// Deliberately does not cover `mcp_enabled`, which is the MCP server's own
     /// on-switch rather than a gate on a capability.
     pub(crate) fn is_unattended(self) -> bool {
-        matches!(self, Self::Mcp)
+        matches!(self, Self::Mcp { .. })
     }
 }
