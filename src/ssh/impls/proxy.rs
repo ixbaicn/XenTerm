@@ -220,6 +220,21 @@ mod tests {
     }
 
     #[test]
+    fn supported_proxy_forms_preserve_literal_credentials() {
+        for scheme in ["", "socks5://", "socks5h://", "http://", "SOCKS5://"] {
+            for password in ["synthetic-proxy-secret", "synthetic%40%3A%25secret", "synthetic:p@ss%word", "enc:v1:synthetic-literal"] {
+                let proxy = format!("{scheme}fixture:{password}@127.0.0.1:1080");
+                let parsed = resolve(&proxy).unwrap().unwrap();
+                assert_eq!(parsed.auth.as_ref().unwrap().0, "fixture");
+                assert_eq!(parsed.auth.as_ref().unwrap().1.as_str(), password);
+            }
+        }
+        for proxy in ["127.0.0.1:1080", "fixture@127.0.0.1:1080", "fixture:@127.0.0.1:1080", "http://fixture:@127.0.0.1:1080"] {
+            assert!(resolve(proxy).unwrap().is_some());
+        }
+    }
+
+    #[test]
     fn malformed_proxy_errors_never_echo_credentials_or_endpoints() {
         let malformed = "socks9://synthetic-user:synthetic-secret@private.example:1080";
         for error in [

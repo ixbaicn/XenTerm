@@ -709,8 +709,8 @@ fn proxy_forms_share_connection_mapping_storage_export_and_preflight_semantics()
             "enc:v1:synthetic-literal",
         ] {
             let proxy = format!("{scheme}fixture:{password}@127.0.0.1:1080");
-            let parsed = crate::ssh::proxy::resolve(&proxy).unwrap().unwrap();
-            assert_eq!(parsed.auth.as_ref().unwrap().1.as_str(), password);
+            let parsed = crate::config::validation::split_proxy_url(&proxy);
+            assert_eq!(parsed.auth.unwrap().1, password);
             let directory =
                 std::env::temp_dir().join(format!("xenterm-proxy-forms-{}", Uuid::new_v4()));
             fs::create_dir(&directory).unwrap();
@@ -743,14 +743,7 @@ fn proxy_forms_share_connection_mapping_storage_export_and_preflight_semantics()
             ConfigStore::session_from_disk_form(&mut reloaded, &destination.key);
             assert_eq!(reloaded.proxy, proxy);
             assert_eq!(
-                crate::ssh::proxy::resolve(&reloaded.proxy)
-                    .unwrap()
-                    .unwrap()
-                    .auth
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .as_str(),
+                crate::config::validation::split_proxy_url(&reloaded.proxy).auth.unwrap().1,
                 password
             );
             cleanup(&destination);
@@ -767,7 +760,6 @@ fn proxy_password_mapping_preserves_empty_and_missing_auth() {
         "fixture:@127.0.0.1:1080",
         "http://fixture:@127.0.0.1:1080",
     ] {
-        assert!(crate::ssh::proxy::resolve(proxy).unwrap().is_some());
         assert!(ConfigStore::map_proxy_password(proxy, |_| panic!("no password to map")).is_none());
         let mut imported = session("empty-proxy-password");
         imported.proxy = proxy.into();
