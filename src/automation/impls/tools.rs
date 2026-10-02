@@ -48,7 +48,9 @@ fn import_sessions(arguments: &Value, frontend: Frontend) -> Result<Value> {
     let mut store = load_store(frontend)?;
     enforce_transfer_permissions(&store, frontend)?;
     let summary = store.import_from_preview(std::path::Path::new(path), dry_run)?;
-    Ok(json!({"added": summary.added, "skipped": summary.skipped, "dry_run": dry_run}))
+    let mut result = serde_json::to_value(summary)?;
+    result["dry_run"] = json!(dry_run);
+    Ok(result)
 }
 
 async fn upload_file(arguments: &Value, frontend: Frontend) -> Result<Value> {

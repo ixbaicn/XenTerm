@@ -134,6 +134,28 @@ def main():
         assert config()["mcp_allow_commands"] is False
         print("PASS: MCP apply and native sessions-only import preserve destination settings")
 
+        legacy_options = root / "legacy-options.json"
+        ignored = "SYNTHETIC_IGNORED_PRIVATE_VALUE"
+        options = session("legacy-options", session_log="on", allow_secret_reveal=True,
+                          rdp_domain=ignored)
+        options[ignored] = ignored
+        legacy_options.write_text(json.dumps(dict(meatshell_export=1, sessions=[options])))
+        before = snapshot()
+        preview = cli("import", str(legacy_options), "--dry-run", "--json")
+        assert preview["added"] == 1 and len(preview["warnings"]) == 4
+        assert ignored not in json.dumps(preview)
+        assert {warning["field"] for warning in preview["warnings"]} == {"session_log", "allow_secret_reveal", "rdp_domain", "unknown"}
+        assert snapshot() == before
+        protocol_preview = mcp(dict(local_path=str(legacy_options)))["structuredContent"]
+        assert protocol_preview == preview
+        human_preview = run(["cli", "import", str(legacy_options), "--dry-run"])
+        assert "Warning" in human_preview.stderr and ignored not in human_preview.stdout + human_preview.stderr
+        applied = mcp(dict(local_path=str(legacy_options), dry_run=False), allow=True)["structuredContent"]
+        assert applied["warnings"] == preview["warnings"] and applied["added"] == 1
+        imported = next(item for item in config()["sessions"] if item["name"] == "legacy-options")
+        assert "session_log" not in imported and "allow_secret_reveal" not in imported
+        print("PASS: unsupported legacy preferences are warned in preview/apply without exposing values")
+
         for permission in ("mcp_allow_file_transfers", "mcp_enabled"):
             with sqlite3.connect(profile / "sessions.db") as connection:
                 settings = config()

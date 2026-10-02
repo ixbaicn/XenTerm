@@ -32,7 +32,8 @@ profile lock.
 
 Session listing and inspection return connection metadata and boolean credential
 presence only. They omit passwords, private-key contents/paths, proxy URLs,
-trigger responses and notes. Import results contain counts only.
+trigger responses and notes. Import results contain counts and, when necessary,
+non-sensitive compatibility warnings.
 
 ## Supported inputs and conflict policy
 
@@ -44,7 +45,17 @@ Global source settings are never imported. Native `enc:v1:` values require the
 matching local profile key; foreign, malformed or unknown encrypted values and
 OS-keyring placeholders are rejected. Use a portable export to move credentials
 between profiles or computers. Unsupported transport kinds are rejected instead
-of silently changing their meaning.
+of silently changing their meaning. A batch containing RDP sessions is rejected
+in full because XenTerm does not implement that transport.
+
+The public MeatShell branch also exports `session_log`, `allow_secret_reveal`
+and `rdp_domain`/`rdp_width`/`rdp_height`/`rdp_fullscreen` metadata. This XenTerm
+version does not implement those settings. Preview and apply explicitly return
+`warnings` naming these known unsupported fields and the number of affected
+entries; no field values or session identifiers are included. Unknown optional
+fields produce a generic warning without echoing their names or values. These
+settings are not applied, and importing never enables secret reveal. Review the
+preview and retain your original export if these preferences matter to you.
 
 Imports are **append-only**. An equivalent complete profile, including its
 credentials and resolved jump route, is skipped. Profiles sharing an endpoint
@@ -82,8 +93,8 @@ xenterm --data-dir /absolute/private/profile mcp serve --allow-config-import
 {"name":"import_sessions","arguments":{"local_path":"/private/export.json","dry_run":true}}
 ```
 
-The tool returns `added`, `skipped` and `dry_run`, with no source contents or
-credentials. It neither connects to an imported host nor trusts its host key.
+The tool returns `added`, `skipped` and `dry_run`, plus `warnings` when unsupported
+metadata is present, with no source contents or credentials. It neither connects to an imported host nor trusts its host key.
 Use the normal host-trust workflow before executing commands or transferring
 files. List/get retain the existing MCP saved-credentials permission gate.
 

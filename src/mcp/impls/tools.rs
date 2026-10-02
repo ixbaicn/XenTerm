@@ -5,7 +5,7 @@ pub(super) fn definitions() -> Value {
     json!([
         {
             "name": "import_sessions",
-            "description": "Preview or append sessions from a local MeatShell/XenTerm v1 portable export, native sessions.json, or FinalShell JSON. Defaults to dry_run=true. Applying requires --allow-config-import; all calls require the MCP file-transfer permission. Existing sessions are never overwritten: equivalent complete profiles are skipped and distinct aliases get fresh IDs. Returns counts only. Export files contain reversible credential obfuscation and must be kept private.",
+            "description": "Preview or append sessions from a local MeatShell/XenTerm v1 portable export, native sessions.json, or FinalShell JSON. Defaults to dry_run=true. Applying requires --allow-config-import; all calls require the MCP file-transfer permission. Existing sessions are never overwritten: equivalent complete profiles are skipped and distinct aliases get fresh IDs. Returns counts and fixed compatibility warnings without source field values. Export files contain reversible credential obfuscation and must be kept private.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -218,7 +218,8 @@ fn preview_is_repeatable_and_never_changes_cache_disk_or_saved_state() {
                 .unwrap(),
             ImportSummary {
                 added: 1,
-                skipped: 1
+                skipped: 1,
+                warnings: Vec::new()
             }
         );
         assert_eq!(snapshot(&store), before);
@@ -533,4 +534,61 @@ fn headless_master_key_remains_file_backed_and_survives_restarts() {
     ConfigStore::session_from_disk_form(&mut stored, &[42u8; 32]);
     assert!(stored.password.is_empty());
     fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn absolute_dns_hostnames_remain_compatible_without_accepting_empty_labels() {
+    let mut store = temp_store();
+    let mut imported = session("absolute-dns");
+    imported.host = "fixture.example.invalid.".into();
+    assert_eq!(store.import_json(&native(vec![imported])).unwrap(), (1, 0));
+    assert_eq!(store.sessions()[0].host, "fixture.example.invalid.");
+    let before = disk(&store);
+    let mut invalid = session("invalid-dns");
+    invalid.host = "fixture.example.invalid..".into();
+    assert!(store.import_json(&native(vec![invalid])).is_err());
+    assert_eq!(disk(&store), before);
+    cleanup(&store);
+}
+
+#[test]
+fn compatibility_warnings_are_explicit_non_sensitive_and_preview_matches_apply() {
+    let mut imported = serde_json::to_value(session("legacy-options")).unwrap();
+    let sentinel = "SYNTHETIC_PRIVATE_VALUE_NEVER_ECHOED";
+    imported["session_log"] = serde_json::json!("on");
+    imported["allow_secret_reveal"] = serde_json::json!(true);
+    imported["rdp_domain"] = serde_json::json!(sentinel);
+    imported[sentinel] = serde_json::json!(sentinel);
+    let raw = serde_json::json!({"meatshell_export": 1, "sessions": [imported]}).to_string();
+    let mut store = temp_store();
+    let preview = store.import_json_preview(&raw, true).unwrap();
+    assert_eq!(preview.warnings.len(), 4);
+    assert!(!serde_json::to_string(&preview).unwrap().contains(sentinel));
+    assert_eq!(preview.warnings[0].field, "session_log");
+    assert_eq!(preview.warnings[1].field, "allow_secret_reveal");
+    assert!(!store.path.exists());
+    let applied = store.import_json_preview(&raw, false).unwrap();
+    assert_eq!(applied, preview);
+    let stored = serde_json::to_value(&store.sessions()[0]).unwrap();
+    assert!(stored.get("allow_secret_reveal").is_none());
+    assert!(stored.get("session_log").is_none());
+    let repeated = store.import_json_preview(&raw, false).unwrap();
+    assert_eq!((repeated.added, repeated.skipped), (0, 1));
+    assert_eq!(repeated.warnings, applied.warnings);
+    cleanup(&store);
+}
+
+#[test]
+fn unsupported_transports_reject_the_whole_batch_without_echoing_values() {
+    for kind in ["rdp", "SYNTHETIC_PRIVATE_KIND"] {
+        let mut unsupported = serde_json::to_value(session("unsupported")).unwrap();
+        unsupported["kind"] = serde_json::json!(kind);
+        let raw = serde_json::json!({"sessions": [session("valid"), unsupported]}).to_string();
+        let mut store = temp_store();
+        let error = store.import_json(&raw).unwrap_err().to_string();
+        assert!(error.contains("supported kinds"));
+        assert!(!error.contains("SYNTHETIC_PRIVATE_KIND"));
+        assert!(store.sessions().is_empty());
+        assert!(!store.path.exists());
+    }
 }

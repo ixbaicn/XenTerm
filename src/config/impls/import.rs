@@ -17,10 +17,80 @@ use super::{ConfigFile, ConfigStore, SavedState, Secret, Session, SessionKind};
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 
 /// Import results deliberately contain no connection details or credentials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ImportSummary {
     pub added: usize,
     pub skipped: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<ImportWarning>,
+}
+
+/// Fixed, non-sensitive compatibility notices. Never echo source field values,
+/// session names/IDs, credentials, or unknown field names supplied by a file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportWarning {
+    pub code: &'static str,
+    pub field: &'static str,
+    pub entries: usize,
+    pub message: &'static str,
+}
+
+fn compatibility_warnings(value: &serde_json::Value) -> Result<Vec<ImportWarning>> {
+    let Some(sessions) = value.get("sessions").and_then(serde_json::Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let legacy = [
+        ("session_log", "Legacy session logging preferences were not applied; this XenTerm version does not implement them."),
+        ("allow_secret_reveal", "Legacy secret-reveal preferences were not applied; importing never enables credential reveal."),
+        ("rdp_domain", "Legacy RDP domain settings were not applied; this XenTerm version does not implement RDP."),
+        ("rdp_width", "Legacy RDP width settings were not applied; this XenTerm version does not implement RDP."),
+        ("rdp_height", "Legacy RDP height settings were not applied; this XenTerm version does not implement RDP."),
+        ("rdp_fullscreen", "Legacy RDP fullscreen settings were not applied; this XenTerm version does not implement RDP."),
+    ];
+    let mut supported: HashSet<String> = serde_json::to_value(Session::new_empty())?
+        .as_object()
+        .expect("Session serializes as an object")
+        .keys()
+        .cloned()
+        .collect();
+    supported.insert("jump_session_ids".into()); // Omitted when empty in v1 exports.
+    let mut warnings = Vec::new();
+    for (field, message) in legacy {
+        let entries = sessions
+            .iter()
+            .filter(|session| session.get(field).is_some())
+            .count();
+        if entries > 0 {
+            warnings.push(ImportWarning {
+                code: "unsupported_session_field",
+                field,
+                entries,
+                message,
+            });
+        }
+    }
+    let unknown = sessions
+        .iter()
+        .filter(|session| {
+            session.as_object().is_some_and(|object| {
+                object.keys().any(|field| {
+                    !supported.contains(field) && !legacy.iter().any(|(known, _)| field == known)
+                })
+            })
+        })
+        .count();
+    if unknown > 0 {
+        warnings.push(ImportWarning { code: "unknown_session_fields", field: "unknown", entries: unknown,
+            message: "Additional unrecognized session fields were not applied; retain the original export." });
+    }
+    for session in sessions {
+        if let Some(kind) = session.get("kind").and_then(serde_json::Value::as_str) {
+            if !matches!(kind, "ssh" | "serial" | "telnet" | "local") {
+                bail!("import contains an unsupported session transport; supported kinds are ssh, serial, telnet and local; no sessions were imported");
+            }
+        }
+    }
+    Ok(warnings)
 }
 
 #[derive(Deserialize)]
@@ -101,6 +171,11 @@ impl ConfigStore {
             )
         })?;
         let meatshell = value.get("meatshell_export").is_some() || value.get("sessions").is_some();
+        let warnings = if meatshell {
+            compatibility_warnings(&value)?
+        } else {
+            Vec::new()
+        };
         let mut sessions = if meatshell {
             if let Some(version) = value.get("meatshell_export") {
                 if version.as_u64() != Some(1) {
@@ -133,9 +208,10 @@ impl ConfigStore {
             }
             match session.kind {
                 SessionKind::Ssh | SessionKind::Telnet => {
-                    if !super::super::validation::is_valid_hostname(&session.host)
-                        || session.port == 0
-                    {
+                    // A single final dot is a valid absolute DNS name. Keep
+                    // the original spelling, while validating its DNS labels.
+                    let host = session.host.strip_suffix('.').unwrap_or(&session.host);
+                    if !super::super::validation::is_valid_hostname(host) || session.port == 0 {
                         bail!("import entry {} has an invalid host or port", index + 1);
                     }
                 }
@@ -202,6 +278,7 @@ impl ConfigStore {
         let mut summary = ImportSummary {
             added: 0,
             skipped: 0,
+            warnings,
         };
         let mut source_graph = sessions.clone();
         source_graph.extend(
