@@ -236,6 +236,21 @@ On first launch XenTerm creates an empty session store. Add your first server wi
 Session**, or import one — `~/.ssh/config`, a FinalShell connection export, a previous
 XenTerm export, or a pasted `host|port|user|password|name` list are all supported.
 
+### Headless CLI / authenticated remote MCP
+
+Build without the GPUI desktop libraries:
+
+```sh
+cargo build --locked --release --no-default-features --features headless
+```
+
+The default build still includes the complete GUI, CLI and stdio MCP. The opt-in
+HTTP service uses external OAuth access tokens, a deliberately selected private
+profile, and an existing HTTPS reverse proxy. See [remote MCP deployment and
+verification](docs/REMOTE_MCP.md), including OpenResty routing for multiple MCP
+services on one domain. No public listener, account or deployment is created by
+the build.
+
 ### Building on Linux
 
 `cargo run` needs the system development packages the GUI stack links against:

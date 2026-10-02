@@ -479,3 +479,8 @@ xenterm/
 
 第三方署名（包括彩色 emoji 使用的 Twemoji 图形）见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+
+## 无界面 CLI / 认证远程 MCP
+
+使用 `cargo build --locked --release --no-default-features --features headless` 可构建不依赖 GPUI 的 Linux 服务。默认桌面构建保留 GUI、CLI 和 stdio MCP 全部功能。HTTP 模式必须显式选择独立配置目录并配置外部 OAuth 认证，通过已有 OpenResty/Nginx 终止 HTTPS。部署模板、同域名不同路径和验证步骤见 [REMOTE_MCP.md](docs/REMOTE_MCP.md)。

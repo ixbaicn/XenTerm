@@ -16,7 +16,13 @@ impl Frontend {
     }
 
     pub(crate) fn allows_config_import(self) -> bool {
-        matches!(self, Self::Cli | Self::Mcp { allow_config_import: true })
+        matches!(
+            self,
+            Self::Cli
+                | Self::Mcp {
+                    allow_config_import: true
+                }
+        )
     }
 
     /// Whether this caller has to pass the persisted gates before reaching a

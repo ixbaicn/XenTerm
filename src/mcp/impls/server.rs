@@ -100,7 +100,11 @@ async fn handle_with(request: Value, enabled: bool) -> Option<Value> {
     handle_with_import(request, enabled, false).await
 }
 
-async fn handle_with_import(request: Value, enabled: bool, allow_config_import: bool) -> Option<Value> {
+async fn handle_with_import(
+    request: Value,
+    enabled: bool,
+    allow_config_import: bool,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if id.is_none() {
