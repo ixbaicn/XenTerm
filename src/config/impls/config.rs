@@ -79,6 +79,11 @@ use super::structs::*;
 // ONE directory resolved here, and `errlog` / `known_hosts` route through it too.
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static PINNED_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+#[path = "profile.rs"]
+mod profile;
+pub use profile::{configure_profile, has_explicit_data_dir};
 
 /// The single directory holding all user data (sessions, encryption key,
 /// known_hosts, error.log). Resolved once and cached; any one-time migration
@@ -96,6 +101,11 @@ pub fn data_dir() -> PathBuf {
 /// `%APPDATA%/xenterm/xenterm/log/log`, outside the config directory
 /// (#log-dir).
 pub fn log_dir() -> PathBuf {
+    if let Some(dir) = PINNED_DATA_DIR.get() {
+        let log = dir.join("log");
+        let _ = fs::create_dir_all(&log);
+        return log;
+    }
     // Portable: <exe_dir>/log, sibling of the portable config/ folder.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -160,6 +170,7 @@ fn dir_is_writable(dir: &Path) -> bool {
 }
 
 fn resolve_data_dir() -> PathBuf {
+    if let Some(dir) = PINNED_DATA_DIR.get() { return dir.clone(); }
     let legacy = legacy_data_dir();
 
     if let Some(portable) = portable_data_dir() {
@@ -793,14 +804,14 @@ impl ConfigStore {
         fs::create_dir_all(&config_dir)
             .with_context(|| format!("failed to create config dir {}", config_dir.display()))?;
 
-        let backup_dir = legacy_data_dir().filter(|dir| dir != &config_dir);
+        let backup_dir = legacy_data_dir().filter(|dir| !has_explicit_data_dir() && dir != &config_dir);
         if let Some(ref backup) = backup_dir {
             restore_user_backup_if_needed(&config_dir, backup);
         }
 
         // The master key: OS keychain when installed, key file when portable
         // or when the platform has no usable keyring (see resolve_master_key).
-        let portable = portable_data_dir().is_some_and(|dir| dir == config_dir);
+        let portable = has_explicit_data_dir() || portable_data_dir().is_some_and(|dir| dir == config_dir);
         let key = Self::resolve_master_key(&config_dir, portable)?;
 
         // Legacy file left by an upgrade; imported below, then renamed.
@@ -876,7 +887,7 @@ impl ConfigStore {
             backup_dir,
             cache,
             key,
-            keyring_enabled: true,
+            keyring_enabled: !has_explicit_data_dir(),
             saved_state: std::sync::Mutex::new(saved_state),
         };
         // Persist the migrations so they run exactly once (and so a later
@@ -2124,10 +2135,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
             settings.sessions = Vec::new();
             settings.command_history = Vec::new();
             if !settings.webdav_password.is_empty()
-                && !settings
-                    .webdav_password
-                    .as_str()
-                    .starts_with(Self::ENC_PREFIX)
+                && !settings.webdav_password.is_local_ciphertext()
             {
                 let enc = Self::encrypt(&key, settings.webdav_password.as_str())?;
                 settings.webdav_password = Secret::new(enc);
@@ -2231,44 +2239,43 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         keyring_enabled: bool,
     ) -> Result<()> {
         if !session.password.is_empty()
-            && !session.password.as_str().starts_with(Self::ENC_PREFIX)
-            && !session.password.as_str().starts_with(Self::KEYRING_MARKER)
+            && !session.password.is_local_ciphertext()
         {
+            let mut stored_in_keyring = false;
             if keyring_enabled {
                 match Self::keyring_set_password(&session.id, session.password.as_str()) {
-                    Ok(()) => session.password = Secret::new(Self::KEYRING_MARKER.to_string()),
+                    Ok(()) => {
+                        session.password = Secret::new(Self::KEYRING_MARKER.to_string());
+                        stored_in_keyring = true;
+                    },
                     Err(error) => tracing::warn!(
                         "keyring write for {} failed; falling back to encryption: {error}",
                         session.id
                     ),
                 }
             }
-            if !session.password.as_str().starts_with(Self::KEYRING_MARKER) {
+            if !stored_in_keyring {
                 let enc = Self::encrypt(key, session.password.as_str())?;
                 session.password = Secret::new(enc);
             }
         }
         if !session.private_key_inline.is_empty()
-            && !session
-                .private_key_inline
-                .as_str()
-                .starts_with(Self::ENC_PREFIX)
+            && !session.private_key_inline.is_local_ciphertext()
         {
             let enc = Self::encrypt(key, session.private_key_inline.as_str())?;
             session.private_key_inline = Secret::new(enc);
         }
         for trigger in &mut session.triggers {
             if !trigger.response.is_empty()
-                && !trigger.response.as_str().starts_with(Self::ENC_PREFIX)
+                && !trigger.response.is_local_ciphertext()
             {
                 let enc = Self::encrypt(key, trigger.response.as_str())?;
                 trigger.response = Secret::new(enc);
             }
         }
         // The proxy URL's embedded password is a credential like the others.
-        // A blob from a previous save (detected by the prefix appearing in
-        // the URL) passes through.
-        if !session.proxy.is_empty() && !session.proxy.contains(Self::ENC_PREFIX) {
+        // Cache values are plaintext, including literal encryption-like prefixes.
+        if !session.proxy.is_empty() {
             if let Some(enc) =
                 Self::map_proxy_password(&session.proxy, |pass| Self::encrypt(key, pass).ok())
             {
@@ -2284,11 +2291,13 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
     /// keyring entry degrades to "no saved password" — the interactive prompt
     /// takes over, which is what an unsaved password means.
     fn session_from_disk_form(session: &mut Session, key: &[u8; 32]) {
-        if let Some(plain) = Self::try_decrypt(key, session.password.as_str()) {
-            session.password = Secret::new(plain);
-        }
         if session.password.as_str() == Self::KEYRING_MARKER {
-            match Self::keyring_entry(&session.id).and_then(|entry| entry.get_password()) {
+            let credential = if has_explicit_data_dir() {
+                Err(keyring::Error::NoEntry)
+            } else {
+                Self::keyring_entry(&session.id).and_then(|entry| entry.get_password())
+            };
+            match credential {
                 Ok(plain) => session.password = Secret::new(plain),
                 Err(error) => {
                     tracing::warn!(
@@ -2298,6 +2307,9 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
                     session.password = Secret::default();
                 }
             }
+        }
+        else if let Some(plain) = Self::try_decrypt(key, session.password.as_str()) {
+            session.password = Secret::new(plain);
         }
         if let Some(plain) = Self::try_decrypt(key, session.private_key_inline.as_str()) {
             session.private_key_inline = Secret::new(plain);
@@ -2590,7 +2602,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
             // Same for a password embedded in the proxy URL — an export file
             // is meant to be moved around; it must not carry the one secret
             // that stayed plaintext in sessions.json before the fix.
-            if !s.proxy.is_empty() && !s.proxy.contains(Self::EXPORT_PREFIX) {
+            if !s.proxy.is_empty() {
                 if let Some(enc) =
                     Self::map_proxy_password(&s.proxy, |pass| Self::encrypt_export(pass).ok())
                 {
@@ -2612,87 +2624,11 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         Ok(count)
     }
 
-    /// Import sessions from a XenTerm portable export or a FinalShell connection
-    /// export. New sessions get fresh ids; duplicates (same host+user+port+kind)
-    /// are skipped.
-    /// Returns `(added, skipped)`. The store is saved if anything was added.
-    pub fn import_json(&mut self, raw: &str) -> Result<(usize, usize)> {
-        let (sessions, decrypt_meatshell_secrets) =
-            match serde_json::from_str::<ExportFile>(raw) {
-                Ok(file) => (file.sessions, true),
-                Err(meatshell_error) => (
-                    super::finalshell::parse_export(raw).with_context(|| {
-                        format!(
-                            "not a valid XenTerm or FinalShell export file; XenTerm parser: {meatshell_error}"
-                        )
-                    })?,
-                    false,
-                ),
-            };
 
-        let mut added = 0usize;
-        let mut skipped = 0usize;
-        for mut s in sessions {
-            // Recover the plaintext password (cache stores plaintext). Accept an
-            // export blob, our local enc:v1 blob, or a legacy plaintext value.
-            // FinalShell's parser has already decrypted its DES password, so avoid
-            // interpreting a coincidental `enc:*` plaintext prefix as ours.
-            if decrypt_meatshell_secrets {
-                if let Some(plain) = Self::decrypt_export(s.password.as_str()) {
-                    s.password = Secret::new(plain);
-                } else if let Some(plain) = Self::try_decrypt(&self.key, s.password.as_str()) {
-                    s.password = Secret::new(plain);
-                }
-                if let Some(plain) = Self::decrypt_export(s.private_key_inline.as_str()) {
-                    s.private_key_inline = Secret::new(plain);
-                } else if let Some(plain) =
-                    Self::try_decrypt(&self.key, s.private_key_inline.as_str())
-                {
-                    s.private_key_inline = Secret::new(plain);
-                }
-                for trigger in &mut s.triggers {
-                    if let Some(plain) = Self::decrypt_export(trigger.response.as_str()) {
-                        trigger.response = Secret::new(plain);
-                    } else if let Some(plain) =
-                        Self::try_decrypt(&self.key, trigger.response.as_str())
-                    {
-                        trigger.response = Secret::new(plain);
-                    }
-                }
-                // Proxy password: export blob first, our local enc:v1: form
-                // second, anything else (legacy plaintext) stays as written.
-                if !s.proxy.is_empty() {
-                    if let Some(url) = Self::map_proxy_password(&s.proxy, |pass| {
-                        Self::decrypt_export(pass).or_else(|| Self::try_decrypt(&self.key, pass))
-                    }) {
-                        s.proxy = url;
-                    }
-                }
-            }
-            let dup = self.cache.sessions.iter().any(|x| {
-                x.host == s.host && x.user == s.user && x.port == s.port && x.kind == s.kind
-            });
-            if dup {
-                skipped += 1;
-                continue;
-            }
-            s.id = Uuid::new_v4().to_string();
-            self.upsert(s);
-            added += 1;
-        }
-        if added > 0 {
-            self.save()?;
-        }
-        Ok((added, skipped))
-    }
-
-    /// Import sessions from a XenTerm or FinalShell JSON export file.
-    pub fn import_from(&mut self, path: &Path) -> Result<(usize, usize)> {
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        self.import_json(&raw)
-    }
 }
+
+#[path = "import.rs"]
+mod import;
 
 #[cfg(test)]
 mod tests {
