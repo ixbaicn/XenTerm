@@ -1189,7 +1189,7 @@ impl Render for SessionEditor {
                                 .group(advanced),
                         )
                         .when(is_ssh, |settings| {
-                            settings.page(forwards_page).page(triggers_page)
+                            settings.page(super::jump_chain_editor::page(self.draft.clone(), self.store.clone(), cx.entity().downgrade())).page(forwards_page).page(triggers_page)
                         })
                         .into_any_element(),
                 ),

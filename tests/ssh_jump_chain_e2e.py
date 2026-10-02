@@ -190,6 +190,8 @@ class Fixture:
         self.config = self.root / "config"
         self.config.mkdir()
         self.env = os.environ.copy()
+        for key in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
+            self.env.pop(key, None)
         self.env["HOME"] = str(self.root)
         self.env["XDG_CONFIG_HOME"] = str(self.root / "xdg")
         self.nodes = [Node("outer"), Node("inner"), Node("target")]
@@ -206,7 +208,7 @@ class Fixture:
 
     def save(self):
         # defaults_rev avoids application migrations writing its user backup.
-        value = dict(sessions=self.sessions, defaults_rev=3,
+        value = dict(sessions=self.sessions, defaults_rev=6,
                      mcp_enabled=True, mcp_use_saved_credentials=True,
                      mcp_allow_commands=True, mcp_allow_file_transfers=True)
         # Fixture-owned database only: each subprocess starts from this test snapshot.
@@ -266,7 +268,9 @@ class Fixture:
             encoding="utf-8", timeout=45, env=self.env)
         assert run.returncode == 0, run.stderr
         replies = [json.loads(line) for line in run.stdout.splitlines() if line.strip()]
-        return next(reply["result"] for reply in replies if reply["id"] == 2)
+        reply = next(reply for reply in replies if reply["id"] == 2)
+        assert "result" in reply, (reply, run.stderr)
+        return reply["result"]
 
     def command(self, name="target"):
         result = self.mcp("run_command", session_id=name, command="fixture",
