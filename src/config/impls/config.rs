@@ -1064,6 +1064,40 @@ impl ConfigStore {
         }
     }
 
+    /// Save an editor's change, restoring the previous in-memory session if the
+    /// database write fails. A failed save must not become visible to another
+    /// view, or be persisted later by an unrelated settings change.
+    pub fn upsert_and_save(&mut self, mut session: Session) -> Result<()> {
+        if is_reserved_session_group(session.group.trim()) {
+            session.group.clear();
+        }
+        let id = session.id.clone();
+        let index = self.cache.sessions.iter().position(|s| s.id == id);
+        let clear_password = self.keyring_enabled
+            && session.password.is_empty()
+            && index.is_some_and(|i| !self.cache.sessions[i].password.is_empty());
+        let previous = if let Some(index) = index {
+            Some(std::mem::replace(&mut self.cache.sessions[index], session))
+        } else {
+            self.cache.sessions.push(session);
+            None
+        };
+        if let Err(error) = self.save() {
+            if let (Some(index), Some(previous)) = (index, previous) {
+                self.cache.sessions[index] = previous;
+            } else {
+                self.cache.sessions.pop();
+            }
+            return Err(error);
+        }
+        // Unlike `upsert`, defer deleting an old credential until the database
+        // accepted the edit. Otherwise a failed save could erase its password.
+        if clear_password {
+            Self::forget_keyring_password(&id);
+        }
+        Ok(())
+    }
+
     pub fn remove(&mut self, id: &str) {
         self.cache.sessions.retain(|s| s.id != id);
         // The keyring entry used to outlive its deleted session, leaving a
