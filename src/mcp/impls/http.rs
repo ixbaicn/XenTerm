@@ -126,7 +126,7 @@ impl ServerHandler for HttpTools {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("xenterm", env!("CARGO_PKG_VERSION")))
-            .with_instructions("Access the operator-authorized XenTerm profile. Stored credentials are never returned. OAuth does not override local tool permissions.")
+            .with_instructions("Access the operator-authorized XenTerm profile. Session metadata responses omit credential values; enabled command and file tools have the documented OS-account access. OAuth does not override local tool permissions.")
     }
 
     async fn list_tools(
