@@ -1,22 +1,24 @@
 // Entry point. Wires the UI shell to the config store, system sampler and
 // SSH session manager.
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(not(debug_assertions), feature = "desktop"), windows_subsystem = "windows")]
 
 mod allocator;
 
 #[global_allocator]
 static GLOBAL: allocator::Allocator = allocator::Allocator;
+#[cfg(feature = "desktop")]
 mod app;
 // The layering rules, asserted rather than assumed. Test-only: the module is
 // nothing but `#[cfg(test)]` readers of this source tree.
-#[cfg(test)]
+#[cfg(all(test, feature = "desktop"))]
 mod arch_guards;
 mod automation;
 mod cli;
 mod config;
 mod core;
 mod i18n;
+#[cfg(feature = "desktop")]
 mod layout;
 mod logging;
 mod mcp;
@@ -26,6 +28,7 @@ mod sftp;
 mod ssh;
 mod terminal;
 mod tunnel;
+#[cfg(feature = "desktop")]
 mod ui;
 mod webdav;
 
@@ -65,7 +68,10 @@ fn main() -> anyhow::Result<()> {
     match mode {
         StartMode::Mcp => mcp::run_stdio(),
         StartMode::Cli => cli::run(&args),
+        #[cfg(feature = "desktop")]
         StartMode::Ui => ui::run(),
+        #[cfg(not(feature = "desktop"))]
+        StartMode::Ui => anyhow::bail!("headless build: use xenterm cli help or xenterm mcp serve"),
         StartMode::Version => unreachable!("handled above"),
     }
 }

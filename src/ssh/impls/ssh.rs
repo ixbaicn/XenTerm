@@ -1954,6 +1954,7 @@ async fn run_session(
                                         .await
                                 }
                                 ZmodemDirection::Upload => {
+                                    #[cfg(feature = "desktop")]
                                     let files = tokio::task::spawn_blocking(|| {
                                         rfd::FileDialog::new()
                                             .set_title(t(
@@ -1965,6 +1966,8 @@ async fn run_session(
                                     })
                                     .await
                                     .unwrap_or_default();
+                                    #[cfg(not(feature = "desktop"))]
+                                    let files: Vec<std::path::PathBuf> = Vec::new();
                                     if files.is_empty() {
                                         let _ = channel.data(&ZMODEM_CANCEL[..]).await;
                                         let _ = events.send(SessionEvent::Output(format!(
