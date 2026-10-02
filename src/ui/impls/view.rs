@@ -1422,7 +1422,11 @@ impl Render for TerminalView {
         };
         // The colour a cursor falls back to: the theme's foreground, which is what the
         // terminal's text is drawn in.
-        let cursor = theme.foreground;
+        // The cursor's default is plain white, in both window themes: the
+        // grid it is drawn on is terminal-dark either way, and a block cursor
+        // reads best at full contrast. An explicit colour in settings still
+        // overrides it.
+        let cursor = gpui_kit::white();
 
         // A prompt parked by `apply_event` gets its window here, which is the only
         // place one exists. Answered or not, the slot is cleared: the policy in
