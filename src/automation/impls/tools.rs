@@ -283,7 +283,7 @@ fn load_store(frontend: Frontend) -> Result<ConfigStore> {
     // through `is_unattended`. This is not a rule about what a caller may do, it
     // is the MCP server's own on-switch: turning the server off must stop MCP
     // clients and must leave everything else working, including a plugin.
-    if frontend == Frontend::Mcp && !store.mcp_enabled() {
+    if frontend.is_mcp() && !store.mcp_enabled() {
         return Err(anyhow!("MCP is disabled in Settings > Interface > MCP"));
     }
     Ok(store)

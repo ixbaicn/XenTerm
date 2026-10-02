@@ -116,8 +116,8 @@ pub(super) fn definitions() -> Value {
     ])
 }
 
-pub(super) async fn call_mcp(name: &str, arguments: &Value) -> Result<Value> {
-    crate::automation::call(name, arguments, crate::automation::Frontend::Mcp).await
+pub(super) async fn call_mcp(name: &str, arguments: &Value, allow_config_import: bool) -> Result<Value> {
+    crate::automation::call(name, arguments, crate::automation::Frontend::Mcp { allow_config_import }).await
 }
 
 #[cfg(test)]

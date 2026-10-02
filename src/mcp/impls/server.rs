@@ -16,7 +16,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
 /// without bound (audit L-07).
 const MAX_REQUEST_LINE: usize = 4 * 1024 * 1024;
 
-pub(crate) fn run_stdio() -> Result<()> {
+pub(crate) fn run_stdio(allow_config_import: bool) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -44,7 +44,7 @@ pub(crate) fn run_stdio() -> Result<()> {
             continue;
         }
         let response = match serde_json::from_str::<Value>(&line) {
-            Ok(request) => runtime.block_on(handle(request)),
+            Ok(request) => runtime.block_on(handle(request, allow_config_import)),
             Err(error) => Some(error_response(Value::Null, -32700, &error.to_string())),
         };
         if let Some(response) = response {
@@ -91,11 +91,16 @@ fn mcp_enabled() -> bool {
         .unwrap_or(false)
 }
 
-async fn handle(request: Value) -> Option<Value> {
-    handle_with(request, mcp_enabled()).await
+async fn handle(request: Value, allow_config_import: bool) -> Option<Value> {
+    handle_with_import(request, mcp_enabled(), allow_config_import).await
 }
 
+#[cfg(test)]
 async fn handle_with(request: Value, enabled: bool) -> Option<Value> {
+    handle_with_import(request, enabled, false).await
+}
+
+async fn handle_with_import(request: Value, enabled: bool, allow_config_import: bool) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if id.is_none() {
@@ -119,7 +124,7 @@ async fn handle_with(request: Value, enabled: bool) -> Option<Value> {
             id,
             json!({ "tools": super::tools::definitions() }),
         )),
-        Some("tools/call") => Some(call_tool(id, &params).await),
+        Some("tools/call") => Some(call_tool(id, &params, allow_config_import).await),
         Some(_) => Some(error_response(id, -32601, "method not found")),
         None => Some(error_response(id, -32600, "invalid request")),
     }
@@ -146,7 +151,7 @@ fn initialize(params: &Value) -> Value {
     })
 }
 
-async fn call_tool(id: Value, params: &Value) -> Value {
+async fn call_tool(id: Value, params: &Value, allow_config_import: bool) -> Value {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return error_response(id, -32602, "missing tool name");
     };
@@ -154,7 +159,7 @@ async fn call_tool(id: Value, params: &Value) -> Value {
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    match super::tools::call_mcp(name, &arguments).await {
+    match super::tools::call_mcp(name, &arguments, allow_config_import).await {
         Ok(value) => success_response(
             id,
             json!({
