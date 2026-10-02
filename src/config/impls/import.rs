@@ -120,6 +120,11 @@ impl ConfigStore {
 
         let mut source_ids = HashSet::new();
         for (index, session) in sessions.iter_mut().enumerate() {
+            // Match the editor/load normalization for display-only group names,
+            // so repeating an import after a reload remains idempotent.
+            if super::is_reserved_session_group(session.group.trim()) {
+                session.group.clear();
+            }
             if session.id.trim().is_empty() || !source_ids.insert(session.id.clone()) {
                 bail!(
                     "import entry {} has an empty or repeated session ID",

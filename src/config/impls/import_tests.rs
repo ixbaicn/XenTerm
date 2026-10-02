@@ -502,3 +502,35 @@ fn unrelated_existing_invalid_routes_do_not_prevent_valid_imports() {
     );
     cleanup(&store);
 }
+
+#[test]
+fn reserved_groups_match_editor_semantics_and_stay_idempotent() {
+    let mut store = temp_store();
+    let mut imported = session("group");
+    imported.group = "system".into();
+    let raw = native(vec![imported]);
+    assert_eq!(store.import_json(&raw).unwrap(), (1, 0));
+    assert!(store.sessions()[0].group.is_empty());
+    assert_eq!(store.import_json(&raw).unwrap(), (0, 1));
+    cleanup(&store);
+}
+
+#[test]
+#[cfg(not(feature = "desktop"))]
+fn headless_master_key_remains_file_backed_and_survives_restarts() {
+    let dir = std::env::temp_dir().join(format!("xenterm-headless-key-{}", Uuid::new_v4()));
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("secret.key"), [42u8; 32]).unwrap();
+    for portable in [false, true, false] {
+        assert_eq!(
+            ConfigStore::resolve_master_key(&dir, portable).unwrap(),
+            [42u8; 32]
+        );
+        assert_eq!(fs::read(dir.join("secret.key")).unwrap(), [42u8; 32]);
+    }
+    let mut stored = session("keyring-placeholder");
+    stored.password = Secret::new(ConfigStore::KEYRING_MARKER);
+    ConfigStore::session_from_disk_form(&mut stored, &[42u8; 32]);
+    assert!(stored.password.is_empty());
+    fs::remove_dir_all(dir).unwrap();
+}

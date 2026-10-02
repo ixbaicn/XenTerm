@@ -646,7 +646,7 @@ impl ConfigStore {
     /// Portable dir: the key file travels beside `sessions.db` on purpose —
     /// see the module docs.
     fn resolve_master_key(config_dir: &Path, portable: bool) -> Result<[u8; 32]> {
-        if !portable {
+        if cfg!(feature = "desktop") && !portable {
             match Self::master_key_entry().and_then(|entry| entry.get_password()) {
                 Ok(stored) => {
                     if let Some(key) = Self::decode_master_key(&stored) {
@@ -817,12 +817,13 @@ impl ConfigStore {
         // Legacy file left by an upgrade; imported below, then renamed.
         let legacy_json = path.with_file_name("sessions.json");
         let mut force_full_write = false;
+        let mut imported_legacy_json = false;
         let mut cache = if path.exists() {
             match Self::open_db(&path).and_then(|conn| Self::read_disk_store(&conn)) {
                 Ok(Some((settings_raw, sessions_disk, history))) => {
                     let mut cfg: ConfigFile =
-                        serde_json::from_str(&settings_raw).with_context(|| {
-                            "sessions.db settings blob is not a valid config document"
+                        serde_json::from_str(&settings_raw).map_err(|_| {
+                            anyhow::anyhow!("sessions.db settings blob is not a valid config document")
                         })?;
                     if let Some(plain) = Self::try_decrypt(&key, cfg.webdav_password.as_str()) {
                         cfg.webdav_password = Secret::new(plain);
@@ -837,6 +838,9 @@ impl ConfigStore {
                 // A database with no settings row: created but never written.
                 Ok(None) => fresh_config(),
                 Err(err) => {
+                    if has_explicit_data_dir() {
+                        bail!("explicit profile database could not be read; original file preserved");
+                    }
                     Self::quarantine_broken_db(&path, &err);
                     fresh_config()
                 }
@@ -844,18 +848,24 @@ impl ConfigStore {
         } else if legacy_json.exists() {
             match Self::read_json_store(&legacy_json, &key) {
                 Ok(cfg) => {
-                    let migrated = legacy_json.with_extension("json.migrated");
-                    let _ = fs::remove_file(&migrated);
-                    if let Err(error) = fs::rename(&legacy_json, &migrated) {
-                        tracing::warn!(
-                            "keeping {} after all: renaming it failed: {error}",
-                            legacy_json.display()
-                        );
+                    imported_legacy_json = true;
+                    if !has_explicit_data_dir() {
+                        let migrated = legacy_json.with_extension("json.migrated");
+                        let _ = fs::remove_file(&migrated);
+                        if let Err(error) = fs::rename(&legacy_json, &migrated) {
+                            tracing::warn!(
+                                "keeping {} after all: renaming it failed: {error}",
+                                legacy_json.display()
+                            );
+                        }
                     }
                     force_full_write = true;
                     cfg
                 }
                 Err(err) => {
+                    if has_explicit_data_dir() {
+                        bail!("explicit profile JSON could not be read; original file preserved");
+                    }
                     let backup = legacy_json.with_extension("json.broken");
                     let _ = fs::rename(&legacy_json, &backup);
                     tracing::warn!(
@@ -887,7 +897,7 @@ impl ConfigStore {
             backup_dir,
             cache,
             key,
-            keyring_enabled: !has_explicit_data_dir(),
+            keyring_enabled: cfg!(feature = "desktop") && !has_explicit_data_dir(),
             saved_state: std::sync::Mutex::new(saved_state),
         };
         // Persist the migrations so they run exactly once (and so a later
@@ -895,7 +905,17 @@ impl ConfigStore {
         // next launch).
         if force_full_write {
             if let Err(e) = store.save_all() {
+                if has_explicit_data_dir() {
+                    bail!("failed to persist explicit profile migration; source JSON preserved");
+                }
                 tracing::warn!("failed to persist config migration: {e:#}");
+            } else if imported_legacy_json && has_explicit_data_dir() {
+                // Service profiles retain their source until the SQLite commit
+                // succeeds, and never overwrite an earlier migration backup.
+                let migrated = legacy_json.with_extension("json.migrated");
+                if !migrated.exists() {
+                    let _ = fs::rename(&legacy_json, migrated);
+                }
             }
         }
         Ok(store)
@@ -2238,16 +2258,14 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         key: &[u8; 32],
         keyring_enabled: bool,
     ) -> Result<()> {
-        if !session.password.is_empty()
-            && !session.password.is_local_ciphertext()
-        {
+        if !session.password.is_empty() && !session.password.is_local_ciphertext() {
             let mut stored_in_keyring = false;
             if keyring_enabled {
                 match Self::keyring_set_password(&session.id, session.password.as_str()) {
                     Ok(()) => {
                         session.password = Secret::new(Self::KEYRING_MARKER.to_string());
                         stored_in_keyring = true;
-                    },
+                    }
                     Err(error) => tracing::warn!(
                         "keyring write for {} failed; falling back to encryption: {error}",
                         session.id
@@ -2259,16 +2277,12 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
                 session.password = Secret::new(enc);
             }
         }
-        if !session.private_key_inline.is_empty()
-            && !session.private_key_inline.is_local_ciphertext()
-        {
+        if !session.private_key_inline.is_empty() && !session.private_key_inline.is_local_ciphertext() {
             let enc = Self::encrypt(key, session.private_key_inline.as_str())?;
             session.private_key_inline = Secret::new(enc);
         }
         for trigger in &mut session.triggers {
-            if !trigger.response.is_empty()
-                && !trigger.response.is_local_ciphertext()
-            {
+            if !trigger.response.is_empty() && !trigger.response.is_local_ciphertext() {
                 let enc = Self::encrypt(key, trigger.response.as_str())?;
                 trigger.response = Secret::new(enc);
             }
@@ -2292,7 +2306,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
     /// takes over, which is what an unsaved password means.
     fn session_from_disk_form(session: &mut Session, key: &[u8; 32]) {
         if session.password.as_str() == Self::KEYRING_MARKER {
-            let credential = if has_explicit_data_dir() {
+            let credential = if !cfg!(feature = "desktop") || has_explicit_data_dir() {
                 Err(keyring::Error::NoEntry)
             } else {
                 Self::keyring_entry(&session.id).and_then(|entry| entry.get_password())
@@ -2307,8 +2321,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
                     session.password = Secret::default();
                 }
             }
-        }
-        else if let Some(plain) = Self::try_decrypt(key, session.password.as_str()) {
+        } else if let Some(plain) = Self::try_decrypt(key, session.password.as_str()) {
             session.password = Secret::new(plain);
         }
         if let Some(plain) = Self::try_decrypt(key, session.private_key_inline.as_str()) {
@@ -3547,6 +3560,7 @@ mod tests {
     static KEYRING_TESTS: Mutex<()> = Mutex::new(());
 
     #[test]
+    #[cfg(feature = "desktop")]
     fn installed_store_migrates_secret_key_into_the_keychain_and_deletes_the_file() {
         let _serial = KEYRING_TESTS.lock().unwrap();
         fake_keyring::install();

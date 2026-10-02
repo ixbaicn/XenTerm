@@ -257,6 +257,6 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(response["result"]["tools"].as_array().unwrap().len(), 7);
+        assert_eq!(response["result"]["tools"].as_array().unwrap().len(), 8);
     }
 }

@@ -62,7 +62,9 @@ fn profile_argument(args: &[String], env: Option<PathBuf>) -> Result<(Option<Pat
     }
     let path = selected.or(env);
     if let Some(path) = &path {
-        if path.as_os_str().is_empty() || path.to_string_lossy().chars().any(char::is_control) {
+        if path.to_string_lossy().trim().is_empty()
+            || path.to_string_lossy().chars().any(char::is_control)
+        {
             bail!("data directory environment variable must contain a valid path");
         }
     }
