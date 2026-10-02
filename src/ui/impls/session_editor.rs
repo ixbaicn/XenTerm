@@ -332,6 +332,14 @@ impl SessionEditor {
             }
             draft.to_session(self.original.as_ref())
         };
+        if self.store.borrow().resolve_jump_chain(&session).is_err() {
+            self.save_error = Some(crate::i18n::t(
+                "跳板链路无效，请在“多级跳板”页检查缺失会话、重复、循环或过多层级。",
+                "Invalid SSH route. Check missing sessions, duplicates, cycles or too many hops on the SSH bastions page.",
+            ));
+            self.outcome = None;
+            return;
+        }
         match self.store.borrow_mut().upsert_and_save(session) {
             Ok(()) => {
                 self.save_error = None;
@@ -1333,6 +1341,29 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.directory);
         }
+    }
+
+    #[gpui_kit::gpui::test]
+    fn invalid_jump_route_keeps_editor_open_without_writing(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let fixture = StoreFixture::new();
+        let (view, cx) = cx.add_window_view({
+            let store = fixture.store.clone();
+            move |_, _| SessionEditor::new_session(store, String::new())
+        });
+        view.update(cx, |editor, cx| {
+            editor.draft.borrow_mut().jump_session_ids = vec!["missing-hop".into()];
+            editor.save(cx);
+            assert!(editor.take_outcome().is_none());
+            assert!(editor.save_error.is_some());
+            assert!(editor.store.borrow().sessions().is_empty());
+            assert!(!editor.store.borrow().path.exists());
+            editor.draft.borrow_mut().jump_session_ids.clear();
+            editor.save(cx);
+            assert_eq!(editor.take_outcome(), Some(EditorOutcome::Saved));
+            assert!(editor.save_error.is_none());
+        });
+        assert_eq!(fixture.disk_sessions().len(), 1);
     }
 
     #[gpui_kit::gpui::test]
