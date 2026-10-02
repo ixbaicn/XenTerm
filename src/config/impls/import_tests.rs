@@ -698,3 +698,83 @@ fn explicit_profile_preflight_allows_plaintext_legacy_and_matching_local_ciphert
     assert_eq!(profile_files(&directory), before);
     fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn proxy_forms_share_connection_mapping_storage_export_and_preflight_semantics() {
+    for scheme in ["", "socks5://", "socks5h://", "http://", "SOCKS5://"] {
+        for password in [
+            "synthetic-proxy-secret",
+            "synthetic%40%3A%25secret",
+            "synthetic:p@ss%word",
+            "enc:v1:synthetic-literal",
+        ] {
+            let proxy = format!("{scheme}fixture:{password}@127.0.0.1:1080");
+            let parsed = crate::ssh::proxy::resolve(&proxy).unwrap().unwrap();
+            assert_eq!(parsed.auth.as_ref().unwrap().1.as_str(), password);
+            let directory =
+                std::env::temp_dir().join(format!("xenterm-proxy-forms-{}", Uuid::new_v4()));
+            fs::create_dir(&directory).unwrap();
+            let mut source = temp_store();
+            source.path = directory.join("sessions.db");
+            let mut imported = session("proxy-forms");
+            imported.proxy = proxy.clone();
+            source.cache.sessions.push(imported);
+            source.save().unwrap();
+            let mut stored = disk_session(&source, 0);
+            assert!(!stored.proxy.contains(password));
+            assert!(stored
+                .proxy
+                .starts_with(&format!("{scheme}fixture:enc:v1:")));
+            let before = profile_files(&directory);
+            assert!(ConfigStore::preflight_explicit_profile(&directory).is_err());
+            assert_eq!(profile_files(&directory), before);
+            fs::write(directory.join("secret.key"), source.key).unwrap();
+            ConfigStore::preflight_explicit_profile(&directory).unwrap();
+            ConfigStore::session_from_disk_form(&mut stored, &source.key);
+            assert_eq!(stored.proxy, proxy);
+            let (export, _) = source.export_json().unwrap();
+            assert!(!export.contains(password));
+            let mut destination = temp_store();
+            destination.key = [9; 32];
+            assert_eq!(destination.import_json(&export).unwrap(), (1, 0));
+            assert_eq!(destination.sessions()[0].proxy, proxy);
+            assert!(!disk(&destination).to_string().contains(password));
+            let mut reloaded = disk_session(&destination, 0);
+            ConfigStore::session_from_disk_form(&mut reloaded, &destination.key);
+            assert_eq!(reloaded.proxy, proxy);
+            assert_eq!(
+                crate::ssh::proxy::resolve(&reloaded.proxy)
+                    .unwrap()
+                    .unwrap()
+                    .auth
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .as_str(),
+                password
+            );
+            cleanup(&destination);
+            fs::remove_dir_all(directory).unwrap();
+        }
+    }
+}
+
+#[test]
+fn proxy_password_mapping_preserves_empty_and_missing_auth() {
+    for proxy in [
+        "127.0.0.1:1080",
+        "fixture@127.0.0.1:1080",
+        "fixture:@127.0.0.1:1080",
+        "http://fixture:@127.0.0.1:1080",
+    ] {
+        assert!(crate::ssh::proxy::resolve(proxy).unwrap().is_some());
+        assert!(ConfigStore::map_proxy_password(proxy, |_| panic!("no password to map")).is_none());
+        let mut imported = session("empty-proxy-password");
+        imported.proxy = proxy.into();
+        let mut store = temp_store();
+        store.import_json(&native(vec![imported])).unwrap();
+        assert_eq!(store.sessions()[0].proxy, proxy);
+        assert_eq!(disk_session(&store, 0).proxy, proxy);
+        cleanup(&store);
+    }
+}

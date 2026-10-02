@@ -583,22 +583,18 @@ impl ConfigStore {
         String::from_utf8(plain).ok()
     }
 
-    /// Rewrite the password segment of a proxy URL
-    /// `scheme://user:pass@host:port` through `map`, returning the rebuilt
-    /// URL. Splitting mirrors `ssh::proxy::parse` (rsplit on the last `@`,
-    /// split the userinfo on the first `:`) so the two parsers can never
-    /// disagree about where the password starts. `None` leaves the URL
-    /// untouched — no scheme, no userinfo, no password, or `map` refusing the
-    /// value (e.g. it isn't an encrypted blob).
+    /// Rewrite a proxy password, preserving the original optional scheme and
+    /// literal userinfo encoding. Connection parsing uses the same splitter,
+    /// including the implicit SOCKS5 form `user:pass@host:port`.
     fn map_proxy_password(url: &str, map: impl FnOnce(&str) -> Option<String>) -> Option<String> {
-        let (scheme, rest) = url.split_once("://")?;
-        let (userinfo, hostport) = rest.rsplit_once('@')?;
-        let (user, pass) = userinfo.split_once(':')?;
+        let parts = super::validation::split_proxy_url(url);
+        let (user, pass) = parts.auth?;
         if pass.is_empty() {
             return None;
         }
         let mapped = map(pass)?;
-        Some(format!("{scheme}://{user}:{mapped}@{hostport}"))
+        let prefix = parts.scheme.map(|scheme| format!("{scheme}://")).unwrap_or_default();
+        Some(format!("{prefix}{user}:{mapped}@{}", parts.hostport))
     }
 
     // ── Key file management ───────────────────────────────────────────────

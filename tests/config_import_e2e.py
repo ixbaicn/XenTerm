@@ -14,6 +14,7 @@ import tempfile
 # Public MeatShell v1 fixture; generated using its portable export format.
 PORTABLE_PASSWORD = "enc:exp:v1:AAAAAAAAAAAAAAAAFeRqZmIDNa2U57LDoinkeMgDVXvorTTv3qrwXh1pSN4M7bdXvSrE"
 SENTINEL = "synthetic-only-password"
+PROXY_SENTINEL = "synthetic-proxy-secret%40%25:p@ss"
 
 
 def session(name, **overrides):
@@ -38,7 +39,8 @@ def main():
             mcp_allow_file_transfers=True)), encoding="utf-8")
         export = root / "export.json"
         export.write_text(json.dumps(dict(meatshell_export=1, sessions=[
-            session("target", password=PORTABLE_PASSWORD, jump_session_id="inner", jump_session_ids=["outer", "inner"]),
+            session("target", password=PORTABLE_PASSWORD, jump_session_id="inner", jump_session_ids=["outer", "inner"],
+                    proxy=f"fixture-user:{PROXY_SENTINEL}@127.0.0.1:1080"),
             session("inner", jump_session_id="outer"), session("outer")
         ])), encoding="utf-8")
 
@@ -50,6 +52,7 @@ def main():
                                     input=input, capture_output=True, text=True, timeout=30, env=env)
             assert (result.returncode == 0) == ok, (result.returncode, result.stdout, result.stderr)
             assert SENTINEL not in result.stdout + result.stderr
+            assert PROXY_SENTINEL not in result.stdout + result.stderr
             return result
 
         def cli(*args, ok=True):
@@ -95,6 +98,8 @@ def main():
         assert by_name["inner"]["jump_session_id"] == by_name["outer"]["id"]
         assert by_name["target"]["password"].startswith("enc:v1:")
         assert SENTINEL not in json.dumps(saved)
+        assert PROXY_SENTINEL not in json.dumps(saved)
+        assert by_name["target"]["proxy"].startswith("fixture-user:enc:v1:")
         metadata = cli("sessions", "--json")
         assert all(item["has_saved_password"] for item in metadata["sessions"])
         assert all(item["group"] == "fixture group" for item in metadata["sessions"])

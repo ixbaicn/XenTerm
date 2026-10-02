@@ -61,8 +61,13 @@ fn invalid_proxy_url(source: &str) -> anyhow::Error {
 
 /// Parse a proxy URL: `scheme://[user:pass@]host:port`.
 fn parse(url: &str) -> Option<ProxyConfig> {
-    let (scheme, rest) = url.split_once("://").unwrap_or(("socks5", url));
-    let kind = match scheme.to_ascii_lowercase().as_str() {
+    let parts = crate::config::validation::split_proxy_url(url);
+    let kind = match parts
+        .scheme
+        .unwrap_or("socks5")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "socks5" | "socks5h" | "socks" => ProxyKind::Socks5,
         "http" => ProxyKind::Http,
         // Kept distinct so connect() can reject it explicitly instead of
@@ -70,15 +75,10 @@ fn parse(url: &str) -> Option<ProxyConfig> {
         "https" => ProxyKind::Https,
         _ => return None,
     };
-    // Optional userinfo before '@'.
-    let (auth, hostport) = match rest.rsplit_once('@') {
-        Some((userinfo, hp)) => {
-            let (u, p) = userinfo.split_once(':').unwrap_or((userinfo, ""));
-            (Some((u.to_string(), Secret::new(p))), hp)
-        }
-        None => (None, rest),
-    };
-    let hostport = hostport.trim_end_matches('/');
+    let auth = parts
+        .auth
+        .map(|(user, password)| (user.to_string(), Secret::new(password)));
+    let hostport = parts.hostport.trim_end_matches('/');
     let (host, port) = hostport.rsplit_once(':')?;
     let port: u16 = port.parse().ok()?;
     // Bracketed IPv6 (`[::1]:1080`) — validate the address, keep it unbracketed
