@@ -592,3 +592,109 @@ fn unsupported_transports_reject_the_whole_batch_without_echoing_values() {
         assert!(!store.path.exists());
     }
 }
+
+fn profile_files(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (
+                path.file_name().unwrap().to_string_lossy().to_string(),
+                fs::read(path).unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn explicit_profile_preflight_rejects_missing_foreign_keys_and_keyring_without_changes() {
+    for case in [
+        "missing-key",
+        "wrong-key",
+        "keyring",
+        "json-keyring",
+        "proxy-key",
+    ] {
+        let directory = std::env::temp_dir().join(format!("xenterm-preflight-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        let mut store = temp_store();
+        store.path = directory.join("sessions.db");
+        let mut saved = session("preflight");
+        saved.password = Secret::new("synthetic-secret");
+        if case == "proxy-key" {
+            saved.password = Secret::default();
+            saved.proxy = "socks5://fixture:synthetic-proxy-secret@127.0.0.1:1080".into();
+        }
+        store.cache.sessions.push(saved);
+        store.save().unwrap();
+        if case == "wrong-key" {
+            fs::write(directory.join("secret.key"), [99; 32]).unwrap();
+        }
+        if case == "keyring" {
+            let conn = rusqlite::Connection::open(&store.path).unwrap();
+            let mut value = serde_json::to_value(&store.sessions()[0]).unwrap();
+            value["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+            conn.execute("UPDATE sessions SET data=?1", [value.to_string()])
+                .unwrap();
+        }
+        if case == "json-keyring" {
+            cleanup(&store);
+            let mut value = serde_json::to_value(&store.cache).unwrap();
+            value["sessions"][0]["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+            fs::write(directory.join("sessions.json"), value.to_string()).unwrap();
+        }
+        let before = profile_files(&directory);
+        let error = ConfigStore::preflight_explicit_profile(&directory).unwrap_err();
+        assert!(error.to_string().contains("portable export"));
+        assert!(!format!("{error:#}").contains("synthetic-secret"));
+        assert_eq!(profile_files(&directory), before);
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn explicit_profile_preflight_reads_live_wal_without_touching_source_sidecars() {
+    let directory = std::env::temp_dir().join(format!("xenterm-preflight-wal-{}", Uuid::new_v4()));
+    fs::create_dir(&directory).unwrap();
+    let mut store = temp_store();
+    store.path = directory.join("sessions.db");
+    store.cache.sessions.push(session("wal"));
+    store.save().unwrap();
+    let conn = rusqlite::Connection::open(&store.path).unwrap();
+    let mut value = serde_json::to_value(&store.sessions()[0]).unwrap();
+    value["password"] = serde_json::json!(ConfigStore::KEYRING_MARKER);
+    conn.execute("UPDATE sessions SET data=?1", [value.to_string()])
+        .unwrap();
+    assert!(directory.join("sessions.db-wal").exists());
+    let before = profile_files(&directory);
+    assert!(ConfigStore::preflight_explicit_profile(&directory).is_err());
+    assert_eq!(profile_files(&directory), before);
+    drop(conn);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn explicit_profile_preflight_allows_plaintext_legacy_and_matching_local_ciphertext() {
+    let directory = std::env::temp_dir().join(format!("xenterm-preflight-ok-{}", Uuid::new_v4()));
+    fs::create_dir(&directory).unwrap();
+    let mut imported = session("plaintext");
+    imported.password = Secret::new("synthetic-legacy-secret");
+    fs::write(
+        directory.join("sessions.json"),
+        native(vec![imported.clone()]),
+    )
+    .unwrap();
+    let before = profile_files(&directory);
+    ConfigStore::preflight_explicit_profile(&directory).unwrap();
+    assert_eq!(profile_files(&directory), before);
+    assert!(!directory.join("secret.key").exists());
+    let mut store = temp_store();
+    store.path = directory.join("sessions.db");
+    store.cache.sessions.push(imported);
+    store.save().unwrap();
+    fs::write(directory.join("secret.key"), store.key).unwrap();
+    let before = profile_files(&directory);
+    ConfigStore::preflight_explicit_profile(&directory).unwrap();
+    assert_eq!(profile_files(&directory), before);
+    fs::remove_dir_all(directory).unwrap();
+}

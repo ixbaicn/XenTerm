@@ -89,6 +89,8 @@ static PINNED_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[path = "profile.rs"]
 mod profile;
+#[path = "profile_preflight.rs"]
+mod profile_preflight;
 pub use profile::{configure_profile, has_explicit_data_dir};
 
 /// The single directory holding all user data (sessions, encryption key,
@@ -810,6 +812,9 @@ impl ConfigStore {
         fs::create_dir_all(&config_dir)
             .with_context(|| format!("failed to create config dir {}", config_dir.display()))?;
 
+        if has_explicit_data_dir() {
+            Self::preflight_explicit_profile(&config_dir)?;
+        }
         let backup_dir = legacy_data_dir().filter(|dir| !has_explicit_data_dir() && dir != &config_dir);
         if let Some(ref backup) = backup_dir {
             restore_user_backup_if_needed(&config_dir, backup);

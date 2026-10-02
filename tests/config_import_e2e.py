@@ -185,7 +185,45 @@ def main():
             assert failed.returncode != 0
             assert source.read_bytes() == payload
             assert not list(broken_profile.glob("*.broken"))
+            assert not (broken_profile / "secret.key").exists()
+            assert not (broken_profile / "log").exists()
         print("PASS: corrupt explicit profiles fail without replacing the original files")
+
+        def profile_files(directory):
+            return {str(path.relative_to(directory)): path.read_bytes()
+                    for path in directory.rglob("*") if path.is_file()}
+
+        # Simulate an installed GUI profile. Startup rejection occurs before
+        # tracing or key creation, including for DBs that use WAL journaling.
+        for name, password, key in (
+                ("native-keyring", "keyring:v1", None),
+                ("native-encrypted", "enc:v1:synthetic-ciphertext", None),
+                ("native-wrong-key", "enc:v1:synthetic-ciphertext", bytes([99]) * 32),
+                ("db-keyring", "keyring:v1", None)):
+            candidate = root / name
+            candidate.mkdir()
+            settings = dict(defaults_rev=999, mcp_enabled=True, sessions=[])
+            imported = session("preflight", password=password)
+            if name.startswith("db-"):
+                with sqlite3.connect(candidate / "sessions.db") as connection:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                    connection.executescript("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE sessions(ordinal INTEGER,id TEXT PRIMARY KEY,data TEXT); CREATE TABLE command_history(seq INTEGER PRIMARY KEY,command TEXT);")
+                    connection.execute("INSERT INTO meta VALUES('settings',?)", [json.dumps(settings)])
+                    connection.execute("INSERT INTO sessions VALUES(0,'preflight',?)", [json.dumps(imported)])
+                connection.close()
+            else:
+                settings["sessions"] = [imported]
+                (candidate / "sessions.json").write_text(json.dumps(settings))
+            if key is not None:
+                (candidate / "secret.key").write_bytes(key)
+            before = profile_files(candidate)
+            failed = subprocess.run([str(exe), "--data-dir", str(candidate), "cli", "sessions", "--json"],
+                                    capture_output=True, text=True, timeout=30)
+            assert failed.returncode != 0 and "portable export" in failed.stderr
+            assert password not in failed.stdout + failed.stderr
+            assert profile_files(candidate) == before
+            assert not (candidate / "log").exists()
+        print("PASS: incompatible installed profiles fail before key, log, migration or SQLite writes")
 
 
 if __name__ == "__main__":

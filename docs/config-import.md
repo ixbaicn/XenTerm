@@ -28,7 +28,15 @@ profile before importing into it. The importer detects stale state during its
 own transaction, but existing GUI/background writers do not all perform that
 check: a later save from an already-open GUI can replace newer session state.
 Directory selection does not enforce exclusive use or provide a cross-process
-profile lock.
+profile lock. Pointing `--data-dir` at an installed profile backed by the OS
+keyring is unsupported. Startup checks reject keyring markers, encrypted values
+without a local key, and values that the local key cannot decrypt before creating
+keys, logs or database sidecars. Export from the original application and import
+that portable export into the service's separate directory instead. Plaintext
+legacy JSON can still initialize a new isolated profile. The check inspects a
+private temporary snapshot of SQLite and its WAL so that even a rejected WAL
+profile gets no new files. Repeated profile loads incur this read/copy overhead;
+the check is not a replacement for exclusive operational use of the directory.
 
 Session listing and inspection return connection metadata and boolean credential
 presence only. They omit passwords, private-key contents/paths, proxy URLs,
