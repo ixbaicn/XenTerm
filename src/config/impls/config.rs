@@ -2526,6 +2526,70 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         fs::write(path, raw).with_context(|| format!("failed to write {}", path.display()))?;
         Ok(count)
     }
+
+    /// Publish a complete, private portable export without replacing anything.
+    /// Unlike the GUI save dialog, an unattended CLI has no overwrite prompt.
+    #[cfg(unix)]
+    pub fn export_to_new(&self, path: &Path) -> Result<usize> {
+        use std::io::Write;
+
+        if path.as_os_str().is_empty()
+            || path.to_string_lossy().chars().any(char::is_control)
+            || path.file_name().is_none()
+        {
+            anyhow::bail!("export destination must be a nonempty valid file path");
+        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let (raw, count) = self.export_json()?;
+        if raw.len() > import::MAX_IMPORT_BYTES {
+            anyhow::bail!("portable export exceeds the 16 MiB import limit; no file was written");
+        }
+        // NamedTempFile uses mode 0600 on Unix. Stage in the same directory so
+        // native no-replace publication is atomic and also rejects symlinks.
+        let mut staged = tempfile::Builder::new()
+            .prefix(".xenterm-export-")
+            .tempfile_in(parent)
+            .context("cannot create private export file in destination directory")?;
+        Self::verify_private_export_file(staged.as_file())?;
+        staged
+            .write_all(raw.as_bytes())
+            .context("cannot write portable export")?;
+        staged
+            .as_file()
+            .sync_all()
+            .context("cannot flush portable export")?;
+        staged
+            .persist_noclobber(path)
+            .map_err(|error| error.error)
+            .context("cannot publish export; destination must not already exist")?;
+        Ok(count)
+    }
+
+    #[cfg(unix)]
+    fn verify_private_export_file(file: &fs::File) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Some mounted filesystems ignore creation mode. Check the opened file
+        // before placing any recoverable credential bytes in it.
+        let metadata = file
+            .metadata()
+            .context("cannot verify export file permissions")?;
+        if !metadata.is_file() || metadata.permissions().mode() & 0o077 != 0 {
+            anyhow::bail!("destination does not enforce private export file permissions; no credentials were written");
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    pub fn export_to_new(&self, _path: &Path) -> Result<usize> {
+        // Ordinary Windows file creation inherits destination ACLs. Do not
+        // promise a private export until a restrictive DACL is implemented and
+        // tested; refusing before serialization keeps secrets off shared disks.
+        anyhow::bail!("private CLI export is currently supported only on Unix; no file was written")
+    }
 }
 
 #[path = "import.rs"]
@@ -2551,6 +2615,46 @@ mod tests {
             keyring_enabled: false,
             saved_state: std::sync::Mutex::new(SavedState::of_cache(&ConfigFile::default())).into(),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_cli_export_rejects_oversized_output_before_creating_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized.json");
+        let mut store = temp_store();
+        let mut session = Session::new_empty();
+        session.note = "x".repeat(import::MAX_IMPORT_BYTES);
+        store.cache.sessions.push(session);
+        assert!(store
+            .export_to_new(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("16 MiB"));
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_cli_export_checks_effective_permissions_before_writing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let staged = tempfile::NamedTempFile::new().unwrap();
+        let file = staged.as_file();
+        ConfigStore::verify_private_export_file(file).unwrap();
+        file.set_permissions(fs::Permissions::from_mode(0o640))
+            .unwrap();
+        assert!(ConfigStore::verify_private_export_file(file).is_err());
+        assert_eq!(file.metadata().unwrap().len(), 0);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn private_cli_export_fails_closed_without_private_file_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unsupported.json");
+        assert!(temp_store().export_to_new(&path).is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     /// Read one session's raw at-rest JSON straight out of the store
