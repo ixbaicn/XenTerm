@@ -167,6 +167,7 @@ fn portable_roundtrip_preserves_every_supported_session_field_across_keys_and_di
             password: Secret::new(format!("synthetic-password-{id}")),
             private_key_path: format!("C:\\synthetic\\{id}.key"),
             private_key_inline: Secret::new(format!("synthetic-inline-key-{id}")),
+            allow_secret_reveal: true,
             proxy: format!("socks5h://fixture:synthetic-proxy-{id}%40:p@ss@127.0.0.1:1080"),
             jump_session_id: if id == "ssh-password" {
                 "ssh-interactive".into()
@@ -244,7 +245,10 @@ fn portable_roundtrip_preserves_every_supported_session_field_across_keys_and_di
     destination.save().unwrap();
     let preview = destination.import_json_preview(&export, true).unwrap();
     assert_eq!((preview.added, preview.skipped), (6, 0));
-    assert!(preview.warnings.is_empty());
+    assert_eq!(preview.warnings.len(), 1);
+    assert_eq!(preview.warnings[0].code, "local_permission_reset");
+    assert_eq!(preview.warnings[0].field, "allow_secret_reveal");
+    assert_eq!(preview.warnings[0].entries, 6);
     assert_eq!(
         destination.import_json_preview(&export, false).unwrap(),
         preview
@@ -270,6 +274,8 @@ fn portable_roundtrip_preserves_every_supported_session_field_across_keys_and_di
         }
         // Portable export intentionally drops machine-local recency.
         item.last_used = None;
+        // A portable file cannot grant the local GUI permission to reveal secrets.
+        item.allow_secret_reveal = false;
     }
     assert_eq!(
         serde_json::to_value(destination.sessions()).unwrap(),
@@ -322,12 +328,17 @@ fn portable_roundtrip_preserves_every_supported_session_field_across_keys_and_di
             .len(),
         2
     );
+    // Local opt-in survives reimport even when the source carries a different
+    // permission: this field is deliberately excluded from duplicate identity.
+    reloaded.cache.sessions[0].allow_secret_reveal = true;
+    reloaded.save().unwrap();
     let before_repeat = disk(&reloaded);
     assert_eq!(reloaded.import_json(&export).unwrap(), (0, 6));
     assert_eq!(disk(&reloaded), before_repeat);
     let (second_export, second_count) = reloaded.export_json().unwrap();
     assert_eq!(second_count, 6);
     assert_eq!(reloaded.import_json(&second_export).unwrap(), (0, 6));
+    assert!(reloaded.sessions()[0].allow_secret_reveal);
     cleanup(&source);
     cleanup(&reloaded);
 }
