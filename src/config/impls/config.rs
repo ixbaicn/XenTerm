@@ -2542,7 +2542,23 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         let parent = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
+            .unwrap_or_else(|| Path::new("."))
+            .canonicalize()
+            .context("cannot resolve export destination directory")?;
+        let profile = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .canonicalize()
+            .context("cannot resolve source profile directory")?;
+        if parent.starts_with(&profile) {
+            anyhow::bail!("export destination must be outside the source profile directory");
+        }
+        // Resolve existing ancestors once and use that resolved destination for
+        // both staging and publication. A symlink alias cannot bypass the
+        // profile boundary; existing files/hardlinks still fail no-clobber.
+        let destination = parent.join(path.file_name().expect("validated file name"));
         let (raw, count) = self.export_json()?;
         if raw.len() > import::MAX_IMPORT_BYTES {
             anyhow::bail!("portable export exceeds the 16 MiB import limit; no file was written");
@@ -2551,7 +2567,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         // native no-replace publication is atomic and also rejects symlinks.
         let mut staged = tempfile::Builder::new()
             .prefix(".xenterm-export-")
-            .tempfile_in(parent)
+            .tempfile_in(&parent)
             .context("cannot create private export file in destination directory")?;
         Self::verify_private_export_file(staged.as_file())?;
         staged
@@ -2562,7 +2578,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
             .sync_all()
             .context("cannot flush portable export")?;
         staged
-            .persist_noclobber(path)
+            .persist_noclobber(&destination)
             .map_err(|error| error.error)
             .context("cannot publish export; destination must not already exist")?;
         Ok(count)
@@ -2621,8 +2637,10 @@ mod tests {
     #[test]
     fn private_cli_export_rejects_oversized_output_before_creating_a_file() {
         let directory = tempfile::tempdir().unwrap();
+        let profile = tempfile::tempdir().unwrap();
         let path = directory.path().join("oversized.json");
         let mut store = temp_store();
+        store.path = profile.path().join("sessions.db");
         let mut session = Session::new_empty();
         session.note = "x".repeat(import::MAX_IMPORT_BYTES);
         store.cache.sessions.push(session);

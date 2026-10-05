@@ -95,6 +95,15 @@ def main():
             assert all(item["last_used"] is None for item in original["sessions"])
             if os.name == "posix":
                 assert export.stat().st_mode & 0o777 == 0o600
+            protected = source / "nested"
+            protected.mkdir()
+            for forbidden in (source / "new-export.json", protected / "new-export.json",
+                              source / ".." / "config" / "new-export.json"):
+                cli(source, "export", str(forbidden), "--include-credentials", ok=False)
+                assert not forbidden.exists()
+            sibling = root / "config-backup"
+            sibling.mkdir()
+            assert cli(source, "export", str(sibling / "allowed.json"), "--include-credentials", "--json")["exported"] == 6
             cli(source, "export", str(export), "--include-credentials", ok=False)
             assert export.read_bytes() == data
             if os.name == "posix":
@@ -107,8 +116,30 @@ def main():
                 dangling.symlink_to(missing)
                 cli(source, "export", str(dangling), "--include-credentials", ok=False)
                 assert dangling.is_symlink() and not missing.exists()
+                profile_alias = root / "profile-alias"
+                profile_alias.symlink_to(source, target_is_directory=True)
+                ancestor_alias = root / "ancestor-alias"
+                ancestor_alias.symlink_to(root, target_is_directory=True)
+                external_alias = root / "external-alias"
+                external_alias.symlink_to(sibling, target_is_directory=True)
+                assert cli(source, "export", str(external_alias / "allowed-alias.json"), "--include-credentials", "--json")["exported"] == 6
+                assert (sibling / "allowed-alias.json").is_file()
+                for forbidden in (profile_alias / "new-export.json",
+                                  profile_alias / "nested" / "new-export.json",
+                                  ancestor_alias / "config" / "new-export.json"):
+                    cli(source, "export", str(forbidden), "--include-credentials", ok=False)
+                    assert not forbidden.exists()
+                for name in ("secret.key", "sessions.db"):
+                    hardlink = root / ("existing-" + name)
+                    os.link(source / name, hardlink)
+                    contents = hardlink.read_bytes()
+                    cli(source, "export", str(hardlink), "--include-credentials", ok=False)
+                    assert hardlink.read_bytes() == contents
+                    assert (source / name).read_bytes() == contents
+            assert snapshot(source) == before
             assert not list(root.glob(".xenterm-export-*"))
             print("PASS: CLI requires credential opt-in; export is private, atomic, no-clobber and sessions-only")
+            print("PASS: profile/subdirectory/ancestor-symlink exports and existing key/database hardlinks are rejected")
 
             destination = root / "destination"
             destination.mkdir(mode=0o700)
