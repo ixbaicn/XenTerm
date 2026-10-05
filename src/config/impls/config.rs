@@ -2599,12 +2599,16 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         Ok(())
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    pub fn export_to_new(&self, path: &Path) -> Result<usize> {
+        windows_export::export(self, path)
+    }
+
+    #[cfg(not(any(unix, windows)))]
     pub fn export_to_new(&self, _path: &Path) -> Result<usize> {
-        // Ordinary Windows file creation inherits destination ACLs. Do not
-        // promise a private export until a restrictive DACL is implemented and
-        // tested; refusing before serialization keeps secrets off shared disks.
-        anyhow::bail!("private CLI export is currently supported only on Unix; no file was written")
+        // Unknown platforms cannot promise private creation permissions.
+        // Refusing before serialization keeps secrets off shared disks.
+        anyhow::bail!("private CLI export is unsupported on this platform; no file was written")
     }
 }
 
@@ -2616,6 +2620,9 @@ mod persistence;
 mod profile_io;
 #[path = "recovery.rs"]
 mod recovery;
+#[cfg(windows)]
+#[path = "windows_export.rs"]
+mod windows_export;
 
 #[cfg(test)]
 mod tests {
@@ -2633,7 +2640,7 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn private_cli_export_rejects_oversized_output_before_creating_a_file() {
         let directory = tempfile::tempdir().unwrap();
@@ -2666,7 +2673,7 @@ mod tests {
         assert_eq!(file.metadata().unwrap().len(), 0);
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[test]
     fn private_cli_export_fails_closed_without_private_file_permissions() {
         let directory = tempfile::tempdir().unwrap();
