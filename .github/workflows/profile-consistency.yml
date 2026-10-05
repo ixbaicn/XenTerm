@@ -31,3 +31,16 @@ jobs:
       # Uses the same stable/MSVC toolchain on Windows, with no GUI system
       # dependencies, credentials, publishing permissions, or real profiles.
       - run: cargo test --locked --no-default-features --features headless --jobs 2 config::config -- --nocapture
+      - uses: actions/setup-python@v5
+        if: runner.os == 'Windows'
+        with:
+          python-version: "3.12"
+      - name: Install synthetic Windows SSH fixture dependencies
+        if: runner.os == 'Windows'
+        run: python -m pip install cryptography paramiko
+      - name: Build Windows headless CLI fixture
+        if: runner.os == 'Windows'
+        run: cargo build --locked --no-default-features --features headless --jobs 2
+      - name: Windows portable export and import CLI E2E
+        if: runner.os == 'Windows'
+        run: python tests/config_export_e2e.py --exe target/debug/xenterm.exe
