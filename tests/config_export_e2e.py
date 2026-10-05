@@ -5,6 +5,7 @@ the same cryptography/paramiko dependencies as ssh_jump_chain_e2e.py.
 """
 import argparse
 import base64
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -39,7 +40,7 @@ def decoded(item, key, prefix):
 
 
 def snapshot(profile):
-    with sqlite3.connect(profile / "sessions.db") as db:
+    with contextlib.closing(sqlite3.connect(profile / "sessions.db")) as db, db:
         return tuple(tuple(db.execute(query).fetchall()) for query in (
             "SELECT key,value FROM meta ORDER BY key",
             "SELECT ordinal,id,data FROM sessions ORDER BY ordinal,id",
@@ -154,7 +155,7 @@ def main():
             source_key = (source / "secret.key").read_bytes()
             destination_key = (destination / "secret.key").read_bytes()
             assert source_key != destination_key
-            with sqlite3.connect(destination / "sessions.db") as db:
+            with contextlib.closing(sqlite3.connect(destination / "sessions.db")) as db, db:
                 rows = [json.loads(row[0]) for row in db.execute("SELECT data FROM sessions ORDER BY ordinal,id")]
             by_name = {item["name"]: item for item in rows}
             assert [item["name"] for item in rows] == [item["name"] for item in original["sessions"]]
