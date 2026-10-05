@@ -101,12 +101,40 @@ fn open_dialog(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
         fixture.input.read(cx).focus_handle(cx).focus(window, cx);
         fixture
     });
-    draw(cx);
     // Dialog entrance animation uses real Instant, not the test executor clock.
     // Pointer probes must start only after its bounds stop moving.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    draw(cx);
+    wait_for_stable_dialog_bounds(cx);
     (fixture, cx)
+}
+
+fn wait_for_stable_dialog_bounds(cx: &mut VisualTestContext) {
+    use std::time::{Duration, Instant};
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut previous = None;
+    let mut stable_samples = 0;
+    loop {
+        draw(cx);
+        let bounds = cx
+            .debug_bounds("parity-note")
+            .zip(cx.debug_bounds("parity-select"));
+        if bounds.is_some() && bounds == previous {
+            stable_samples += 1;
+            // Require several separately rendered samples, rather than one
+            // unchanged frame or a fixed guess at the animation duration.
+            if stable_samples == 3 {
+                return;
+            }
+        } else {
+            stable_samples = 0;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "dialog bounds did not stabilize: previous={previous:?}, current={bounds:?}"
+        );
+        previous = bounds;
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn draw(cx: &mut VisualTestContext) {
