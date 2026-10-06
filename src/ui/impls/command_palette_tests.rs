@@ -182,7 +182,11 @@ fn command_palette_wheel_reaches_and_executes_the_last_unfiltered_command(cx: &m
             && filtered.top() < last.top()
             && filtered.bottom() <= card.bottom()
     );
-    cx.simulate_keystrokes("ctrl-a backspace");
+    cx.simulate_keystrokes(if cfg!(target_os = "macos") {
+        "cmd-a backspace"
+    } else {
+        "ctrl-a backspace"
+    });
     draw(cx);
     let first = cx.debug_bounds("command-palette-row-QuickConnect").unwrap();
     assert!(first.top() >= card.top() && first.bottom() <= card.bottom());
