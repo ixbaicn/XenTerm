@@ -866,13 +866,22 @@ impl TerminalPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let was_active = self.active_tab.as_deref() == Some(tab_id);
+        self.close_tab(tab_id, cx);
+        if was_active {
+            self.focus_active_tab(window, cx);
+        }
+    }
+
+    /// Hand keyboard input to the tab selected by a user navigation action.
+    /// State-only activation and transport completion must not call this: a
+    /// settings field or modal can own focus while terminal state changes.
+    pub(crate) fn focus_active_tab(&self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::{Root, WindowExt as _};
         use gpui_kit::gpui::Focusable as _;
 
-        let was_active = self.active_tab.as_deref() == Some(tab_id);
-        self.close_tab(tab_id, cx);
-        if !was_active
-            || (window.root::<Root>().flatten().is_some() && window.has_active_dialog(cx))
+        if window.root::<Root>().flatten().is_some()
+            && (window.has_active_dialog(cx) || window.has_active_sheet(cx))
         {
             return;
         }
@@ -881,8 +890,8 @@ impl TerminalPage {
             .iter()
             .find(|tab| Some(tab.id.as_str()) == self.active_tab.as_deref())
         {
-            // Selecting the neighbour updates workspace state but not GPUI's
-            // input target. Move that target before subsequent keyboard input.
+            // Selecting a tab updates workspace state but not GPUI's input
+            // target. Hand it over once, before subsequent keyboard input.
             let focus = tab.view.read(cx).focus_handle(cx);
             window.focus(&focus, cx);
         }

@@ -1139,6 +1139,24 @@ impl Shell {
         });
     }
 
+    /// A user navigation request hands input to the selected terminal once.
+    /// Keep state-only callers, including reconnect, on `connect` so they do
+    /// not take focus from another page or a modal while updating a session.
+    fn connect_for_navigation(
+        &mut self,
+        tab_id: &str,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
+        self.connect(tab_id, session_id, cx);
+        if self.pages.active == PageId::Terminal && matches!(self.overlay, Overlay::None) {
+            self.pages.terminal.update(cx, |page, cx| {
+                page.focus_active_tab(window, cx);
+            });
+        }
+    }
+
     /// Point every follower that describes "the session showing" — the detached
     /// windows and the session list's highlight — at the tab the terminal page
     /// just made active.
@@ -1168,7 +1186,7 @@ impl Shell {
             };
             match action {
                 TerminalAction::Connect { tab_id, session_id } => {
-                    self.connect(&tab_id, &session_id, cx)
+                    self.connect_for_navigation(&tab_id, &session_id, window, cx)
                 }
                 TerminalAction::ActiveTabChanged(tab) => self.on_tab_change(tab, cx),
                 TerminalAction::OpenQuickManager => {
@@ -1367,7 +1385,7 @@ impl Shell {
             self._quick_connect_subscription = None;
             window.close_dialog(cx);
             self.pages.active = PageId::Terminal;
-            self.connect(&session_id, &session_id, cx);
+            self.connect_for_navigation(&session_id, &session_id, window, cx);
             cx.notify();
             return;
         }
@@ -1400,7 +1418,7 @@ impl Shell {
                     // opens in the terminal page, and that page is where the answer
                     // to "what happened" shows.
                     self.open_page(PageId::Terminal, window, cx);
-                    self.connect(&id, &id, cx);
+                    self.connect_for_navigation(&id, &id, window, cx);
                 }
                 SessionsAction::NewSession => self.open_editor(None, window, cx),
                 SessionsAction::Edit(id) => {
