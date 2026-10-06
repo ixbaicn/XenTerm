@@ -181,3 +181,42 @@ fn reordered_rows_in_sorted_groups_rebind_edit_and_delete_to_current_records(
         "A"
     );
 }
+
+#[gpui_kit::gpui::test]
+fn interleaved_group_move_keeps_the_editor_on_the_moved_command(cx: &mut TestAppContext) {
+    let (view, _directory, cx) = fixture(cx);
+    view.update(cx, |view, cx| {
+        view.store.borrow_mut().set_quick_commands(
+            [("A", "z-group"), ("B", "a-group"), ("C", "z-group")]
+                .into_iter()
+                .map(|(name, group)| QuickCommand {
+                    name: name.into(),
+                    command: format!("echo synthetic-{name}"),
+                    group: group.into(),
+                    send_enter: true,
+                })
+                .collect(),
+        );
+        cx.notify();
+    });
+    draw(cx);
+    row_click("quick-row-up", "quick-manager-row-2", cx);
+    assert_eq!(names(&view, cx), ["C", "B", "A"]);
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.name.read(cx).value().to_string()),
+        "C",
+        "move must keep editing its own command across intervening groups"
+    );
+    row_click("quick-row-down", "quick-manager-row-0", cx);
+    assert_eq!(names(&view, cx), ["A", "B", "C"]);
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.name.read(cx).value().to_string()),
+        "C"
+    );
+    row_click("quick-row-down", "quick-manager-row-2", cx);
+    assert_eq!(names(&view, cx), ["A", "B", "C"]);
+    assert_eq!(
+        view.read_with(cx, |view, cx| view.name.read(cx).value().to_string()),
+        "C"
+    );
+}
