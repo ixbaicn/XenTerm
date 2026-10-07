@@ -1,6 +1,7 @@
 //! Registered terminal key bindings and real clipboard routing, with no shell.
 use super::*;
 use gpui_kit::component::{Root, WindowExt as _};
+use gpui_kit::Subscription;
 use gpui_kit::gpui::{Entity, TestAppContext, VisualTestContext};
 
 // In toolkit 0.6 the application content renders the Root-owned dialog layer.
