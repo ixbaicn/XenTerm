@@ -451,3 +451,6 @@ fn entry_closing_inactive_x_preserves_active_terminal(cx: &mut TestAppContext) {
     assert_entry_input(&mut right, cx);
     assert!(raw_input(&mut left).is_empty());
 }
+
+#[path = "shell_tab_cycle_tests.rs"]
+mod tab_cycle_tests;
