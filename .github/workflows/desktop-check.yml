@@ -61,3 +61,9 @@ jobs:
           XDG_DATA_HOME: ${{ runner.temp }}/xenterm-gui-data
           XDG_RUNTIME_DIR: ${{ runner.temp }}/xenterm-gui-runtime
         run: cargo test --locked --target ${{ matrix.target }} --jobs 2 ui::dialog_parity_tests
+      - name: Test toolkit menu lifetime and input notifications
+        env:
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xenterm-gui-config
+          XDG_DATA_HOME: ${{ runner.temp }}/xenterm-gui-data
+          XDG_RUNTIME_DIR: ${{ runner.temp }}/xenterm-gui-runtime
+        run: cargo test --locked --target ${{ matrix.target }} --jobs 2 ui::toolkit_regression_tests -- --test-threads=1
