@@ -185,6 +185,9 @@ mod next_tab_tests {
 /// The terminal workspace.
 pub(crate) struct TerminalPage {
     state: crate::ui::SessionState,
+    /// The fallback keyboard target for the window. Shell keeps it mounted
+    /// across page changes so shortcuts work before the first pointer click.
+    shortcut_focus: gpui_kit::FocusHandle,
     /// The window's width, as the shell measured it this frame. The pane
     /// width is derived from it — see `render_workspace` for why a measurement
     /// would not do.
@@ -280,6 +283,11 @@ impl TerminalPage {
         cx: &mut Context<Self>,
     ) -> Self {
         let appearance = TerminalSettings::from_store(&state.store.borrow());
+        let shortcut_focus = cx.focus_handle();
+        if window.focused(cx).is_none() {
+            // Initial construction must not take focus from an existing input or modal.
+            window.focus(&shortcut_focus, cx);
+        }
 
         let sftp = cx.new(SftpPanelView::new);
         let sftp_collapsed = state.store.borrow().collapse_sftp_default();
@@ -346,6 +354,7 @@ impl TerminalPage {
 
         Self {
             state,
+            shortcut_focus,
             window_width,
             action,
             tabs: Vec::new(),
@@ -395,6 +404,12 @@ impl TerminalPage {
     pub(crate) fn request(&mut self, action: TerminalAction, cx: &mut Context<Self>) {
         *self.action.borrow_mut() = Some(action);
         cx.notify();
+    }
+
+    /// Shell hosts this handle on its persistent key-context node, including
+    /// while Settings or Sessions hide this page's own elements.
+    pub(crate) fn shortcut_focus_handle(&self) -> gpui_kit::FocusHandle {
+        self.shortcut_focus.clone()
     }
 
     /// The active tab's id, for the drains that act on "the session showing".
@@ -894,6 +909,9 @@ impl TerminalPage {
             // target. Hand it over once, before subsequent keyboard input.
             let focus = tab.view.read(cx).focus_handle(cx);
             window.focus(&focus, cx);
+        } else if self.tabs.is_empty() {
+            // Closing the last terminal returns to the same keyboard-ready landing view.
+            window.focus(&self.shortcut_focus, cx);
         }
     }
 
@@ -2358,4 +2376,42 @@ mod close_focus_tests {
         assert!(cx.update(|window, _| before.is_focused(window)));
         assert_eq!(fixture.page.read_with(cx, |page, _| page.tabs.len()), 1);
     }
+    // Closing a terminal releases its view while the page and App remain alive.
+    mod lifecycle_leak_tests {
+        use super::*;
+
+        fn closed_terminal_releases(keep_survivor: bool, cx: &mut TestAppContext) {
+            let (fixture, cx) = fixture(cx, if keep_survivor { 2 } else { 1 }, true);
+            let weak = fixture.page.read_with(cx, |page, _| {
+                page.tabs
+                    .iter()
+                    .find(|tab| tab.id.as_str() == "tab-0")
+                    .unwrap()
+                    .view
+                    .downgrade()
+            });
+            focus_tab(&fixture, "tab-0", cx);
+            cx.simulate_keystrokes("ctrl-shift-w");
+            draw(cx);
+            fixture.page.read_with(cx, |page, _| {
+                assert_eq!(page.tabs.len(), usize::from(keep_survivor));
+                assert!(!page.has_tab("tab-0"));
+            });
+            assert!(
+                weak.upgrade().is_none(),
+                "closed terminal must release while the page and App remain alive"
+            );
+        }
+
+        #[gpui_kit::gpui::test]
+        fn terminal_view_releases_after_active_tab_close_with_survivor(cx: &mut TestAppContext) {
+            closed_terminal_releases(true, cx);
+        }
+
+        #[gpui_kit::gpui::test]
+        fn terminal_view_releases_after_last_tab_close_while_app_stays_alive(cx: &mut TestAppContext) {
+            closed_terminal_releases(false, cx);
+        }
+    }
+
 }

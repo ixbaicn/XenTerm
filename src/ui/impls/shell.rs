@@ -948,8 +948,10 @@ impl Shell {
     fn render_body(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.pages.render_active();
         let nav = super::nav::render_nav_rail(self.pages.active, cx);
+        let shortcut_focus = self.pages.terminal.read(cx).shortcut_focus_handle();
 
         h_flex()
+            .track_focus(&shortcut_focus)
             .flex_1()
             .w_full()
             .min_h_0()
@@ -1118,8 +1120,20 @@ impl Shell {
     /// which is the whole point; the page being entered is built if this is its
     /// first visit.
     pub(crate) fn open_page(&mut self, id: PageId, window: &mut Window, cx: &mut Context<Self>) {
+        let changed = self.pages.active != id;
         self.pages.active = id;
         self.ensure_page(window, cx);
+        // Cached pages retain their input handles after their elements disappear.
+        // Explicit navigation hands input to the newly visible page; reselecting
+        // the same page preserves its current edit, and a modal keeps its focus.
+        if changed && !window.has_active_dialog(cx) && !window.has_active_sheet(cx) {
+            if id == PageId::Terminal {
+                self.pages.terminal.update(cx, |page, cx| page.focus_active_tab(window, cx));
+            } else {
+                let focus = self.pages.terminal.read(cx).shortcut_focus_handle();
+                window.focus(&focus, cx);
+            }
+        }
         cx.notify();
     }
 

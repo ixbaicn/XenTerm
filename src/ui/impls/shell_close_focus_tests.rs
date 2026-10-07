@@ -6,6 +6,16 @@ use gpui_kit::gpui::{TestAppContext, VisualTestContext};
 use std::sync::{Arc, Mutex};
 
 fn fixture(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext) {
+    let (shell, cx) = fixture_without_forced_focus(cx);
+    // The nav rail has real keyboard focus targets under the Shell key context.
+    // Focus one without invoking a click that could open another dialog.
+    cx.update(|window, cx| window.focus_next(cx));
+    draw(cx);
+    (shell, cx)
+}
+
+/// The actual empty-window construction path, without a test-only focus assignment.
+fn fixture_without_forced_focus(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::ui::actions::init(cx);
@@ -59,10 +69,6 @@ fn fixture(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext) {
         shell = Some(view.clone());
         Root::new(view, window, cx)
     });
-    draw(cx);
-    // The nav rail has real keyboard focus targets under the Shell key context.
-    // Focus one without invoking a click that could open another dialog.
-    cx.update(|window, cx| window.focus_next(cx));
     draw(cx);
     (shell.unwrap(), cx)
 }
@@ -451,3 +457,6 @@ fn entry_closing_inactive_x_preserves_active_terminal(cx: &mut TestAppContext) {
     assert_entry_input(&mut right, cx);
     assert!(raw_input(&mut left).is_empty());
 }
+
+#[path = "startup_shortcut_tests.rs"]
+mod startup_shortcut_tests;
