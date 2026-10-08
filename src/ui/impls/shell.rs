@@ -510,6 +510,10 @@ fn join_remote(dir: &str, name: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "group_dialog_tests.rs"]
+mod group_dialog_tests;
+
+#[cfg(test)]
 #[path = "command_palette_tests.rs"]
 mod command_palette_tests;
 
