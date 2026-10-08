@@ -510,6 +510,10 @@ fn join_remote(dir: &str, name: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "sftp_copy_path_tests.rs"]
+mod sftp_copy_path_tests;
+
+#[cfg(test)]
 #[path = "command_palette_tests.rs"]
 mod command_palette_tests;
 
