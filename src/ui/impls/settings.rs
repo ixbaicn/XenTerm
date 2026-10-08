@@ -29,10 +29,10 @@ use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
         h_flex,
-        input::{Input, InputEvent, InputState, Textarea, TextareaState},
+        input::{Input, InputEvent, InputState, MaskPattern, NumberInput, NumberInputEvent, StepAction, Textarea, TextareaState},
         setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
         switch::Switch,
-        ActiveTheme as _,
+        ActiveTheme as _, Disableable as _,
         v_flex, AxisExt as _, Icon, Sizable as _,
     },
     div,
@@ -46,6 +46,10 @@ use gpui_kit::{
 use gpui_kit::assets::IconName;
 
 use crate::config::ConfigStore;
+
+#[path = "settings_color.rs"]
+mod color;
+use color::CursorColorEditor;
 
 /// What the settings page asks the shell to do.
 ///
@@ -165,12 +169,14 @@ pub(crate) struct SettingsView {
     webdav_password_input: Option<Entity<InputState>>,
     _webdav_password_subscription: Option<Subscription>,
     /// Raw edits outlive page switches. Normalization belongs at a commit
-    /// boundary, not after each character of a colour or URL.
+    /// boundary, not after each character of a colour, URL or number.
     text_drafts: std::collections::HashMap<TextSetting, TextDraft>,
+    color_editor: Option<CursorColorEditor>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TextSetting {
+    Number(NumberSetting),
     CursorColor,
     WebdavUrl,
     WebdavUsername,
@@ -183,11 +189,68 @@ struct TextDraft {
     dirty: bool,
     error: Option<&'static str>,
     _subscription: Subscription,
+    _step_subscription: Option<Subscription>,
+}
+
+/// Numeric appearance settings share raw text drafts, while their existing
+/// ConfigStore setters remain the single authority for clamping saved values.
+/// Approval timeout and audit retention are separate policy controls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum NumberSetting {
+    PanelFont,
+    FontSize,
+    LineSpacing,
+    PanelHeight,
+}
+
+impl NumberSetting {
+    fn read(self, store: &ConfigStore) -> String {
+        match self {
+            Self::PanelFont => store.panel_font().to_string(),
+            Self::FontSize => store.font_size().to_string(),
+            // Format the stored f32 directly. Widening it to f64 first exposes
+            // representation noise such as 0.8999999761581421 in a small field.
+            Self::LineSpacing => store.terminal_line_spacing().to_string(),
+            Self::PanelHeight => store.quick_panel_height().to_string(),
+        }
+    }
+
+    fn parse(self, value: &str) -> Result<f64, &'static str> {
+        let integer = matches!(self, Self::PanelFont | Self::FontSize);
+        let value = value.trim().parse::<f64>().ok().filter(|value| {
+            value.is_finite() && (!integer || value.fract() == 0.)
+        });
+        value.ok_or_else(|| if integer {
+            crate::i18n::t("请输入整数。尚未保存。", "Enter a whole number. Not saved.")
+        } else {
+            crate::i18n::t("请输入有效数字。尚未保存。", "Enter a valid number. Not saved.")
+        })
+    }
+
+    fn apply(self, store: &mut ConfigStore, value: f64) {
+        match self {
+            Self::PanelFont => store.set_panel_font(value as u32),
+            Self::FontSize => store.set_font_size(value as u32),
+            Self::LineSpacing => store.set_terminal_line_spacing(value as f32),
+            Self::PanelHeight => store.set_quick_panel_height(value as f32),
+        }
+    }
+
+    fn stepped(self, raw: &str, action: StepAction) -> Result<String, &'static str> {
+        let value = self.parse(raw)?;
+        let amount = if self == Self::LineSpacing { 0.1 } else { 1. };
+        let next = value + if action == StepAction::Increment { amount } else { -amount };
+        // Commit through the store before formatting its f32 result; a finite
+        // out-of-range input must still reach the existing clamp, not become
+        // an invalid "inf" draft during an intermediate f32 conversion.
+        Ok(next.to_string())
+    }
 }
 
 impl TextSetting {
     fn read(self, store: &ConfigStore) -> String {
         match self {
+            Self::Number(kind) => kind.read(store),
             Self::CursorColor => store.terminal_cursor_color().to_string(),
             Self::WebdavUrl => store.webdav_url().to_string(),
             Self::WebdavUsername => store.webdav_username().to_string(),
@@ -196,12 +259,14 @@ impl TextSetting {
     }
 
     fn validate(self, value: &str) -> Result<(), &'static str> {
+        let raw = value;
         let value = value.trim();
         match self {
-            Self::CursorColor if !value.is_empty() && crate::config::hex_to_rgb(value).is_none() => {
+            Self::Number(kind) => kind.parse(value).map(|_| ()),
+            Self::CursorColor if !value.is_empty() && crate::config::color::ColorValue::parse(raw).is_err() => {
                 Err(crate::i18n::t(
-                    "请输入六位十六进制颜色（例如 #123456），或留空恢复默认。尚未保存。",
-                    "Enter six hexadecimal digits (for example #123456), or leave blank for the default. Not saved.",
+                    "请输入有效 HEX、RGB、HSL、HSV 或 CMYK 颜色，或留空恢复默认。尚未保存。",
+                    "Enter a valid HEX, RGB, HSL, HSV or CMYK colour, or leave blank for the default. Not saved.",
                 ))
             }
             Self::WebdavUrl if !value.is_empty() => {
@@ -222,15 +287,18 @@ impl TextSetting {
         }
     }
 
-    fn apply(self, store: &mut ConfigStore, value: String) {
+    fn apply(self, store: &mut ConfigStore, value: String) -> Result<(), &'static str> {
         match self {
+            Self::Number(kind) => kind.apply(store, kind.parse(&value).expect("validated numeric draft")),
             Self::CursorColor => {
                 if value.trim().is_empty() {
                     // Empty is the existing configuration's default-colour
                     // sentinel, as advertised by this field's description.
                     store.cache.terminal_cursor_color.clear();
                 } else {
-                    store.set_terminal_cursor_color(&value);
+                    if !store.set_terminal_cursor_color(&value) {
+                        return Err(crate::i18n::t("颜色无效，输入已保留。尚未保存。", "Invalid colour. Your input is kept; not saved."));
+                    }
                 }
             }
             _ => {
@@ -238,11 +306,12 @@ impl TextSetting {
                     Self::WebdavUrl => webdav_with_url(store, value),
                     Self::WebdavUsername => webdav_with_username(store, value),
                     Self::WebdavPath => webdav_with_remote_path(store, value),
-                    Self::CursorColor => unreachable!(),
+                    Self::CursorColor | Self::Number(_) => unreachable!(),
                 };
                 store.set_webdav_settings(enabled, url, user, password, path, certs);
             }
         }
+        Ok(())
     }
 }
 impl SettingsView {
@@ -259,12 +328,53 @@ impl SettingsView {
             webdav_password_input: None,
             _webdav_password_subscription: None,
             text_drafts: std::collections::HashMap::new(),
+            color_editor: None,
         }
     }
 
     /// Take the next action, if any.
     pub(crate) fn take_action(&mut self) -> Option<SettingsAction> {
         self.pending.take()
+    }
+
+    fn commit_text_draft(
+        &mut self,
+        kind: TextSetting,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.text_drafts.get(&kind).is_some_and(|draft| draft.dirty) { return; }
+        let value = input.read(cx).value().to_string();
+        let result = kind.validate(&value).and_then(|()| {
+            let mut store = self.store.borrow_mut();
+            let before = store.cache.clone();
+            if let Err(error) = kind.apply(&mut store, value) {
+                store.cache = before;
+                return Err(error);
+            }
+            if store.save().is_err() {
+                store.cache = before;
+                Err(crate::i18n::t(
+                    "保存失败，输入已保留。请检查配置文件后按 Enter 重试。",
+                    "Could not save. Your input is kept; check the profile and press Enter to retry.",
+                ))
+            } else { Ok(kind.read(&store)) }
+        });
+        let draft = self.text_drafts.get_mut(&kind).expect("registered draft");
+        match result {
+            Ok(saved) => {
+                draft.dirty = false;
+                draft.error = None;
+                draft.last_value = saved.clone();
+                input.update(cx, |input, cx| input.set_value(saved, window, cx));
+            }
+            Err(error) => draft.error = Some(error),
+        }
+        if kind == TextSetting::CursorColor && !self.text_drafts[&kind].dirty {
+            self.remember_applied_cursor_color();
+        }
+        cx.notify();
     }
 
     fn text_field(
@@ -275,7 +385,19 @@ impl SettingsView {
     ) -> SettingField<SharedString> {
         if !self.text_drafts.contains_key(&kind) {
             let initial = kind.read(&self.store.borrow());
-            let input = cx.new(|cx| InputState::new(window, cx).default_value(initial.clone()));
+            let input = cx.new(|cx| {
+                let mut input = InputState::new(window, cx).default_value(initial.clone());
+                if kind == TextSetting::CursorColor {
+                    input = input.placeholder(crate::i18n::t("留空使用默认颜色；自动识别输入格式", "Empty uses the default; input format is detected"));
+                }
+                if matches!(kind, TextSetting::Number(_)) {
+                    // Keep incomplete/invalid edits verbatim until commit. The
+                    // default NumberInput mask otherwise reformats partial input.
+                    input = input.mask_pattern(MaskPattern::None);
+                    input.set_step(None, window, cx);
+                }
+                input
+            });
             let subscription = cx.subscribe_in(&input, window, move |view, input, event: &InputEvent, window, cx| {
                 match event {
                     InputEvent::Change => {
@@ -288,39 +410,41 @@ impl SettingsView {
                         draft.last_value = value;
                         draft.dirty = true;
                         draft.error = None;
-                        cx.notify();
-                    }
-                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
-                        let dirty = view.text_drafts.get(&kind).is_some_and(|draft| draft.dirty);
-                        if !dirty { return; }
-                        let value = input.read(cx).value().to_string();
-                        let result = kind.validate(&value).and_then(|()| {
-                            let mut store = view.store.borrow_mut();
-                            let before = store.cache.clone();
-                            kind.apply(&mut store, value);
-                            if store.save().is_err() {
-                                store.cache = before;
-                                Err(crate::i18n::t(
-                                    "保存失败，输入已保留。请检查配置文件后按 Enter 重试。",
-                                    "Could not save. Your input is kept; check the profile and press Enter to retry.",
-                                ))
-                            } else { Ok(kind.read(&store)) }
-                        });
-                        let draft = view.text_drafts.get_mut(&kind).expect("registered draft");
-                        match result {
-                            Ok(saved) => {
-                                draft.dirty = false;
-                                draft.error = None;
-                                draft.last_value = saved.clone();
-                                input.update(cx, |input, cx| input.set_value(saved, window, cx));
-                            }
-                            Err(error) => draft.error = Some(error),
+                        if kind == TextSetting::CursorColor {
+                            view.sync_cursor_picker(window, cx);
                         }
                         cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        view.commit_text_draft(kind, &input, window, cx);
+                    }
+                    InputEvent::Blur if kind != TextSetting::CursorColor => {
+                        view.commit_text_draft(kind, &input, window, cx);
                     }
                     _ => {}
                 }
             });
+            let step_subscription = if let TextSetting::Number(number) = kind {
+                Some(cx.subscribe_in(&input, window, move |view, input, event: &NumberInputEvent, window, cx| {
+                    let NumberInputEvent::Step(action) = event;
+                    let raw = input.read(cx).value().to_string();
+                    match number.stepped(&raw, *action) {
+                        Ok(next) => {
+                            let draft = view.text_drafts.get_mut(&kind).expect("registered numeric draft");
+                            draft.last_value = next.clone();
+                            draft.dirty = true;
+                            draft.error = None;
+                            input.update(cx, |input, cx| input.set_value(next, window, cx));
+                            // A step is an explicit commit, unlike a typed digit.
+                            view.commit_text_draft(kind, &input, window, cx);
+                        }
+                        Err(error) => {
+                            view.text_drafts.get_mut(&kind).expect("registered numeric draft").error = Some(error);
+                            cx.notify();
+                        }
+                    }
+                }))
+            } else { None };
             self.text_drafts.insert(
                 kind,
                 TextDraft {
@@ -329,11 +453,12 @@ impl SettingsView {
                     dirty: false,
                     error: None,
                     _subscription: subscription,
+                    _step_subscription: step_subscription,
                 },
             );
         }
         let draft = self.text_drafts.get_mut(&kind).expect("created above");
-        if !draft.dirty {
+        if !draft.dirty && kind != TextSetting::CursorColor {
             let saved = kind.read(&self.store.borrow());
             if draft.input.read(cx).value().as_ref() != saved {
                 draft.last_value = saved.clone();
@@ -353,17 +478,25 @@ impl SettingsView {
                     .gap_1()
                     .map(|this| {
                         if options.layout().is_horizontal() {
-                            this.w_64()
+                            if matches!(kind, TextSetting::Number(_)) { this.w_32() } else { this.w_64() }
                         } else {
                             this.w_full()
                         }
                     })
-                    .child(
-                        Input::new(&input)
+                    .child(if let TextSetting::Number(number) = kind {
+                        div()
+                            .debug_selector(move || format!("settings-number-{number:?}"))
                             .w_full()
+                            .child(NumberInput::new(&input)
+                                .w_full()
+                                .disabled(options.is_disabled())
+                                .with_size(options.size()))
+                            .into_any_element()
+                    } else {
+                        Input::new(&input).w_full()
                             .disabled(options.is_disabled())
-                            .with_size(options.size()),
-                    )
+                            .with_size(options.size()).into_any_element()
+                    })
                     .child(
                         div()
                             .text_xs()
@@ -373,6 +506,9 @@ impl SettingsView {
                                 cx.theme().muted_foreground
                             })
                             .child(error.unwrap_or_else(|| {
+                                if matches!(kind, TextSetting::Number(_)) {
+                                    return crate::i18n::t("回车或离开保存。", "Enter or leave to save.");
+                                }
                                 crate::i18n::t(
                                     "按 Enter 或离开输入框保存。",
                                     "Press Enter or leave the field to save.",
@@ -434,6 +570,7 @@ impl Render for SettingsView {
             let is_active = this.selected == selected;
             h_flex()
                 .id(SharedString::from(format!("settings-nav-{selected:?}")))
+                .debug_selector(move || format!("settings-nav-{selected:?}"))
                 .h_7()
                 .w_full()
                 .flex_shrink_0()
@@ -746,21 +883,7 @@ impl SettingsView {
                 },
             )
         };
-        let store_for_panel = store.clone();
-        let panel_font = {
-            let current = store.borrow().panel_font();
-            SettingField::number_input(
-                Default::default(),
-                move |_| f64::from(current),
-                move |value, _| {
-                    persist(
-                        &store_for_panel,
-                        |s| s.set_panel_font(value as u32),
-                        "the panel font size",
-                    )
-                },
-            )
-        };
+        let panel_font = self.text_field(TextSetting::Number(NumberSetting::PanelFont), window, cx);
 
         let store_for_lang = store.clone();
         let language = {
@@ -1244,24 +1367,8 @@ impl SettingsView {
             },
         );
 
-        let store_for_font = store.clone();
-        let font_size = {
-            let current = store.borrow().font_size();
-            // The widget works in `f64`; the config stores whole pixels. The `as u32` on
-            // the way back is a truncation of a value that has no fractional part to
-            // lose — a terminal font size is a whole number of pixels.
-            SettingField::number_input(
-                Default::default(),
-                move |_| f64::from(current),
-                move |value, _| {
-                    persist(
-                        &store_for_font,
-                        |s| s.set_font_size(value as u32),
-                        "the terminal font size",
-                    )
-                },
-            )
-        };
+        // Whole-pixel validation waits until the complete draft is committed.
+        let font_size = self.text_field(TextSetting::Number(NumberSetting::FontSize), window, cx);
 
         let store_for_bold = store.clone();
         let font_bold = {
@@ -1293,21 +1400,7 @@ impl SettingsView {
             )
         };
 
-        let store_for_spacing = store.clone();
-        let line_spacing = {
-            let current = f64::from(store.borrow().terminal_line_spacing());
-            SettingField::number_input(
-                Default::default(),
-                move |_| current,
-                move |value, _| {
-                    persist(
-                        &store_for_spacing,
-                        |s| s.set_terminal_line_spacing(value as f32),
-                        "the terminal line spacing",
-                    )
-                },
-            )
-        };
+        let line_spacing = self.text_field(TextSetting::Number(NumberSetting::LineSpacing), window, cx);
 
         let store_for_cursor = store.clone();
         let cursor_style = {
@@ -1338,9 +1431,9 @@ impl SettingsView {
             )
         };
 
-        // The store refuses partial hex colours. Keep that safety boundary,
-        // but retain incomplete text until the user commits the field.
-        let cursor_color = self.text_field(TextSetting::CursorColor, window, cx);
+        // The existing picker and text formats share one uncommitted draft.
+        // Leaving a field or popup never commits a colour before Cancel can run.
+        let cursor_color = self.cursor_color_field(window, cx);
 
         let font_group = SettingGroup::new()
             .title(crate::i18n::t("字体", "Font"))
@@ -1414,10 +1507,10 @@ impl SettingsView {
                 ),
             )
             .item(
-                SettingItem::new(crate::i18n::t("颜色", "Colour"), cursor_color).description(
+                SettingItem::new(crate::i18n::t("颜色", "Colour"), cursor_color).layout(Axis::Vertical).description(
                     crate::i18n::t(
-                        "十六进制颜色,如 #2D2D2F。留空为默认的浅白色。",
-                        "A hex colour such as #2D2D2F. Empty means the default light grey.",
+                        "选色或输入 HEX、RGB、HSL、HSV、CMYK。透明度只作用于光标；留空使用默认。",
+                        "Pick or enter HEX, RGB, HSL, HSV or CMYK. Alpha affects only the cursor; empty uses the default.",
                     ),
                 ),
             );
@@ -1466,21 +1559,7 @@ impl SettingsView {
         // Read per frame by the shell, so a change is visible without
         // reopening anything; the dock's top edge is draggable too, and both
         // doors write the same setting.
-        let store_for_panel_height = store.clone();
-        let panel_height = {
-            let current = f64::from(store.borrow().quick_panel_height());
-            SettingField::number_input(
-                Default::default(),
-                move |_| current,
-                move |value, _| {
-                    persist(
-                        &store_for_panel_height,
-                        |s| s.set_quick_panel_height(value as f32),
-                        "the panel strip's height",
-                    )
-                },
-            )
-        };
+        let panel_height = self.text_field(TextSetting::Number(NumberSetting::PanelHeight), window, cx);
         let download_group = SettingGroup::new()
             .title(crate::i18n::t("下载", "Downloads"))
             .item(
