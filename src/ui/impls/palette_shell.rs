@@ -151,22 +151,19 @@ impl Shell {
                     .update(cx, |page, cx| page.split_active_tab(true, cx));
             }
             CommandId::CloseTab => {
+                let terminal_visible = self.pages.active == PageId::Terminal;
                 self.pages.terminal.update(cx, |page, cx| {
                     if let Some(id) = page.active_tab_id() {
-                        page.close_tab(&id, cx);
+                        if terminal_visible {
+                            page.close_tab_and_focus(&id, window, cx);
+                        } else {
+                            page.close_tab(&id, cx);
+                        }
                     }
                 });
             }
-            CommandId::NextTab => {
-                self.pages
-                    .terminal
-                    .update(cx, |page, cx| page.cycle_tab(false, cx));
-            }
-            CommandId::PrevTab => {
-                self.pages
-                    .terminal
-                    .update(cx, |page, cx| page.cycle_tab(true, cx));
-            }
+            CommandId::NextTab => self.cycle_terminal_tab(false, window, cx),
+            CommandId::PrevTab => self.cycle_terminal_tab(true, window, cx),
             CommandId::Reconnect => self.reconnect_ended_session(cx),
             CommandId::ToggleDock => {
                 self.pages.terminal.update(cx, |page, cx| {
