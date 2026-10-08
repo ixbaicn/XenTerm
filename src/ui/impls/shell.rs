@@ -948,8 +948,10 @@ impl Shell {
     fn render_body(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.pages.render_active();
         let nav = super::nav::render_nav_rail(self.pages.active, cx);
+        let shortcut_focus = self.pages.terminal.read(cx).shortcut_focus_handle();
 
         h_flex()
+            .track_focus(&shortcut_focus)
             .flex_1()
             .w_full()
             .min_h_0()
@@ -990,10 +992,15 @@ impl Shell {
                     .terminal
                     .update(cx, |page, cx| page.cycle_tab(true, cx));
             }))
-            .on_action(cx.listener(|this, _: &crate::ui::CloseTab, _, cx| {
+            .on_action(cx.listener(|this, _: &crate::ui::CloseTab, window, cx| {
+                let terminal_visible = this.pages.active == PageId::Terminal;
                 this.pages.terminal.update(cx, |page, cx| {
                     if let Some(id) = page.active_tab_id() {
-                        page.close_tab(&id, cx);
+                        if terminal_visible {
+                            page.close_tab_and_focus(&id, window, cx);
+                        } else {
+                            page.close_tab(&id, cx);
+                        }
                     }
                 });
             }))
@@ -1113,8 +1120,20 @@ impl Shell {
     /// which is the whole point; the page being entered is built if this is its
     /// first visit.
     pub(crate) fn open_page(&mut self, id: PageId, window: &mut Window, cx: &mut Context<Self>) {
+        let changed = self.pages.active != id;
         self.pages.active = id;
         self.ensure_page(window, cx);
+        // Cached pages retain their input handles after their elements disappear.
+        // Explicit navigation hands input to the newly visible page; reselecting
+        // the same page preserves its current edit, and a modal keeps its focus.
+        if changed && !window.has_active_dialog(cx) && !window.has_active_sheet(cx) {
+            if id == PageId::Terminal {
+                self.pages.terminal.update(cx, |page, cx| page.focus_active_tab(window, cx));
+            } else {
+                let focus = self.pages.terminal.read(cx).shortcut_focus_handle();
+                window.focus(&focus, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -1132,6 +1151,24 @@ impl Shell {
                 page.open_session_tab(tab_id, session_id, cx)
             }
         });
+    }
+
+    /// A user navigation request hands input to the selected terminal once.
+    /// Keep state-only callers, including reconnect, on `connect` so they do
+    /// not take focus from another page or a modal while updating a session.
+    fn connect_for_navigation(
+        &mut self,
+        tab_id: &str,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
+        self.connect(tab_id, session_id, cx);
+        if self.pages.active == PageId::Terminal && matches!(self.overlay, Overlay::None) {
+            self.pages.terminal.update(cx, |page, cx| {
+                page.focus_active_tab(window, cx);
+            });
+        }
     }
 
     /// Point every follower that describes "the session showing" — the detached
@@ -1163,7 +1200,7 @@ impl Shell {
             };
             match action {
                 TerminalAction::Connect { tab_id, session_id } => {
-                    self.connect(&tab_id, &session_id, cx)
+                    self.connect_for_navigation(&tab_id, &session_id, window, cx)
                 }
                 TerminalAction::ActiveTabChanged(tab) => self.on_tab_change(tab, cx),
                 TerminalAction::OpenQuickManager => {
@@ -1364,7 +1401,7 @@ impl Shell {
             self._quick_connect_subscription = None;
             window.close_dialog(cx);
             self.pages.active = PageId::Terminal;
-            self.connect(&session_id, &session_id, cx);
+            self.connect_for_navigation(&session_id, &session_id, window, cx);
             cx.notify();
             return;
         }
@@ -1397,7 +1434,7 @@ impl Shell {
                     // opens in the terminal page, and that page is where the answer
                     // to "what happened" shows.
                     self.open_page(PageId::Terminal, window, cx);
-                    self.connect(&id, &id, cx);
+                    self.connect_for_navigation(&id, &id, window, cx);
                 }
                 SessionsAction::NewSession => self.open_editor(None, window, cx),
                 SessionsAction::Edit(id) => {
@@ -2841,3 +2878,7 @@ impl<T: TabFollower> Detached<T> {
         let _ = handle.update(cx, |_, window, _| window.set_window_title(&title(&host)));
     }
 }
+
+#[cfg(test)]
+#[path = "shell_close_focus_tests.rs"]
+mod shell_close_focus_tests;
