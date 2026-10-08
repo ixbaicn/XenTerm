@@ -510,6 +510,10 @@ fn join_remote(dir: &str, name: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "rule_dialog_tests.rs"]
+mod rule_dialog_tests;
+
+#[cfg(test)]
 #[path = "command_palette_tests.rs"]
 mod command_palette_tests;
 
@@ -2281,6 +2285,9 @@ impl Shell {
             match action {
                 RuleEditorAction::Saved => {
                     self.overlay = Overlay::None;
+                    // Retire the visible form with its owner state; otherwise its
+                    // Add button can save the same draft again after this drain stops.
+                    window.close_dialog(cx);
                     self.say(crate::i18n::t("已添加高亮规则", "Highlight rule added"), cx);
                 }
             }
