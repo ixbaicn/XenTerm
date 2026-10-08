@@ -510,6 +510,10 @@ fn join_remote(dir: &str, name: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "quick_popover_tests.rs"]
+mod quick_popover_tests;
+
+#[cfg(test)]
 #[path = "command_palette_tests.rs"]
 mod command_palette_tests;
 
