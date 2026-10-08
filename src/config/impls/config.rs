@@ -1999,11 +1999,25 @@ impl ConfigStore {
         self.cache.groups.dedup();
     }
 
+    /// Session identifiers cannot address application-owned credential accounts.
+    fn is_safe_session_id(session_id: &str) -> bool {
+        let normalized = session_id.trim();
+        !normalized.is_empty()
+            && !session_id.chars().any(char::is_control)
+            && normalized.to_uppercase().to_lowercase() != Self::MASTER_KEY_ACCOUNT
+    }
+
     /// The OS keyring entry for a session's password: Windows Credential
     /// Manager, macOS Keychain, or the Linux Secret Service, whichever the
-    /// platform offers. The account is the session id, so a rename never
-    /// orphans the secret and a duplicate never collides.
+    /// platform offers. The account is the session id, so a display-name change
+    /// never orphans the secret.
     fn keyring_entry(session_id: &str) -> Result<keyring::Entry, keyring::Error> {
+        if !Self::is_safe_session_id(session_id) {
+            return Err(keyring::Error::Invalid(
+                "user".into(),
+                "reserved or invalid session identifier".into(),
+            ));
+        }
         keyring::Entry::new(Self::KEYRING_SERVICE, session_id)
     }
 
@@ -2022,7 +2036,7 @@ impl ConfigStore {
     /// missing or unreachable entry answers None, and the caller falls back
     /// to the interactive prompt as though no password were saved.
     pub fn keyring_password(&self, session_id: &str) -> Option<String> {
-        if !self.keyring_enabled {
+        if !self.keyring_enabled || !Self::is_safe_session_id(session_id) {
             return None;
         }
         match Self::keyring_entry(session_id).and_then(|entry| entry.get_password()) {
@@ -2187,10 +2201,9 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         } else {
             for id in &plan.sessions {
                 match cache.sessions.iter().position(|s| &s.id == id) {
-                    Some(ordinal) => Self::upsert_session_row(
-                        &tx,
-                        ordinal,
-                        &cache.sessions[ordinal],
+                    Some(index) => Self::upsert_session_row_preserving_order(
+                        tx,
+                        &cache.sessions[index],
                         key,
                         credentials.contains_key(id),
                     )?,
@@ -2219,12 +2232,56 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         key: [u8; 32],
         keyring_enabled: bool,
     ) -> Result<()> {
+        let ordinal = i64::try_from(ordinal).context("session display order exceeds its limit")?;
+        Self::upsert_session_row_at_ordinal(tx, ordinal, session, key, keyring_enabled)
+    }
+
+    /// Partial writes must retain the actual stored order. Imported/legacy stores
+    /// may have sparse, tied or negative ordinals; cache indices are not their
+    /// persisted ordinals. New rows go after every existing row, without touching
+    /// destination-only rows or silently wrapping at SQLite's integer limit.
+    fn upsert_session_row_preserving_order(
+        tx: &rusqlite::Transaction<'_>,
+        session: &Session,
+        key: [u8; 32],
+        keyring_enabled: bool,
+    ) -> Result<()> {
+        let existing: Option<i64> = tx
+            .query_row(
+                "SELECT ordinal FROM sessions WHERE id = ?1",
+                [&session.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let ordinal = match existing {
+            Some(ordinal) => ordinal,
+            None => {
+                let maximum: Option<i64> =
+                    tx.query_row("SELECT MAX(ordinal) FROM sessions", [], |row| row.get(0))?;
+                match maximum {
+                    Some(maximum) => maximum.checked_add(1).ok_or_else(|| {
+                        anyhow::anyhow!("session display order exceeds its limit")
+                    })?,
+                    None => 0,
+                }
+            }
+        };
+        Self::upsert_session_row_at_ordinal(tx, ordinal, session, key, keyring_enabled)
+    }
+
+    fn upsert_session_row_at_ordinal(
+        tx: &rusqlite::Transaction<'_>,
+        ordinal: i64,
+        session: &Session,
+        key: [u8; 32],
+        keyring_enabled: bool,
+    ) -> Result<()> {
         let mut disk = session.clone();
         Self::session_to_disk_form(&mut disk, &key, keyring_enabled)?;
         tx.execute(
             "INSERT INTO sessions(ordinal, id, data) VALUES(?1, ?2, ?3) \
              ON CONFLICT(id) DO UPDATE SET ordinal = excluded.ordinal, data = excluded.data",
-            rusqlite::params![ordinal as i64, disk.id, serde_json::to_string(&disk)?],
+            rusqlite::params![ordinal, disk.id, serde_json::to_string(&disk)?],
         )?;
         Ok(())
     }
@@ -2288,6 +2345,12 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
     /// keyring entry degrades to "no saved password" — the interactive prompt
     /// takes over, which is what an unsaved password means.
     fn session_from_disk_form(session: &mut Session, key: &[u8; 32]) {
+        if session.password.as_str() == Self::KEYRING_MARKER
+            && !Self::is_safe_session_id(&session.id)
+        {
+            // Invalid legacy identifiers never participate in credential lookup.
+            session.password = Secret::default();
+        }
         if session.password.as_str() == Self::KEYRING_MARKER {
             let credential = if !cfg!(feature = "desktop") || has_explicit_data_dir() {
                 Err(keyring::Error::NoEntry)
@@ -2545,6 +2608,8 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
 
 #[path = "import.rs"]
 mod import;
+#[path = "native_sync.rs"]
+mod native_sync;
 #[path = "persistence.rs"]
 mod persistence;
 #[path = "profile_io.rs"]
@@ -2566,6 +2631,56 @@ mod tests {
             keyring_enabled: false,
             saved_state: std::sync::Mutex::new(SavedState::of_cache(&ConfigFile::default())).into(),
         }
+    }
+
+    #[test]
+    fn session_credential_access_rejects_reserved_and_control_identifiers() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let master = "synthetic-private-master-account";
+        ConfigStore::master_key_entry()
+            .unwrap()
+            .set_password(master)
+            .unwrap();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        fake_keyring::reset_writes();
+        for id in [
+            "master-key",
+            "MASTER-KEY",
+            " master-key ",
+            "maſter-key",
+            "master-Key",
+            "master-key.xenterm\0suffix",
+            "fixture\nidentifier",
+            "\0",
+            " ",
+        ] {
+            assert!(!ConfigStore::is_safe_session_id(id));
+            assert!(ConfigStore::keyring_entry(id).is_err());
+            assert!(ConfigStore::read_keyring_password(id).is_err());
+            assert!(ConfigStore::keyring_set_password(id, "synthetic replacement").is_err());
+            assert!(ConfigStore::keyring_set_password(id, "").is_err());
+            assert!(ConfigStore::restore_keyring_password(id, None).is_err());
+            assert!(store.keyring_password(id).is_none());
+            let mut session = Session::new_empty();
+            session.id = id.into();
+            session.password = Secret::new(ConfigStore::KEYRING_MARKER);
+            ConfigStore::session_from_disk_form(&mut session, &store.key);
+            assert!(session.password.is_empty());
+            assert_eq!(
+                fake_keyring::get(
+                    ConfigStore::KEYRING_SERVICE,
+                    ConfigStore::MASTER_KEY_ACCOUNT
+                )
+                .as_deref(),
+                Some(master)
+            );
+        }
+        assert_eq!(fake_keyring::write_count(), 0);
+        assert!(ConfigStore::is_safe_session_id("synthetic-session-id"));
+        fake_keyring::clear();
     }
 
     /// Read one session's raw at-rest JSON straight out of the store
