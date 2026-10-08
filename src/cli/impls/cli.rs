@@ -32,7 +32,11 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             let dry_run = args[4..].iter().any(|arg| arg == "--dry-run");
             if args[4..].iter().any(|arg| arg == "--preserve-ids") {
                 require_independent_migration_profile(crate::config::has_explicit_data_dir())?;
-                let mut store = crate::config::ConfigStore::load()?;
+                let mut store = if dry_run {
+                    crate::config::ConfigStore::load_migration_preview()?
+                } else {
+                    crate::config::ConfigStore::load()?
+                };
                 let summary = store.import_from_preserving_ids(Path::new(path), dry_run)?;
                 let mut value = serde_json::to_value(summary)?;
                 value["dry_run"] = json!(dry_run);
@@ -62,8 +66,12 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
                     "unknown sync-native option (expected --dry-run or --json)"
                 ));
             }
-            let mut store = crate::config::ConfigStore::load()?;
             let dry_run = args[4..].iter().any(|arg| arg == "--dry-run");
+            let mut store = if dry_run {
+                crate::config::ConfigStore::load_migration_preview()?
+            } else {
+                crate::config::ConfigStore::load()?
+            };
             let (updated, added) = store.sync_native_snapshot_preview(Path::new(path), dry_run)?;
             json!({ "updated": updated, "added": added, "dry_run": dry_run })
         }

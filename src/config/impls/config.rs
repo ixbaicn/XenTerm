@@ -733,6 +733,44 @@ impl ConfigStore {
 
     // ── Public API ────────────────────────────────────────────────────────
 
+    /// Load only the effective in-memory configuration for CLI migration
+    /// previews. No directories, keys, locks, databases or migrations are
+    /// persisted; callers must pass dry_run to the migration operation too.
+    pub(crate) fn load_migration_preview() -> Result<Self> {
+        use rand::RngCore as _;
+        let directory = PINNED_DATA_DIR.get().context(
+            "migration previews require an explicitly selected independent --data-dir profile",
+        )?;
+        let (snapshot, key) = Self::inspect_explicit_profile(directory, true)?;
+        let key = key.unwrap_or_else(|| {
+            // Only an ephemeral in-memory key: a new profile has no native
+            // ciphertext to decrypt and preview must not initialize credentials.
+            let mut key = [0u8; 32];
+            OsRng.fill_bytes(&mut key);
+            key
+        });
+        let mut cache = snapshot.unwrap_or_else(fresh_config);
+        for session in &mut cache.sessions {
+            Self::session_from_disk_form(session, &key);
+        }
+        if let Some(plain) = Self::try_decrypt(&key, cache.webdav_password.as_str()) {
+            cache.webdav_password = Secret::new(plain);
+        }
+        // Match load's effective legacy/default migrations, entirely in memory.
+        dedup_keep_last(&mut cache.command_history);
+        normalize_reserved_session_groups(&mut cache);
+        migrate_defaults(&mut cache);
+        let saved_state = SavedState::of_cache(&cache);
+        Ok(Self {
+            path: directory.join("sessions.db"),
+            backup_dir: None,
+            cache,
+            key,
+            keyring_enabled: false,
+            saved_state: std::sync::Mutex::new(saved_state).into(),
+        })
+    }
+
     /// Load (or initialise) the config store. Read/locking failures preserve
     /// the original database instead of treating an active profile as corrupt.
     /// Legacy JSON is archived only after its optimistic migration commits.
