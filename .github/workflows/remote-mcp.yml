@@ -22,6 +22,7 @@ jobs:
         run: env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy cargo test --locked --no-default-features --features headless
       - run: cargo build --locked --no-default-features --features headless
       - run: python tests/config_import_e2e.py --exe target/debug/xenterm
+      - run: python tests/cli_exec_e2e.py --exe target/debug/xenterm
       - run: python tests/ssh_jump_chain_e2e.py --exe target/debug/xenterm
       - run: python tests/ssh_jump_chain_e2e.py --exe target/debug/xenterm --stage-timeouts
       - run: python tests/stdio_mcp_e2e.py --exe target/debug/xenterm
