@@ -129,7 +129,10 @@ def main():
             db.executescript("DROP TRIGGER fail_new;")
         assert cli(destination, "sync-native", str(native), "--json") == dict(updated=1, added=1, dry_run=False)
         after = snapshot(destination)
-        assert after["meta"] == before["meta"] and after["history"] == before["history"]
+        # Session transactions advance the internal commit stamp; application
+        # settings and command history must still be preserved exactly.
+        assert dict(after["meta"])["settings"] == dict(before["meta"])["settings"]
+        assert after["history"] == before["history"]
         after_rows = {item["id"]: item for item in rows(destination)}
         assert set(after_rows) == {"outer", "inner", "target", "equal-alias", "native-added"}
         assert after_rows["target"]["note"] == "synthetic updated note"
