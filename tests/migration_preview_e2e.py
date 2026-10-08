@@ -139,7 +139,8 @@ def main():
             before = tree(base)
             try:
                 options = ["--preserve-ids"] if mode == "import" else []
-                result = invoke(profile, mode, str(paths[payload]), *options,
+                source_args = [] if payload is None else [str(paths[payload])]
+                result = invoke(profile, mode, *source_args, *options,
                                 "--dry-run", "--json", *extra, environment=environment)
                 after = tree(base)
                 changed = [name for name in sorted(before.keys() | after.keys())
@@ -173,6 +174,11 @@ def main():
             check("db", mode, "cipher", expected=dict(added=0, skipped=1) if mode == "import" else dict(updated=0, added=0))
             check("key", mode, "cipher", ok=False)
             check("absent", mode, environment=True)
+        # Missing source paths are invalid CLI syntax, but explicit local
+        # previews must fail without initializing or logging into a profile.
+        for mode in ("import", "sync-native"):
+            for kind in ("absent", "legacy", "db"):
+                check(kind, mode, None, ok=False)
         assert not failures, "\n".join(failures)
         print(f"PASS: {checks} full CLI migration previews preserve file bytes, mtimes and directories; legacy/WAL, conflicts, recovery and key failures covered")
 

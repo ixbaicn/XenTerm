@@ -48,7 +48,14 @@ fn migration_preview(command: &[String]) -> bool {
     if command.first().map(String::as_str) != Some("cli") {
         return false;
     }
-    let options = command.get(3..).unwrap_or_default();
+    // A leading option in the source position is rejected by the CLI as a
+    // missing path, but an explicit preview must still fail without writes.
+    let option_start = if command.get(2).is_some_and(|arg| arg.starts_with("--")) {
+        2
+    } else {
+        3
+    };
+    let options = command.get(option_start..).unwrap_or_default();
     let options = &options[..options
         .iter()
         .position(|arg| arg == "--")
@@ -188,6 +195,9 @@ mod tests {
         for command in [
             args(&["cli", "import", "export.json", "--preserve-ids", "--dry-run"]),
             args(&["cli", "sync-native", "export.json", "--dry-run", "--json"]),
+            args(&["cli", "sync-native", "--dry-run", "--json"]),
+            args(&["cli", "import", "--dry-run", "--preserve-ids"]),
+            args(&["cli", "import", "--preserve-ids", "--dry-run"]),
             // Bad options still fail without initializing the destination.
             args(&["cli", "sync-native", "export.json", "--dry-run", "--unknown"]),
         ] {
@@ -196,7 +206,6 @@ mod tests {
         for command in [
             args(&["cli", "import", "export.json", "--dry-run"]),
             args(&["cli", "import", "export.json", "--preserve-ids"]),
-            args(&["cli", "sync-native", "--dry-run", "--json"]),
             args(&["cli", "sync-native", "export.json", "--", "--dry-run"]),
             args(&["cli", "exec", "id", "--", "--dry-run", "--preserve-ids"]),
             args(&["mcp", "serve", "file", "--dry-run", "--preserve-ids"]),
