@@ -514,6 +514,10 @@ fn join_remote(dir: &str, name: &str) -> String {
 mod rule_dialog_tests;
 
 #[cfg(test)]
+#[path = "command_palette_tests.rs"]
+mod command_palette_tests;
+
+#[cfg(test)]
 mod join_remote_tests {
     use super::join_remote;
 
@@ -1243,7 +1247,9 @@ impl Shell {
             .map(|map| map.get(&id).map(|status| status.state == 2).unwrap_or(false))
             .unwrap_or(false);
         if ended {
-            self.connect(&id, &id, cx);
+            self.pages.terminal.update(cx, |page, cx| {
+                page.reconnect_tab(&id, cx);
+            });
         }
     }
 
