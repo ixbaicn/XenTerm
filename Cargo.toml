@@ -186,7 +186,7 @@ version = "0.8"
 optional = true
 
 [dependencies.jsonwebtoken]
-version = "9.3"
+version = "10.3"
 optional = true
 
 [dependencies.tokio-util]
