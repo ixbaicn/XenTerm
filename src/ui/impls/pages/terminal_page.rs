@@ -191,6 +191,9 @@ mod next_tab_tests {
 /// The terminal workspace.
 pub(crate) struct TerminalPage {
     state: crate::ui::SessionState,
+    /// The fallback keyboard target for the window. Shell keeps it mounted
+    /// across page changes so shortcuts work before the first pointer click.
+    shortcut_focus: gpui_kit::FocusHandle,
     /// The window's width, as the shell measured it this frame. The pane
     /// width is derived from it — see `render_workspace` for why a measurement
     /// would not do.
@@ -286,6 +289,11 @@ impl TerminalPage {
         cx: &mut Context<Self>,
     ) -> Self {
         let appearance = TerminalSettings::from_store(&state.store.borrow());
+        let shortcut_focus = cx.focus_handle();
+        if window.focused(cx).is_none() {
+            // Initial construction must not take focus from an existing input or modal.
+            window.focus(&shortcut_focus, cx);
+        }
 
         let sftp = cx.new(SftpPanelView::new);
         let sftp_collapsed = state.store.borrow().collapse_sftp_default();
@@ -352,6 +360,7 @@ impl TerminalPage {
 
         Self {
             state,
+            shortcut_focus,
             window_width,
             action,
             tabs: Vec::new(),
@@ -401,6 +410,12 @@ impl TerminalPage {
     pub(crate) fn request(&mut self, action: TerminalAction, cx: &mut Context<Self>) {
         *self.action.borrow_mut() = Some(action);
         cx.notify();
+    }
+
+    /// Shell hosts this handle on its persistent key-context node, including
+    /// while Settings or Sessions hide this page's own elements.
+    pub(crate) fn shortcut_focus_handle(&self) -> gpui_kit::FocusHandle {
+        self.shortcut_focus.clone()
     }
 
     /// The active tab's id, for the drains that act on "the session showing".
@@ -811,10 +826,8 @@ impl TerminalPage {
                     *self.action.borrow_mut() = Some(TerminalAction::OpenQuickManager);
                 }
                 QuickAction::Close => {
-                    // Nothing to close: the dock is a popover, and a popover closes by
-                    // clicking outside it. The action is still reported — and ignored —
-                    // rather than removed, because the dock's own header is what offers
-                    // it and the header is hidden when the shell hosts it.
+                    // The view already dismissed its own popup synchronously.
+                    // There is no window-level dialog to close for this action.
                 }
                 // The view already folded it; nothing to carry out. Kept in the enum so
                 // the fold is reported the same way every other interaction is, which is
@@ -902,13 +915,22 @@ impl TerminalPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let was_active = self.active_tab.as_deref() == Some(tab_id);
+        self.close_tab(tab_id, cx);
+        if was_active {
+            self.focus_active_tab(window, cx);
+        }
+    }
+
+    /// Hand keyboard input to the tab selected by a user navigation action.
+    /// State-only activation and transport completion must not call this: a
+    /// settings field or modal can own focus while terminal state changes.
+    pub(crate) fn focus_active_tab(&self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::{Root, WindowExt as _};
         use gpui_kit::gpui::Focusable as _;
 
-        let was_active = self.active_tab.as_deref() == Some(tab_id);
-        self.close_tab(tab_id, cx);
-        if !was_active
-            || (window.root::<Root>().flatten().is_some() && window.has_active_dialog(cx))
+        if window.root::<Root>().flatten().is_some()
+            && (window.has_active_dialog(cx) || window.has_active_sheet(cx))
         {
             return;
         }
@@ -917,10 +939,13 @@ impl TerminalPage {
             .iter()
             .find(|tab| Some(tab.id.as_str()) == self.active_tab.as_deref())
         {
-            // Selecting the neighbour updates workspace state but not GPUI's
-            // input target. Move that target before subsequent keyboard input.
+            // Selecting a tab updates workspace state but not GPUI's input
+            // target. Hand it over once, before subsequent keyboard input.
             let focus = tab.view.read(cx).focus_handle(cx);
             window.focus(&focus, cx);
+        } else if self.tabs.is_empty() {
+            // Closing the last terminal returns to the same keyboard-ready landing view.
+            window.focus(&self.shortcut_focus, cx);
         }
     }
 
@@ -1072,12 +1097,17 @@ impl TerminalPage {
         self.split_pane(&id, vertical, cx);
     }
 
+    #[cfg(test)]
+    pub(crate) fn navigation_test_state(&self) -> (u64, Option<String>) {
+        (self.panes.focused, self.active_tab.clone())
+    }
+
     /// The keyboard's walk around the split panes, in layout order.
     ///
     /// The focused pane is what the splitter ring draws and what clicking a pane
     /// sets; this is the same slot the click fills, moved by a chord instead of
     /// by the mouse. With one pane there is nothing to move around.
-    pub(crate) fn cycle_pane(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn cycle_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (_, _, w, h) = self.pane_area.get();
         let panes = self.panes.flatten(0.0, 0.0, self.pane_width.get(), h).0;
         if panes.len() < 2 {
@@ -1089,6 +1119,10 @@ impl TerminalPage {
             None => 0,
         };
         *self.pane_focus.borrow_mut() = Some(panes[next].id);
+        // A keyboard navigation action must hand over input in the same turn,
+        // rather than leaving GPUI focus on the previously selected terminal.
+        self.drain_pane_focus(cx);
+        self.focus_active_tab(window, cx);
         cx.notify();
     }
 
@@ -1721,7 +1755,9 @@ impl TerminalPage {
                     )
                     .content({
                         let quick = self.quick.clone();
-                        move |_, _, _| {
+                        move |_, _, cx| {
+                            let popover = cx.entity().downgrade();
+                            quick.update(cx, |quick, _| quick.bind_popover(popover));
                             div()
                                 .w(px(300.))
                                 .h(px(360.))
@@ -2098,14 +2134,10 @@ mod close_focus_tests {
         page: Entity<TerminalPage>,
         foreign_input: Entity<InputState>,
         terminal_visible: bool,
-        _root_subscription: Option<Subscription>,
     }
 
     impl Render for Harness {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            if self._root_subscription.is_none() {
-                self._root_subscription = crate::ui::follow_root(window, cx);
-            }
             div()
                 .size_full()
                 .flex()
@@ -2140,7 +2172,6 @@ mod close_focus_tests {
                     div().flex_1().child("Settings fixture").into_any_element()
                 })
                 .child(Input::new(&self.foreign_input))
-                .children(Root::render_dialog_layer(window, cx))
         }
     }
 
@@ -2216,7 +2247,6 @@ mod close_focus_tests {
                 page: page.clone(),
                 foreign_input: foreign_input.clone(),
                 terminal_visible,
-                _root_subscription: None,
             });
             *built_for_window.borrow_mut() = Some((page, foreign_input));
             Root::new(harness, window, cx)
@@ -2390,6 +2420,44 @@ mod close_focus_tests {
         assert!(cx.update(|window, _| before.is_focused(window)));
         assert_eq!(fixture.page.read_with(cx, |page, _| page.tabs.len()), 1);
     }
+    // Closing a terminal releases its view while the page and App remain alive.
+    mod lifecycle_leak_tests {
+        use super::*;
+
+        fn closed_terminal_releases(keep_survivor: bool, cx: &mut TestAppContext) {
+            let (fixture, cx) = fixture(cx, if keep_survivor { 2 } else { 1 }, true);
+            let weak = fixture.page.read_with(cx, |page, _| {
+                page.tabs
+                    .iter()
+                    .find(|tab| tab.id.as_str() == "tab-0")
+                    .unwrap()
+                    .view
+                    .downgrade()
+            });
+            focus_tab(&fixture, "tab-0", cx);
+            cx.simulate_keystrokes("ctrl-shift-w");
+            draw(cx);
+            fixture.page.read_with(cx, |page, _| {
+                assert_eq!(page.tabs.len(), usize::from(keep_survivor));
+                assert!(!page.has_tab("tab-0"));
+            });
+            assert!(
+                weak.upgrade().is_none(),
+                "closed terminal must release while the page and App remain alive"
+            );
+        }
+
+        #[gpui_kit::gpui::test]
+        fn terminal_view_releases_after_active_tab_close_with_survivor(cx: &mut TestAppContext) {
+            closed_terminal_releases(true, cx);
+        }
+
+        #[gpui_kit::gpui::test]
+        fn terminal_view_releases_after_last_tab_close_while_app_stays_alive(cx: &mut TestAppContext) {
+            closed_terminal_releases(false, cx);
+        }
+    }
+
 }
 
 

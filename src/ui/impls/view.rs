@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use gpui_kit::{
-    component::{dialog::DialogButtonProps, h_flex, v_flex, ActiveTheme, Root, Sizable as _, Size,
+    component::{dialog::DialogButtonProps, h_flex, v_flex, ActiveTheme, WindowExt as _, Sizable as _, Size,
         spinner::Spinner},
     div,
     prelude::*,
@@ -36,6 +36,10 @@ use crate::terminal::{self, TermBuffer};
 use super::event_sink::UiMessage;
 use super::terminal::{rgba_to_hsla, CursorStyle, GridStyle};
 use super::{terminal_grid, CellMetrics, GridSnapshot};
+
+#[cfg(test)]
+#[path = "view_insert_tests.rs"]
+mod insert_tests;
 
 /// The find bar's resting height, in pixels: one text line and its padding.
 /// The slide's ceiling and the closed state's zero are the only two values the
@@ -127,8 +131,8 @@ impl TerminalSettings {
             padding: store.terminal_padding(),
             line_spacing: store.terminal_line_spacing(),
             cursor_style: CursorStyle::from_setting(store.terminal_cursor_style()),
-            cursor_color: crate::config::hex_to_rgb(store.terminal_cursor_color())
-                .map(|(r, g, b)| rgba_to_hsla(crate::terminal::Rgba { r, g, b, a: 255 })),
+            cursor_color: crate::config::cursor_color_rgba(store.terminal_cursor_color())
+                .map(|[r, g, b, a]| rgba_to_hsla(crate::terminal::Rgba { r, g, b, a })),
             // The preset and the on-switch are one setting in the buffer's terms: a
             // disabled highlighter is the `Off` preset, which is what makes "enabled" and
             // "which preset" two controls over one behaviour rather than two behaviours.
@@ -804,22 +808,7 @@ impl TerminalView {
             }
         }
 
-        let bytes = match gpui_key_name(&keystroke.key) {
-            // A named key, translated into the encoding the shared encoder speaks.
-            Some(named) => terminal::key_to_pty_bytes(named, ctrl, alt, false),
-            // Printable text, which is what `key_char` carries: it is the character
-            // the layout would have typed, so on a layout where the key is labelled
-            // differently it is still what the user meant. Ctrl+C and the rest go
-            // through the same call, which is where the control-byte mapping lives.
-            //
-            // Text also arrives through `EntityInputHandler`, and the two must not
-            // both send it: an ordinary letter here would be typed twice. Named keys
-            // are excluded from that path — the platform sends no character for
-            // Enter or an arrow — and `key_char` is `None` for them, so this arm
-            // fires only for control combinations, which the handler never sees.
-            None if ctrl => terminal::key_to_pty_bytes(&keystroke.key, ctrl, alt, false),
-            None => Vec::new(),
-        };
+        let bytes = gpui_key_bytes(&keystroke.key, ctrl, alt, shift);
         self.send_bytes(&bytes);
     }
 
@@ -966,79 +955,73 @@ impl TerminalView {
         let bytes = paste.bytes;
         let lines = paste.text.lines().count();
 
-        Root::update(window, cx, move |root, window, cx| {
-            root.open_dialog(
-                move |dialog, _window, cx| {
-                    let send = bytes.clone();
-                    let view = view.clone();
-                    dialog
-                        .title(crate::i18n::t("确认多行粘贴", "Confirm multi-line paste"))
-                        // Only the callbacks: a `Dialog` renders these, not its buttons,
-                        // so the visible ones are in the footer. See `super::dialogs`.
-                        .button_props(
-                            DialogButtonProps::default()
-                                .on_ok(move |_, _window, cx| {
-                                    let _ = view.update(cx, |view, cx| {
-                                        view.send_bytes(&send);
-                                        cx.notify();
-                                    });
-                                    true
-                                })
-                                // Cancelling sends nothing at all, which is the whole
-                                // point: a backdrop click must not accept a paste.
-                                .on_cancel(|_, _, _| true),
-                        )
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let send = bytes.clone();
+            let view = view.clone();
+            dialog
+                .title(crate::i18n::t("确认多行粘贴", "Confirm multi-line paste"))
+                // Only the callbacks: a `Dialog` renders these, not its buttons,
+                // so the visible ones are in the footer. See `super::dialogs`.
+                .button_props(
+                    DialogButtonProps::default()
+                        .on_ok(move |_, _window, cx| {
+                            let _ = view.update(cx, |view, cx| {
+                                view.send_bytes(&send);
+                                cx.notify();
+                            });
+                            true
+                        })
+                        // Cancelling sends nothing at all, which is the whole
+                        // point: a backdrop click must not accept a paste.
+                        .on_cancel(|_, _, _| true),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .max_w(px(720.))
+                        .child(div().text_sm().child(SharedString::from(format!(
+                            "{}{}",
+                            crate::i18n::t(
+                                "粘贴的内容包含换行,可能一次执行多条命令。",
+                                "The pasted text contains line breaks and may run \
+                                         several commands."
+                            ),
+                            if lines > 0 {
+                                format!(
+                                    " ({})",
+                                    match crate::i18n::t("行", "lines") {
+                                        "行" => format!("{lines} 行"),
+                                        other => format!("{lines} {other}"),
+                                    }
+                                )
+                            } else {
+                                String::new()
+                            },
+                        ))))
                         .child(
-                            v_flex()
-                                .gap_2()
-                                .max_w(px(720.))
-                                .child(div().text_sm().child(SharedString::from(format!(
-                                    "{}{}",
-                                    crate::i18n::t(
-                                        "粘贴的内容包含换行,可能一次执行多条命令。",
-                                        "The pasted text contains line breaks and may run \
-                                             several commands."
-                                    ),
-                                    if lines > 0 {
-                                        format!(
-                                            " ({})",
-                                            match crate::i18n::t("行", "lines") {
-                                                "行" => format!("{lines} 行"),
-                                                other => format!("{lines} {other}"),
-                                            }
-                                        )
-                                    } else {
-                                        String::new()
-                                    },
-                                ))))
-                                .child(
-                                    div()
-                                        .id("paste-preview")
-                                        .when(large, |this| this.h(px(360.)))
-                                        .when(!large, |this| this.max_h(px(200.)))
-                                        .w_full()
-                                        .overflow_y_scroll()
-                                        .p_2()
-                                        .rounded_md()
-                                        .border_1()
-                                        .border_color(cx.theme().border)
-                                        .bg(cx.theme().muted)
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_xs()
-                                        .child(SharedString::from(shown.clone())),
-                                ),
-                        )
-                        // The action row: a plain `Dialog` draws no buttons of its own, so
-                        // without this the only way to answer is the keyboard.
-                        .footer(super::answer_footer(
-                            SharedString::from(crate::i18n::t("粘贴", "Paste")),
-                            false,
-                            SharedString::from(crate::i18n::t("取消", "Cancel")),
-                        ))
-                },
-                window,
-                cx,
-            );
+                            div()
+                                .id("paste-preview")
+                                .when(large, |this| this.h(px(360.)))
+                                .when(!large, |this| this.max_h(px(200.)))
+                                .w_full()
+                                .overflow_y_scroll()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .bg(cx.theme().muted)
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_xs()
+                                .child(SharedString::from(shown.clone())),
+                        ),
+                )
+                // The action row: a plain `Dialog` draws no buttons of its own, so
+                // without this the only way to answer is the keyboard.
+                .footer(super::answer_footer(
+                    SharedString::from(crate::i18n::t("粘贴", "Paste")),
+                    false,
+                    SharedString::from(crate::i18n::t("取消", "Cancel")),
+                ))
         });
     }
 
@@ -1063,9 +1046,9 @@ impl TerminalView {
             return;
         }
         let bytes = if action.insert {
-            terminal::key_to_pty_bytes("insert", false, false, false)
+            gpui_key_bytes("insert", false, false, true)
         } else {
-            terminal::key_to_pty_bytes("v", true, true, false)
+            gpui_key_bytes("v", true, true, false)
         };
         self.send_bytes(&bytes);
         cx.notify();
@@ -1107,6 +1090,27 @@ impl TerminalView {
     }
 }
 
+/// Shared routing for a physical key and a disabled optional paste chord.
+/// Printable text still belongs to the input handler and must not be sent twice.
+fn gpui_key_bytes(key: &str, ctrl: bool, alt: bool, shift: bool) -> Vec<u8> {
+    match gpui_key_name(key) {
+        // A named key, translated into the encoding the shared encoder speaks.
+        Some(named) => terminal::key_to_pty_bytes_with_shift(named, ctrl, alt, shift, false),
+        // Printable text, which is what `key_char` carries: it is the character
+        // the layout would have typed, so on a layout where the key is labelled
+        // differently it is still what the user meant. Ctrl+C and the rest go
+        // through the same call, which is where the control-byte mapping lives.
+        //
+        // Text also arrives through `EntityInputHandler`, and the two must not
+        // both send it: an ordinary letter here would be typed twice. Named keys
+        // are excluded from that path — the platform sends no character for
+        // Enter or an arrow — and `key_char` is `None` for them, so this arm
+        // fires only for control combinations, which the handler never sees.
+        None if ctrl => terminal::key_to_pty_bytes(key, ctrl, alt, false),
+        None => Vec::new(),
+    }
+}
+
 /// Translate the shell's name for a special key into the text the shared encoder reads.
 ///
 /// The encoder reads a special key as a Unicode Private Use Area character —
@@ -1136,6 +1140,7 @@ fn gpui_key_name(key: &str) -> Option<&'static str> {
         "end" => "\u{F72B}",
         "pageup" => "\u{F72C}",
         "pagedown" => "\u{F72D}",
+        "insert" => "\u{F727}",
         "delete" => "\u{F728}",
         "f1" => "\u{F704}",
         "f2" => "\u{F705}",
@@ -1811,16 +1816,16 @@ async fn pump_messages(
                     gate.finish_flush(through, true);
                 }
             }),
-            UiMessage::Events { tab_id, events } => {
+            UiMessage::Events { tab_id, generation, events } => {
                 // A ready channel must not become one terminal snapshot per
                 // progress packet. Bound the local batch and preserve every
                 // event in order; a render request is a barrier, not an event
                 // that may be moved past a later batch.
-                let mut batches = vec![(tab_id, events)];
+                let mut batches = vec![(tab_id, generation, events)];
                 while processed < MAX_MESSAGES_PER_TURN {
                     match messages.try_recv() {
-                        Ok(UiMessage::Events { tab_id, events }) => {
-                            batches.push((tab_id, events));
+                        Ok(UiMessage::Events { tab_id, generation, events }) => {
+                            batches.push((tab_id, generation, events));
                             processed += 1;
                         }
                         Ok(render) => {
@@ -1832,7 +1837,15 @@ async fn pump_messages(
                 }
                 this.update(cx, |view, cx| {
                     let mut terminal_changed = false;
-                    for (tab_id, events) in batches {
+                    for (tab_id, generation, events) in batches {
+                        // Check on the UI thread, not just before enqueueing: an
+                        // older worker may finish while a replacement already runs.
+                        if let Some(generation) = generation {
+                            let current = statuses.lock().ok().and_then(|statuses| statuses.get(&tab_id).map(|status| status.monitor_generation));
+                            if current != Some(generation) {
+                                continue;
+                            }
+                        }
                         for event in events {
                             // Transfers have their own shared store and polled
                             // view. Their bytes do not change the terminal grid.
@@ -1934,6 +1947,9 @@ fn apply_event(
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
                     status.state = 1;
+                    if status.monitor_state == crate::session::protocol::ResourceMonitorState::Waiting {
+                        status.monitor_started_at = Some(std::time::Instant::now());
+                    }
                 }
             }
             // The tab strip's dot lives on the page, which is cached between its
@@ -1954,6 +1970,9 @@ fn apply_event(
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
                     status.state = 2;
+                    status.monitor_state = crate::session::protocol::ResourceMonitorState::Unavailable;
+                    status.sampled_at = None;
+                    status.cpu_sampled = false;
                 }
             }
             // As above: the strip's greyed dot waits on the page being told.
@@ -2135,6 +2154,7 @@ fn apply_event(
         // whether or not the panel is on screen, and a history that only advanced while
         // someone was looking would have holes in it.
         SessionEvent::ResourceStats {
+            cpu_sampled,
             cpu_percent,
             mem_used_kib,
             mem_total_kib,
@@ -2148,6 +2168,22 @@ fn apply_event(
         } => {
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
+                    if status.state == 2 {
+                        return;
+                    }
+                    // The separate one-shot system probe is not a fresh streaming sample.
+                    // In particular its first CPU baseline must not overwrite a measured rate.
+                    if let Some(sys) = sys {
+                        status.sys = sys;
+                        return;
+                    }
+                    use crate::session::protocol::ResourceMonitorState as State;
+                    if matches!(status.monitor_state, State::Paused | State::Unsupported) || mem_total_kib == 0 {
+                        return;
+                    }
+                    status.monitor_state = State::Available;
+                    status.sampled_at = Some(std::time::Instant::now());
+                    status.cpu_sampled = cpu_sampled;
                     status.cpu = cpu_percent;
                     status.mem_used_kib = mem_used_kib;
                     status.mem_total_kib = mem_total_kib;
@@ -2155,9 +2191,6 @@ fn apply_event(
                     status.swap_total_kib = swap_total_kib;
                     status.net = net;
                     status.disks = disks;
-                    if let Some(sys) = sys {
-                        status.sys = sys;
-                    }
                     // A sample means the monitor channel is alive, which is a stronger
                     // statement than "the socket is up": it is what makes the tab's dot
                     // green even if the `Connected` event was missed.
@@ -2170,6 +2203,20 @@ fn apply_event(
                     // Append the selected interface's total rate to its own sparkline.
                     let (_, rx, tx) = crate::resource::selected_iface(status);
                     crate::resource::push_ring(&mut status.net_hist, (rx + tx) as f32);
+                }
+            }
+        }
+        SessionEvent::ResourceMonitorStatus { state } => {
+            if let Ok(mut statuses) = statuses.lock() {
+                if let Some(status) = statuses.get_mut(tab_id) {
+                    if status.state != 2 {
+                        status.monitor_state = state;
+                        if state == crate::session::protocol::ResourceMonitorState::Waiting {
+                            status.monitor_started_at = Some(std::time::Instant::now());
+                            status.sampled_at = None;
+                            status.cpu_sampled = false;
+                        }
+                    }
                 }
             }
         }
@@ -2827,3 +2874,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "view_resource_tests.rs"]
+mod resource_tests;

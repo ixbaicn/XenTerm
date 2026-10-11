@@ -276,26 +276,19 @@ fn restore_user_backup_if_needed(primary_dir: &Path, backup_dir: &Path) -> Resul
     recovery::restore_user_backup_if_needed(primary_dir, backup_dir)
 }
 
-fn normalize_hex_color(value: &str) -> Option<String> {
-    hex_to_rgb(value).map(|(r, g, b)| format!("#{r:02X}{g:02X}{b:02X}"))
+fn normalize_cursor_color(value: &str) -> Option<String> {
+    if value.trim().is_empty() { return Some(String::new()); }
+    crate::config::color::ColorValue::parse(value).ok().map(|color| color.canonical_hex())
 }
 
 /// What reading a store database hands back: the settings blob (secrets
 /// still encrypted), sessions in disk form, history oldest-first.
 type DiskStore = (String, Vec<Session>, Vec<String>);
 
-/// A stored hex colour as its three channels.
-///
-/// Shared with the frontend, which has to draw the colour a setting names: the terminal
-/// view parses this string, and a second parser would be a second answer to what counts
-/// as a valid colour.
-pub fn hex_to_rgb(value: &str) -> Option<(u8, u8, u8)> {
-    let digits = value.trim().strip_prefix('#').unwrap_or(value.trim());
-    if digits.len() != 6 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&digits[range], 16).ok();
-    Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
+/// A stored colour as all four channels. The shared parser keeps configuration
+/// validation and terminal rendering in agreement, including transparent cursors.
+pub fn cursor_color_rgba(value: &str) -> Option<[u8; 4]> {
+    crate::config::color::ColorValue::parse(value).ok().map(|color| color.to_rgba8())
 }
 
 /// A brand-new config (no file yet, or the old one was corrupt). Seeds the
@@ -732,6 +725,44 @@ impl ConfigStore {
     }
 
     // ── Public API ────────────────────────────────────────────────────────
+
+    /// Load only the effective in-memory configuration for CLI migration
+    /// previews. No directories, keys, locks, databases or migrations are
+    /// persisted; callers must pass dry_run to the migration operation too.
+    pub(crate) fn load_migration_preview() -> Result<Self> {
+        use rand::RngCore as _;
+        let directory = PINNED_DATA_DIR.get().context(
+            "migration previews require an explicitly selected independent --data-dir profile",
+        )?;
+        let (snapshot, key) = Self::inspect_explicit_profile(directory, true)?;
+        let key = key.unwrap_or_else(|| {
+            // Only an ephemeral in-memory key: a new profile has no native
+            // ciphertext to decrypt and preview must not initialize credentials.
+            let mut key = [0u8; 32];
+            OsRng.fill_bytes(&mut key);
+            key
+        });
+        let mut cache = snapshot.unwrap_or_else(fresh_config);
+        for session in &mut cache.sessions {
+            Self::session_from_disk_form(session, &key);
+        }
+        if let Some(plain) = Self::try_decrypt(&key, cache.webdav_password.as_str()) {
+            cache.webdav_password = Secret::new(plain);
+        }
+        // Match load's effective legacy/default migrations, entirely in memory.
+        dedup_keep_last(&mut cache.command_history);
+        normalize_reserved_session_groups(&mut cache);
+        migrate_defaults(&mut cache);
+        let saved_state = SavedState::of_cache(&cache);
+        Ok(Self {
+            path: directory.join("sessions.db"),
+            backup_dir: None,
+            cache,
+            key,
+            keyring_enabled: false,
+            saved_state: std::sync::Mutex::new(saved_state).into(),
+        })
+    }
 
     /// Load (or initialise) the config store. Read/locking failures preserve
     /// the original database instead of treating an active profile as corrupt.
@@ -1242,7 +1273,7 @@ impl ConfigStore {
     }
 
     pub fn terminal_cursor_color(&self) -> &str {
-        if normalize_hex_color(&self.cache.terminal_cursor_color).is_some() {
+        if normalize_cursor_color(&self.cache.terminal_cursor_color).is_some() {
             &self.cache.terminal_cursor_color
         } else {
             ""
@@ -1250,7 +1281,7 @@ impl ConfigStore {
     }
 
     pub fn set_terminal_cursor_color(&mut self, color: &str) -> bool {
-        let Some(normalized) = normalize_hex_color(color) else {
+        let Some(normalized) = normalize_cursor_color(color) else {
             return false;
         };
         self.cache.terminal_cursor_color = normalized;
@@ -1999,11 +2030,25 @@ impl ConfigStore {
         self.cache.groups.dedup();
     }
 
+    /// Session identifiers cannot address application-owned credential accounts.
+    fn is_safe_session_id(session_id: &str) -> bool {
+        let normalized = session_id.trim();
+        !normalized.is_empty()
+            && !session_id.chars().any(char::is_control)
+            && normalized.to_uppercase().to_lowercase() != Self::MASTER_KEY_ACCOUNT
+    }
+
     /// The OS keyring entry for a session's password: Windows Credential
     /// Manager, macOS Keychain, or the Linux Secret Service, whichever the
-    /// platform offers. The account is the session id, so a rename never
-    /// orphans the secret and a duplicate never collides.
+    /// platform offers. The account is the session id, so a display-name change
+    /// never orphans the secret.
     fn keyring_entry(session_id: &str) -> Result<keyring::Entry, keyring::Error> {
+        if !Self::is_safe_session_id(session_id) {
+            return Err(keyring::Error::Invalid(
+                "user".into(),
+                "reserved or invalid session identifier".into(),
+            ));
+        }
         keyring::Entry::new(Self::KEYRING_SERVICE, session_id)
     }
 
@@ -2022,7 +2067,7 @@ impl ConfigStore {
     /// missing or unreachable entry answers None, and the caller falls back
     /// to the interactive prompt as though no password were saved.
     pub fn keyring_password(&self, session_id: &str) -> Option<String> {
-        if !self.keyring_enabled {
+        if !self.keyring_enabled || !Self::is_safe_session_id(session_id) {
             return None;
         }
         match Self::keyring_entry(session_id).and_then(|entry| entry.get_password()) {
@@ -2187,10 +2232,9 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         } else {
             for id in &plan.sessions {
                 match cache.sessions.iter().position(|s| &s.id == id) {
-                    Some(ordinal) => Self::upsert_session_row(
-                        &tx,
-                        ordinal,
-                        &cache.sessions[ordinal],
+                    Some(index) => Self::upsert_session_row_preserving_order(
+                        tx,
+                        &cache.sessions[index],
                         key,
                         credentials.contains_key(id),
                     )?,
@@ -2219,12 +2263,56 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         key: [u8; 32],
         keyring_enabled: bool,
     ) -> Result<()> {
+        let ordinal = i64::try_from(ordinal).context("session display order exceeds its limit")?;
+        Self::upsert_session_row_at_ordinal(tx, ordinal, session, key, keyring_enabled)
+    }
+
+    /// Partial writes must retain the actual stored order. Imported/legacy stores
+    /// may have sparse, tied or negative ordinals; cache indices are not their
+    /// persisted ordinals. New rows go after every existing row, without touching
+    /// destination-only rows or silently wrapping at SQLite's integer limit.
+    fn upsert_session_row_preserving_order(
+        tx: &rusqlite::Transaction<'_>,
+        session: &Session,
+        key: [u8; 32],
+        keyring_enabled: bool,
+    ) -> Result<()> {
+        let existing: Option<i64> = tx
+            .query_row(
+                "SELECT ordinal FROM sessions WHERE id = ?1",
+                [&session.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let ordinal = match existing {
+            Some(ordinal) => ordinal,
+            None => {
+                let maximum: Option<i64> =
+                    tx.query_row("SELECT MAX(ordinal) FROM sessions", [], |row| row.get(0))?;
+                match maximum {
+                    Some(maximum) => maximum.checked_add(1).ok_or_else(|| {
+                        anyhow::anyhow!("session display order exceeds its limit")
+                    })?,
+                    None => 0,
+                }
+            }
+        };
+        Self::upsert_session_row_at_ordinal(tx, ordinal, session, key, keyring_enabled)
+    }
+
+    fn upsert_session_row_at_ordinal(
+        tx: &rusqlite::Transaction<'_>,
+        ordinal: i64,
+        session: &Session,
+        key: [u8; 32],
+        keyring_enabled: bool,
+    ) -> Result<()> {
         let mut disk = session.clone();
         Self::session_to_disk_form(&mut disk, &key, keyring_enabled)?;
         tx.execute(
             "INSERT INTO sessions(ordinal, id, data) VALUES(?1, ?2, ?3) \
              ON CONFLICT(id) DO UPDATE SET ordinal = excluded.ordinal, data = excluded.data",
-            rusqlite::params![ordinal as i64, disk.id, serde_json::to_string(&disk)?],
+            rusqlite::params![ordinal, disk.id, serde_json::to_string(&disk)?],
         )?;
         Ok(())
     }
@@ -2288,6 +2376,12 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
     /// keyring entry degrades to "no saved password" — the interactive prompt
     /// takes over, which is what an unsaved password means.
     fn session_from_disk_form(session: &mut Session, key: &[u8; 32]) {
+        if session.password.as_str() == Self::KEYRING_MARKER
+            && !Self::is_safe_session_id(&session.id)
+        {
+            // Invalid legacy identifiers never participate in credential lookup.
+            session.password = Secret::default();
+        }
         if session.password.as_str() == Self::KEYRING_MARKER {
             let credential = if !cfg!(feature = "desktop") || has_explicit_data_dir() {
                 Err(keyring::Error::NoEntry)
@@ -2629,6 +2723,8 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
 
 #[path = "import.rs"]
 mod import;
+#[path = "native_sync.rs"]
+mod native_sync;
 #[path = "persistence.rs"]
 mod persistence;
 #[path = "profile_io.rs"]
@@ -2695,6 +2791,56 @@ mod tests {
         let path = directory.path().join("unsupported.json");
         assert!(temp_store().export_to_new(&path).is_err());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn session_credential_access_rejects_reserved_and_control_identifiers() {
+        let _serial = KEYRING_TESTS.lock().unwrap();
+        fake_keyring::install();
+        fake_keyring::clear();
+        let master = "synthetic-private-master-account";
+        ConfigStore::master_key_entry()
+            .unwrap()
+            .set_password(master)
+            .unwrap();
+        let mut store = temp_store();
+        store.keyring_enabled = true;
+        fake_keyring::reset_writes();
+        for id in [
+            "master-key",
+            "MASTER-KEY",
+            " master-key ",
+            "maſter-key",
+            "master-Key",
+            "master-key.xenterm\0suffix",
+            "fixture\nidentifier",
+            "\0",
+            " ",
+        ] {
+            assert!(!ConfigStore::is_safe_session_id(id));
+            assert!(ConfigStore::keyring_entry(id).is_err());
+            assert!(ConfigStore::read_keyring_password(id).is_err());
+            assert!(ConfigStore::keyring_set_password(id, "synthetic replacement").is_err());
+            assert!(ConfigStore::keyring_set_password(id, "").is_err());
+            assert!(ConfigStore::restore_keyring_password(id, None).is_err());
+            assert!(store.keyring_password(id).is_none());
+            let mut session = Session::new_empty();
+            session.id = id.into();
+            session.password = Secret::new(ConfigStore::KEYRING_MARKER);
+            ConfigStore::session_from_disk_form(&mut session, &store.key);
+            assert!(session.password.is_empty());
+            assert_eq!(
+                fake_keyring::get(
+                    ConfigStore::KEYRING_SERVICE,
+                    ConfigStore::MASTER_KEY_ACCOUNT
+                )
+                .as_deref(),
+                Some(master)
+            );
+        }
+        assert_eq!(fake_keyring::write_count(), 0);
+        assert!(ConfigStore::is_safe_session_id("synthetic-session-id"));
+        fake_keyring::clear();
     }
 
     /// Read one session's raw at-rest JSON straight out of the store
@@ -3070,6 +3216,37 @@ mod tests {
         assert_eq!(store.terminal_cursor_color(), "#ABCDEF");
         assert!(!store.set_terminal_cursor_color("#GG0000"));
         assert_eq!(store.terminal_cursor_color(), "#ABCDEF");
+    }
+
+    #[test]
+    fn terminal_cursor_color_accepts_css_and_hsv_formats() {
+        let mut store = temp_store();
+        for value in ["rgb(18, 52, 86)", "hsl(210, 65.384615%, 20.392157%)", "hsv(210, 79.069767%, 33.72549%)"] {
+            assert!(store.set_terminal_cursor_color(value), "{value}");
+            assert_eq!(store.terminal_cursor_color(), "#123456", "{value}");
+        }
+    }
+
+    #[test]
+    fn terminal_cursor_color_preserves_alpha_and_default() {
+        let mut store = temp_store();
+        assert!(store.set_terminal_cursor_color("rgba(18, 52, 86, 0.5)"));
+        assert_eq!(store.terminal_cursor_color(), "#12345680");
+        assert!(store.set_terminal_cursor_color("#12345600"));
+        assert_eq!(store.terminal_cursor_color(), "#12345600");
+        assert!(store.set_terminal_cursor_color(""));
+        assert_eq!(store.terminal_cursor_color(), "");
+    }
+
+    #[test]
+    fn terminal_cursor_color_accepts_generic_cmyk_and_rejects_invalid() {
+        let mut store = temp_store();
+        assert!(store.set_terminal_cursor_color("cmyk(0%, 100%, 100%, 0% / 50%)"));
+        assert_eq!(store.terminal_cursor_color(), "#FF000080");
+        for invalid in ["cmyk(0%, 100%, 100%, 101%)", "rgba(1,2,3,NaN)", "rgb("] {
+            assert!(!store.set_terminal_cursor_color(invalid), "{invalid}");
+            assert_eq!(store.terminal_cursor_color(), "#FF000080");
+        }
     }
 
     pub(super) fn sample_session(name: &str) -> Session {

@@ -30,6 +30,12 @@ use super::{
     SettingsAction, SftpPanelView, SystemInfoWindowView, TransferAction, TunnelsView, WINDOW_ID,
 };
 
+/// Apply the loaded desktop profile before any window or toolkit widget is created.
+fn initialize_ui_language(store: &crate::config::ConfigStore) {
+    crate::i18n::set_language(store.language());
+    gpui_kit::component::set_locale(if crate::i18n::is_en() { "en" } else { "zh-CN" });
+}
+
 /// Open the XenTerm window and run the platform event loop until it closes.
 ///
 /// The loop ends by itself once the last window is gone: `QuitMode::Default`
@@ -92,7 +98,7 @@ pub(crate) fn run() -> Result<()> {
             // language is one line rather than a string per widget.
             // `rust_i18n` matches on the whole tag and falls back to its default locale, which
             // is English: passing this app's own `"zh"` left every toolkit string English.
-            gpui_kit::component::set_locale(if crate::i18n::is_en() { "en" } else { "zh-CN" });
+            initialize_ui_language(&store.borrow());
             gpui_kit::init(cx);
             super::dialogs::init(cx);
             // The keymap, in one place: every chord the window answers to.
@@ -264,7 +270,6 @@ pub(crate) fn run() -> Result<()> {
                         status_expiry: None,
                         quick_connect_pick: None,
                         _quick_connect_subscription: None,
-                        _root_subscription: None,
                     };
                     // The approval poll owns no window and needs none: it only
                     // fills the queue, and render shows the dialogs.
@@ -455,11 +460,6 @@ pub(crate) struct Shell {
     /// The quick-connect palette's Confirm subscription, alive while the dialog
     /// is open. A dropped subscription is a list that renders and does nothing.
     _quick_connect_subscription: Option<Subscription>,
-    /// Keeps this window repainting when the modal queue changes.
-    ///
-    /// Taken on the first frame, when the window's root exists to be observed. See
-    /// [`super::follow_root`] for why the shell cannot mount the dialog layer without it.
-    _root_subscription: Option<Subscription>,
 }
 
 /// An overlay drawn over the whole window, as a dialog.
@@ -512,6 +512,14 @@ fn join_remote(dir: &str, name: &str) -> String {
 #[cfg(test)]
 #[path = "overlay_geometry_tests.rs"]
 mod overlay_geometry_tests;
+#[path = "sftp_copy_path_tests.rs"]
+mod sftp_copy_path_tests;
+#[path = "group_dialog_tests.rs"]
+mod group_dialog_tests;
+#[path = "quick_popover_tests.rs"]
+mod quick_popover_tests;
+#[path = "rule_dialog_tests.rs"]
+mod rule_dialog_tests;
 
 #[cfg(test)]
 #[path = "command_palette_tests.rs"]
@@ -676,14 +684,7 @@ impl Render for Shell {
 
         let background = cx.theme().background;
 
-        // The dialog layer needs the extension trait in scope for `open_dialog` /
-        // `close_dialog`; the subscription is what makes this view repaint when the
-        // queue behind the layer changes.
-        if self._root_subscription.is_none() {
-            self._root_subscription = super::follow_root(window, cx);
-        }
-        let sheet_layer = gpui_kit::component::Root::render_sheet_layer(window, cx);
-        let dialog_layer = gpui_kit::component::Root::render_dialog_layer(window, cx);
+        // The enclosing Root hosts sheets and dialogs above this application body.
 
         let body_element = self.render_body(cx);
         let status_bar = self.render_status_bar(cx);
@@ -696,9 +697,6 @@ impl Render for Shell {
             .child(body_element)
             .children(self.persistence_warning.render(cx))
             .child(status_bar)
-            // Last, so a dialog covers the window.
-            .children(sheet_layer)
-            .children(dialog_layer)
     }
 }
 
@@ -952,12 +950,33 @@ impl Shell {
         cx.notify();
     }
 
+    /// User-driven tab cycling changes both workspace selection and keyboard target.
+    /// Keep background state-only cycling from taking focus away from another page.
+    pub(crate) fn cycle_terminal_tab(
+        &mut self,
+        reverse: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let terminal_visible = self.pages.active == PageId::Terminal;
+        self.pages.terminal.update(cx, |page, cx| {
+            let before = page.active_tab_id();
+            page.cycle_tab(reverse, cx);
+            if terminal_visible && page.active_tab_id() != before {
+                // The shared focus helper also respects active dialogs and sheets.
+                page.focus_active_tab(window, cx);
+            }
+        });
+    }
+
     /// The rail, the page, and the two keystrokes the window keeps for itself.
     fn render_body(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.pages.render_active();
         let nav = super::nav::render_nav_rail(self.pages.active, cx);
+        let shortcut_focus = self.pages.terminal.read(cx).shortcut_focus_handle();
 
         h_flex()
+            .track_focus(&shortcut_focus)
             .flex_1()
             .w_full()
             .min_h_0()
@@ -988,15 +1007,11 @@ impl Shell {
                     this.reconnect_ended_session(cx);
                 },
             ))
-            .on_action(cx.listener(|this, _: &crate::ui::NextTab, _, cx| {
-                this.pages
-                    .terminal
-                    .update(cx, |page, cx| page.cycle_tab(false, cx));
+            .on_action(cx.listener(|this, _: &crate::ui::NextTab, window, cx| {
+                this.cycle_terminal_tab(false, window, cx);
             }))
-            .on_action(cx.listener(|this, _: &crate::ui::PrevTab, _, cx| {
-                this.pages
-                    .terminal
-                    .update(cx, |page, cx| page.cycle_tab(true, cx));
+            .on_action(cx.listener(|this, _: &crate::ui::PrevTab, window, cx| {
+                this.cycle_terminal_tab(true, window, cx);
             }))
             .on_action(cx.listener(|this, _: &crate::ui::CloseTab, window, cx| {
                 let terminal_visible = this.pages.active == PageId::Terminal;
@@ -1020,10 +1035,12 @@ impl Shell {
                     .terminal
                     .update(cx, |page, cx| page.split_active_tab(true, cx));
             }))
-            .on_action(cx.listener(|this, _: &crate::ui::CyclePane, _, cx| {
-                this.pages
-                    .terminal
-                    .update(cx, |page, cx| page.cycle_pane(cx));
+            .on_action(cx.listener(|this, _: &crate::ui::CyclePane, window, cx| {
+                if this.pages.active == PageId::Terminal {
+                    this.pages
+                        .terminal
+                        .update(cx, |page, cx| page.cycle_pane(window, cx));
+                }
             }))
             .child(nav)
             .child(
@@ -1126,8 +1143,20 @@ impl Shell {
     /// which is the whole point; the page being entered is built if this is its
     /// first visit.
     pub(crate) fn open_page(&mut self, id: PageId, window: &mut Window, cx: &mut Context<Self>) {
+        let changed = self.pages.active != id;
         self.pages.active = id;
         self.ensure_page(window, cx);
+        // Cached pages retain their input handles after their elements disappear.
+        // Explicit navigation hands input to the newly visible page; reselecting
+        // the same page preserves its current edit, and a modal keeps its focus.
+        if changed && !window.has_active_dialog(cx) && !window.has_active_sheet(cx) {
+            if id == PageId::Terminal {
+                self.pages.terminal.update(cx, |page, cx| page.focus_active_tab(window, cx));
+            } else {
+                let focus = self.pages.terminal.read(cx).shortcut_focus_handle();
+                window.focus(&focus, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -1145,6 +1174,24 @@ impl Shell {
                 page.open_session_tab(tab_id, session_id, cx)
             }
         });
+    }
+
+    /// A user navigation request hands input to the selected terminal once.
+    /// Keep state-only callers, including reconnect, on `connect` so they do
+    /// not take focus from another page or a modal while updating a session.
+    fn connect_for_navigation(
+        &mut self,
+        tab_id: &str,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui_kit::App,
+    ) {
+        self.connect(tab_id, session_id, cx);
+        if self.pages.active == PageId::Terminal && matches!(self.overlay, Overlay::None) {
+            self.pages.terminal.update(cx, |page, cx| {
+                page.focus_active_tab(window, cx);
+            });
+        }
     }
 
     /// Point every follower that describes "the session showing" — the detached
@@ -1176,7 +1223,7 @@ impl Shell {
             };
             match action {
                 TerminalAction::Connect { tab_id, session_id } => {
-                    self.connect(&tab_id, &session_id, cx)
+                    self.connect_for_navigation(&tab_id, &session_id, window, cx)
                 }
                 TerminalAction::ActiveTabChanged(tab) => self.on_tab_change(tab, cx),
                 TerminalAction::OpenQuickManager => {
@@ -1377,7 +1424,7 @@ impl Shell {
             self._quick_connect_subscription = None;
             window.close_dialog(cx);
             self.pages.active = PageId::Terminal;
-            self.connect(&session_id, &session_id, cx);
+            self.connect_for_navigation(&session_id, &session_id, window, cx);
             cx.notify();
             return;
         }
@@ -1410,7 +1457,7 @@ impl Shell {
                     // opens in the terminal page, and that page is where the answer
                     // to "what happened" shows.
                     self.open_page(PageId::Terminal, window, cx);
-                    self.connect(&id, &id, cx);
+                    self.connect_for_navigation(&id, &id, window, cx);
                 }
                 SessionsAction::NewSession => self.open_editor(None, window, cx),
                 SessionsAction::Edit(id) => {
@@ -2080,9 +2127,7 @@ impl Shell {
                 }
                 PanelAction::Delete(paths) => {
                     if let Some(commands) = &handle {
-                        for remote in paths {
-                            let _ = commands.send(crate::sftp::SftpCommand::Delete(remote));
-                        }
+                        self.confirm_sftp_delete(&tab_id, panel, paths, commands, window, cx);
                     }
                 }
             }
@@ -2094,6 +2139,196 @@ impl Shell {
             self.pages.terminal.update(cx, |page, cx| page.refresh_dock(cx));
             cx.notify();
         }
+    }
+
+    /// Confirm a fixed selection, then revalidate it against its original tab
+    /// and transport. No result or a changed context never authorizes a retry.
+    fn confirm_sftp_delete(
+        &mut self,
+        tab_id: &str,
+        panel: &Entity<SftpPanelView>,
+        paths: Vec<String>,
+        commands: &tokio::sync::mpsc::UnboundedSender<crate::sftp::SftpCommand>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use gpui_kit::component::dialog::DialogButtonProps;
+        use gpui_kit::TestSupportExt as _;
+
+        let listing = self.state.listing(tab_id);
+        let directory = listing.path().to_string();
+        let generation = listing.generation();
+        if paths.is_empty()
+            || !panel
+                .read(cx)
+                .matches_delete_request(tab_id, &directory, generation, &paths)
+        {
+            self.say(
+                crate::i18n::t(
+                    "列表已变化，请重新选择后删除。",
+                    "The listing changed. Select the items again before deleting.",
+                ),
+                cx,
+            );
+            return;
+        }
+        let session = self
+            .pages
+            .terminal
+            .read(cx)
+            .tab_title(Some(tab_id))
+            .unwrap_or_else(|| tab_id.to_string());
+        let summary: SharedString = format!(
+            "{}: {}\n{}: {}\n{}: {}\n\n{}\n\n{}",
+            crate::i18n::t("选中项目", "Selected items"),
+            paths.len(),
+            crate::i18n::t("会话", "Session"),
+            session,
+            crate::i18n::t("远程目录", "Remote directory"),
+            directory,
+            paths.join("\n"),
+            crate::i18n::t(
+                "将永久删除以上远程项目及所选目录内的全部内容，此操作无法撤销。",
+                "These remote items and all contents of selected directories will be permanently deleted. This cannot be undone."
+            ),
+        )
+        .into();
+        let tab_id = tab_id.to_string();
+        let origin = cx.entity().downgrade();
+        let panel = panel.downgrade();
+        // A pending question must not keep a closed transport alive.
+        let transport = commands.downgrade();
+        let cancel_focus = cx.focus_handle();
+        let initial_focus = cancel_focus.clone();
+        let resolved = Rc::new(Cell::new(false));
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let dismissed = resolved.clone();
+            let cancelled = resolved.clone();
+            let submitted = resolved.clone();
+            let origin = origin.clone();
+            let panel = panel.clone();
+            let transport = transport.clone();
+            let tab_id = tab_id.clone();
+            let directory = directory.clone();
+            let paths = paths.clone();
+            let submit = Rc::new(move |window: &mut Window, cx: &mut gpui_kit::App| {
+                cx.stop_propagation();
+                // Two clicks can arrive before the dismissal frame.
+                if submitted.replace(true) {
+                    return;
+                }
+                if let Some(origin) = origin.upgrade() {
+                    origin.update(cx, |shell, cx| {
+                        let current = shell.state.listing(&tab_id);
+                        let original_transport = transport.upgrade();
+                        let current_transport =
+                            shell.state.sftp_handles.lock().ok().and_then(|handles| {
+                                handles.get(&tab_id).map(|handle| handle.commands.clone())
+                            });
+                        let unchanged = shell.pages.active == PageId::Terminal
+                            && shell.pages.terminal.read(cx).active_tab_id().as_deref()
+                                == Some(tab_id.as_str())
+                            && current.path() == directory
+                            && current.generation() == generation
+                            && current.selected_paths() == paths
+                            && panel.upgrade().is_some_and(|panel| {
+                                panel
+                                    .read(cx)
+                                    .matches_delete_request(&tab_id, &directory, generation, &paths)
+                            })
+                            && original_transport
+                                .as_ref()
+                                .zip(current_transport.as_ref())
+                                .is_some_and(|(original, current)| {
+                                    original.same_channel(current) && !current.is_closed()
+                                });
+                        if unchanged {
+                            if let Some(commands) = current_transport {
+                                for path in &paths {
+                                    let _ = commands
+                                        .send(crate::sftp::SftpCommand::Delete(path.clone()));
+                                }
+                            }
+                        } else {
+                            shell.say(
+                                crate::i18n::t(
+                                    "目录、选择或连接已变化，请重新选择后删除。",
+                                    "The directory, selection, or connection changed. \
+                                     Select the items again before deleting.",
+                                ),
+                                cx,
+                            );
+                        }
+                    });
+                }
+                window.close_dialog(cx);
+            });
+            let submit_key = submit.clone();
+            let theme = cx.theme();
+            let cancel_button = gpui_kit::base::Button::new("sftp-delete-cancel")
+                .track_focus(&cancel_focus)
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .bg(theme.primary)
+                .text_color(theme.primary_foreground)
+                .border_2()
+                .border_color(theme.border)
+                .focus_visible(|style| style.border_color(theme.ring))
+                .child(crate::i18n::t("取消", "Cancel"))
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    cancelled.set(true);
+                    window.close_dialog(cx);
+                });
+            let delete_button = gpui_kit::base::Button::new("sftp-delete-confirm")
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .bg(theme.danger)
+                .text_color(theme.danger_foreground)
+                .border_2()
+                .border_color(theme.border)
+                .focus_visible(|style| style.border_color(theme.ring))
+                .child(crate::i18n::t("永久删除", "Permanently delete"))
+                .on_click(move |_, window, cx| submit(window, cx))
+                .on_action(
+                    move |_: &gpui_kit::component::dialog::Confirm, window, cx| {
+                        submit_key(window, cx);
+                    },
+                );
+            dialog
+                .title(crate::i18n::t(
+                    "确认删除远程项目",
+                    "Confirm remote deletion",
+                ))
+                .w(px(520.))
+                .overlay_closable(false)
+                // Enter at the dialog level is cancellation. Only activating
+                // the named Delete button below can submit the request.
+                .button_props(DialogButtonProps::default().on_ok(|_, _, _| true))
+                .on_close(move |_, _, _| dismissed.set(true))
+                .child(
+                    div()
+                        .id("sftp-delete-summary")
+                        .test_support()
+                        .w_full()
+                        .max_h(px(240.))
+                        .overflow_y_scroll()
+                        .aria_label(summary.clone())
+                        .text_sm()
+                        .child(summary.clone()),
+                )
+                .footer(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap_2()
+                        .child(cancel_button)
+                        .child(delete_button),
+                )
+        });
+        initial_focus.focus(window, cx);
     }
 
     /// Perform whatever the transfer records popover asked for since the last
@@ -2333,6 +2568,9 @@ impl Shell {
             match action {
                 RuleEditorAction::Saved => {
                     self.overlay = Overlay::None;
+                    // Retire the visible form with its owner state; otherwise its
+                    // Add button can save the same draft again after this drain stops.
+                    window.close_dialog(cx);
                     self.say(crate::i18n::t("已添加高亮规则", "Highlight rule added"), cx);
                 }
             }
@@ -2897,3 +3135,7 @@ impl<T: TabFollower> Detached<T> {
 #[cfg(test)]
 #[path = "shell_close_focus_tests.rs"]
 mod shell_close_focus_tests;
+#[path = "sftp_delete_tests.rs"]
+mod sftp_delete_tests;
+#[path = "startup_language_tests.rs"]
+mod startup_language_tests;
