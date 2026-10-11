@@ -17,6 +17,34 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let command = CliCommand::parse(Some(command_name))
         .ok_or_else(|| anyhow!("unknown CLI command: {command_name}"))?;
     let value = match command {
+        CliCommand::Export => {
+            let path = args
+                .get(3)
+                .filter(|arg| !arg.starts_with('-'))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "usage: xenterm cli export <new-file.json> --include-credentials [--json]"
+                    )
+                })?;
+            for arg in &args[4..] {
+                if !matches!(arg.as_str(), "--include-credentials" | "--json") {
+                    return Err(anyhow!(
+                        "unknown export option (expected --include-credentials or --json)"
+                    ));
+                }
+            }
+            if !args[4..].iter().any(|arg| arg == "--include-credentials") {
+                return Err(anyhow!(
+                    "portable exports contain recoverable credentials; pass --include-credentials to write a private sessions export"
+                ));
+            }
+            // Keep credential export local to an explicit CLI invocation. It is
+            // deliberately not registered as an automation or MCP tool.
+            let store = crate::config::ConfigStore::load().context("load XenTerm configuration")?;
+            let count = store.export_to_new(std::path::Path::new(path))?;
+            eprintln!("Warning: portable exports contain recoverable credentials. Keep the file private. Only saved sessions are exported; global settings, host trust and external key files are not included.");
+            json!({"exported": count, "scope": "sessions", "includes_credentials": true})
+        }
         CliCommand::Import => {
             let path = args
                 .get(3)
@@ -97,7 +125,7 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             if remote_command.trim().is_empty() {
                 return Err(anyhow!("remote command must not be empty"));
             }
-            let timeout = option_value(args, "--timeout")?
+            let timeout = option_value(&args[..delimiter], "--timeout")?
                 .map(|value| value.parse::<u64>())
                 .transpose()
                 .context("--timeout must be a positive integer")?
@@ -179,11 +207,41 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
     };
 
-    if args.iter().any(|arg| arg == "--json") {
+    let options = local_options(command, args);
+    if options.iter().any(|arg| arg == "--json") {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         print_human(command, &value);
     }
+    if command == CliCommand::Exec {
+        ensure_remote_success(&value)?;
+    }
+    Ok(())
+}
+
+/// A remote program's flags after `--` must never change local CLI behavior.
+fn local_options(command: CliCommand, args: &[String]) -> &[String] {
+    if command == CliCommand::Exec {
+        &args[..args
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(args.len())]
+    } else {
+        args
+    }
+}
+
+/// Preserve the result output for scripts, but make failed remote commands fail
+/// locally too. A missing exit status cannot be treated as confirmed success.
+fn ensure_remote_success(value: &Value) -> Result<()> {
+    anyhow::ensure!(
+        value.get("timed_out").and_then(Value::as_bool) != Some(true),
+        "remote command timed out"
+    );
+    anyhow::ensure!(
+        value.get("exit_code").and_then(Value::as_i64) == Some(0),
+        "remote command failed"
+    );
     Ok(())
 }
 
@@ -206,6 +264,10 @@ fn option_value<'a>(args: &'a [String], option: &str) -> Result<Option<&'a str>>
 
 fn print_human(command: CliCommand, value: &Value) {
     match command {
+        CliCommand::Export => println!(
+            "Exported {} saved sessions",
+            value.get("exported").and_then(Value::as_u64).unwrap_or(0)
+        ),
         CliCommand::Import => {
             println!(
                 "{} {} sessions, skipped {} duplicates",
@@ -307,6 +369,7 @@ fn print_help() {
     println!(
         "XenTerm CLI\n\n\
          Usage:\n\
+           xenterm cli export <new-file.json> --include-credentials [--json]\n\
            xenterm cli import <export.json> [--dry-run] [--preserve-ids] [--json]\n\
            xenterm cli sync-native <sessions.json> [--dry-run] [--json]\n\
            xenterm cli sessions [--group <name>] [--json]\n\
@@ -347,5 +410,39 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("--data-dir"));
+    }
+
+    #[test]
+    fn remote_options_are_not_local_options() {
+        let args = [
+            "xenterm",
+            "cli",
+            "exec",
+            "fixture",
+            "--",
+            "command",
+            "--json",
+            "--timeout",
+            "not-a-number",
+        ]
+        .map(String::from);
+        let local = local_options(CliCommand::Exec, &args);
+        assert_eq!(local.len(), 4);
+        assert!(!local.iter().any(|arg| arg == "--json"));
+        assert_eq!(option_value(local, "--timeout").unwrap(), None);
+        assert_eq!(local_options(CliCommand::Sessions, &args), args);
+    }
+
+    #[test]
+    fn only_confirmed_zero_remote_exit_is_success() {
+        assert!(ensure_remote_success(&json!({"exit_code": 0, "timed_out": false})).is_ok());
+        for value in [
+            json!({"exit_code": 17}),
+            json!({"exit_code": null}),
+            json!({}),
+            json!({"exit_code": 0, "timed_out": true}),
+        ] {
+            assert!(ensure_remote_success(&value).is_err());
+        }
     }
 }

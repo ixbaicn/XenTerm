@@ -4,7 +4,7 @@ Run: python tests/config_import_e2e.py --exe target/debug/xenterm
 No external server, user profile or real credential is used.
 """
 import argparse
-import contextlib
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -67,13 +67,16 @@ def main():
             return response.get("result", response)
 
         def snapshot():
-            with contextlib.closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
+            # SQLite's context manager ends the transaction but does not close the
+            # connection. Close before spawning XenTerm so delayed GC cannot
+            # checkpoint/remove its WAL during the read-only profile inspection.
+            with closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
                 return tuple(tuple(connection.execute(query).fetchall()) for query in (
                     "SELECT key,value FROM meta ORDER BY key", "SELECT ordinal,id,data FROM sessions ORDER BY ordinal,id",
                     "SELECT seq,command FROM command_history ORDER BY seq"))
 
         def config():
-            with contextlib.closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
+            with closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
                 settings = json.loads(connection.execute("SELECT value FROM meta WHERE key='settings'").fetchone()[0])
                 settings["sessions"] = [json.loads(row[0]) for row in connection.execute("SELECT data FROM sessions ORDER BY ordinal,id")]
                 return settings
@@ -136,7 +139,10 @@ def main():
 
         native = root / "native.json"
         native.write_text(json.dumps(dict(sessions=[session("mcp")], mcp_allow_commands=True)))
-        assert mcp(dict(local_path=str(native), dry_run=False), allow=True)["structuredContent"] == dict(added=1, skipped=0, dry_run=False)
+        native_result = mcp(dict(local_path=str(native), dry_run=False), allow=True)["structuredContent"]
+        assert (native_result["added"], native_result["skipped"], native_result["dry_run"]) == (1, 0, False)
+        assert native_result["warnings"][0]["code"] == "global_settings_ignored"
+        assert native_result["warnings"][0]["entries"] == 1
         assert config()["mcp_allow_commands"] is False
         print("PASS: MCP apply and native sessions-only import preserve destination settings")
 
@@ -164,7 +170,7 @@ def main():
         print("PASS: unsupported legacy preferences are warned in preview/apply without exposing values")
 
         for permission in ("mcp_allow_file_transfers", "mcp_enabled"):
-            with contextlib.closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
+            with closing(sqlite3.connect(profile / "sessions.db")) as connection, connection:
                 settings = config()
                 settings["sessions"] = []
                 settings[permission] = False
@@ -212,7 +218,7 @@ def main():
             settings = dict(defaults_rev=999, mcp_enabled=True, sessions=[])
             imported = session("preflight", password=password)
             if name.startswith("db-"):
-                with contextlib.closing(sqlite3.connect(candidate / "sessions.db")) as connection, connection:
+                with closing(sqlite3.connect(candidate / "sessions.db")) as connection, connection:
                     connection.execute("PRAGMA journal_mode=WAL")
                     connection.executescript("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE sessions(ordinal INTEGER,id TEXT PRIMARY KEY,data TEXT); CREATE TABLE command_history(seq INTEGER PRIMARY KEY,command TEXT);")
                     connection.execute("INSERT INTO meta VALUES('settings',?)", [json.dumps(settings)])

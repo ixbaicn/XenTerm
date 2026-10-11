@@ -276,26 +276,19 @@ fn restore_user_backup_if_needed(primary_dir: &Path, backup_dir: &Path) -> Resul
     recovery::restore_user_backup_if_needed(primary_dir, backup_dir)
 }
 
-fn normalize_hex_color(value: &str) -> Option<String> {
-    hex_to_rgb(value).map(|(r, g, b)| format!("#{r:02X}{g:02X}{b:02X}"))
+fn normalize_cursor_color(value: &str) -> Option<String> {
+    if value.trim().is_empty() { return Some(String::new()); }
+    crate::config::color::ColorValue::parse(value).ok().map(|color| color.canonical_hex())
 }
 
 /// What reading a store database hands back: the settings blob (secrets
 /// still encrypted), sessions in disk form, history oldest-first.
 type DiskStore = (String, Vec<Session>, Vec<String>);
 
-/// A stored hex colour as its three channels.
-///
-/// Shared with the frontend, which has to draw the colour a setting names: the terminal
-/// view parses this string, and a second parser would be a second answer to what counts
-/// as a valid colour.
-pub fn hex_to_rgb(value: &str) -> Option<(u8, u8, u8)> {
-    let digits = value.trim().strip_prefix('#').unwrap_or(value.trim());
-    if digits.len() != 6 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    let channel = |range: std::ops::Range<usize>| u8::from_str_radix(&digits[range], 16).ok();
-    Some((channel(0..2)?, channel(2..4)?, channel(4..6)?))
+/// A stored colour as all four channels. The shared parser keeps configuration
+/// validation and terminal rendering in agreement, including transparent cursors.
+pub fn cursor_color_rgba(value: &str) -> Option<[u8; 4]> {
+    crate::config::color::ColorValue::parse(value).ok().map(|color| color.to_rgba8())
 }
 
 /// A brand-new config (no file yet, or the old one was corrupt). Seeds the
@@ -1280,7 +1273,7 @@ impl ConfigStore {
     }
 
     pub fn terminal_cursor_color(&self) -> &str {
-        if normalize_hex_color(&self.cache.terminal_cursor_color).is_some() {
+        if normalize_cursor_color(&self.cache.terminal_cursor_color).is_some() {
             &self.cache.terminal_cursor_color
         } else {
             ""
@@ -1288,7 +1281,7 @@ impl ConfigStore {
     }
 
     pub fn set_terminal_cursor_color(&mut self, color: &str) -> bool {
-        let Some(normalized) = normalize_hex_color(color) else {
+        let Some(normalized) = normalize_cursor_color(color) else {
             return false;
         };
         self.cache.terminal_cursor_color = normalized;
@@ -2642,6 +2635,90 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
         fs::write(path, raw).with_context(|| format!("failed to write {}", path.display()))?;
         Ok(count)
     }
+
+    /// Publish a complete, private portable export without replacing anything.
+    /// Unlike the GUI save dialog, an unattended CLI has no overwrite prompt.
+    #[cfg(unix)]
+    pub fn export_to_new(&self, path: &Path) -> Result<usize> {
+        use std::io::Write;
+
+        if path.as_os_str().is_empty()
+            || path.to_string_lossy().chars().any(char::is_control)
+            || path.file_name().is_none()
+        {
+            anyhow::bail!("export destination must be a nonempty valid file path");
+        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .canonicalize()
+            .context("cannot resolve export destination directory")?;
+        let profile = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .canonicalize()
+            .context("cannot resolve source profile directory")?;
+        if parent.starts_with(&profile) {
+            anyhow::bail!("export destination must be outside the source profile directory");
+        }
+        // Resolve existing ancestors once and use that resolved destination for
+        // both staging and publication. A symlink alias cannot bypass the
+        // profile boundary; existing files/hardlinks still fail no-clobber.
+        let destination = parent.join(path.file_name().expect("validated file name"));
+        let (raw, count) = self.export_json()?;
+        if raw.len() > import::MAX_IMPORT_BYTES {
+            anyhow::bail!("portable export exceeds the 16 MiB import limit; no file was written");
+        }
+        // NamedTempFile uses mode 0600 on Unix. Stage in the same directory so
+        // native no-replace publication is atomic and also rejects symlinks.
+        let mut staged = tempfile::Builder::new()
+            .prefix(".xenterm-export-")
+            .tempfile_in(&parent)
+            .context("cannot create private export file in destination directory")?;
+        Self::verify_private_export_file(staged.as_file())?;
+        staged
+            .write_all(raw.as_bytes())
+            .context("cannot write portable export")?;
+        staged
+            .as_file()
+            .sync_all()
+            .context("cannot flush portable export")?;
+        staged
+            .persist_noclobber(&destination)
+            .map_err(|error| error.error)
+            .context("cannot publish export; destination must not already exist")?;
+        Ok(count)
+    }
+
+    #[cfg(unix)]
+    fn verify_private_export_file(file: &fs::File) -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Some mounted filesystems ignore creation mode. Check the opened file
+        // before placing any recoverable credential bytes in it.
+        let metadata = file
+            .metadata()
+            .context("cannot verify export file permissions")?;
+        if !metadata.is_file() || metadata.permissions().mode() & 0o077 != 0 {
+            anyhow::bail!("destination does not enforce private export file permissions; no credentials were written");
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub fn export_to_new(&self, path: &Path) -> Result<usize> {
+        windows_export::export(self, path)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    pub fn export_to_new(&self, _path: &Path) -> Result<usize> {
+        // Unknown platforms cannot promise private creation permissions.
+        // Refusing before serialization keeps secrets off shared disks.
+        anyhow::bail!("private CLI export is unsupported on this platform; no file was written")
+    }
 }
 
 #[path = "import.rs"]
@@ -2654,6 +2731,9 @@ mod persistence;
 mod profile_io;
 #[path = "recovery.rs"]
 mod recovery;
+#[cfg(windows)]
+#[path = "windows_export.rs"]
+mod windows_export;
 
 #[cfg(test)]
 mod tests {
@@ -2719,6 +2799,48 @@ mod tests {
         assert_eq!(fake_keyring::write_count(), 0);
         assert!(ConfigStore::is_safe_session_id("synthetic-session-id"));
         fake_keyring::clear();
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn private_cli_export_rejects_oversized_output_before_creating_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = tempfile::tempdir().unwrap();
+        let path = directory.path().join("oversized.json");
+        let mut store = temp_store();
+        store.path = profile.path().join("sessions.db");
+        let mut session = Session::new_empty();
+        session.note = "x".repeat(import::MAX_IMPORT_BYTES);
+        store.cache.sessions.push(session);
+        assert!(store
+            .export_to_new(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("16 MiB"));
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_cli_export_checks_effective_permissions_before_writing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let staged = tempfile::NamedTempFile::new().unwrap();
+        let file = staged.as_file();
+        ConfigStore::verify_private_export_file(file).unwrap();
+        file.set_permissions(fs::Permissions::from_mode(0o640))
+            .unwrap();
+        assert!(ConfigStore::verify_private_export_file(file).is_err());
+        assert_eq!(file.metadata().unwrap().len(), 0);
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    #[test]
+    fn private_cli_export_fails_closed_without_private_file_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unsupported.json");
+        assert!(temp_store().export_to_new(&path).is_err());
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     /// Read one session's raw at-rest JSON straight out of the store
@@ -3094,6 +3216,37 @@ mod tests {
         assert_eq!(store.terminal_cursor_color(), "#ABCDEF");
         assert!(!store.set_terminal_cursor_color("#GG0000"));
         assert_eq!(store.terminal_cursor_color(), "#ABCDEF");
+    }
+
+    #[test]
+    fn terminal_cursor_color_accepts_css_and_hsv_formats() {
+        let mut store = temp_store();
+        for value in ["rgb(18, 52, 86)", "hsl(210, 65.384615%, 20.392157%)", "hsv(210, 79.069767%, 33.72549%)"] {
+            assert!(store.set_terminal_cursor_color(value), "{value}");
+            assert_eq!(store.terminal_cursor_color(), "#123456", "{value}");
+        }
+    }
+
+    #[test]
+    fn terminal_cursor_color_preserves_alpha_and_default() {
+        let mut store = temp_store();
+        assert!(store.set_terminal_cursor_color("rgba(18, 52, 86, 0.5)"));
+        assert_eq!(store.terminal_cursor_color(), "#12345680");
+        assert!(store.set_terminal_cursor_color("#12345600"));
+        assert_eq!(store.terminal_cursor_color(), "#12345600");
+        assert!(store.set_terminal_cursor_color(""));
+        assert_eq!(store.terminal_cursor_color(), "");
+    }
+
+    #[test]
+    fn terminal_cursor_color_accepts_generic_cmyk_and_rejects_invalid() {
+        let mut store = temp_store();
+        assert!(store.set_terminal_cursor_color("cmyk(0%, 100%, 100%, 0% / 50%)"));
+        assert_eq!(store.terminal_cursor_color(), "#FF000080");
+        for invalid in ["cmyk(0%, 100%, 100%, 101%)", "rgba(1,2,3,NaN)", "rgb("] {
+            assert!(!store.set_terminal_cursor_color(invalid), "{invalid}");
+            assert_eq!(store.terminal_cursor_color(), "#FF000080");
+        }
     }
 
     pub(super) fn sample_session(name: &str) -> Session {

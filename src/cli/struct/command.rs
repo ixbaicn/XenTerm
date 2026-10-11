@@ -2,6 +2,7 @@
 pub(crate) enum CliCommand {
     Sessions,
     Session,
+    Export,
     Import,
     SyncNative,
     Exec,
@@ -17,6 +18,7 @@ impl CliCommand {
         match value.unwrap_or("help") {
             "sessions" => Some(Self::Sessions),
             "session" => Some(Self::Session),
+            "export" => Some(Self::Export),
             "import" => Some(Self::Import),
             "sync-native" => Some(Self::SyncNative),
             "exec" => Some(Self::Exec),
