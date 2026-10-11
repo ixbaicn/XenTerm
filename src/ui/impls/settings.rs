@@ -104,7 +104,6 @@ enum SettingsPageId {
     TermInput,
     TermHighlight,
     Connections,
-    Pasting,
     Files,
     Sync,
     /// The former 权限 and MCP 服务器 pages, merged: one feature's switches,
@@ -128,16 +127,14 @@ const NAV_SECTIONS: &[(&str, &str, &[SettingsPageId])] = &[
             SettingsPageId::TermHighlight,
         ],
     ),
-    (
-        "连接",
-        "Connections",
-        &[SettingsPageId::Connections, SettingsPageId::Pasting],
-    ),
 ];
 
 /// The direct entries after the sections, in display order. 界面 sits above
 /// the sections as the landing subject and is rendered on its own.
 const NAV_DIRECT: &[(SettingsPageId, &str, &str, IconName)] = &[
+    // Single-page subject, kept direct like 界面 and 文件: a fold header over
+    // one row is navigation noise.
+    (SettingsPageId::Connections, "连接", "Connections", IconName::Plug),
     (SettingsPageId::McpPermissions, "MCP 与权限", "MCP & permissions", IconName::ShieldCheck),
     (SettingsPageId::Files, "文件", "Files", IconName::FolderOpen),
     (SettingsPageId::Sync, "同步", "Sync", IconName::RefreshCw),
@@ -167,8 +164,87 @@ pub(crate) struct SettingsView {
     /// it empty keeps it, matching the session editor's credential rows.
     webdav_password_input: Option<Entity<InputState>>,
     _webdav_password_subscription: Option<Subscription>,
+    /// Raw edits outlive page switches. Normalization belongs at a commit
+    /// boundary, not after each character of a colour or URL.
+    text_drafts: std::collections::HashMap<TextSetting, TextDraft>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum TextSetting {
+    CursorColor,
+    WebdavUrl,
+    WebdavUsername,
+    WebdavPath,
+}
+
+struct TextDraft {
+    input: Entity<InputState>,
+    last_value: String,
+    dirty: bool,
+    error: Option<&'static str>,
+    _subscription: Subscription,
+}
+
+impl TextSetting {
+    fn read(self, store: &ConfigStore) -> String {
+        match self {
+            Self::CursorColor => store.terminal_cursor_color().to_string(),
+            Self::WebdavUrl => store.webdav_url().to_string(),
+            Self::WebdavUsername => store.webdav_username().to_string(),
+            Self::WebdavPath => store.webdav_remote_path().to_string(),
+        }
+    }
+
+    fn validate(self, value: &str) -> Result<(), &'static str> {
+        let value = value.trim();
+        match self {
+            Self::CursorColor if !value.is_empty() && crate::config::hex_to_rgb(value).is_none() => {
+                Err(crate::i18n::t(
+                    "请输入六位十六进制颜色（例如 #123456），或留空恢复默认。尚未保存。",
+                    "Enter six hexadecimal digits (for example #123456), or leave blank for the default. Not saved.",
+                ))
+            }
+            Self::WebdavUrl if !value.is_empty() => {
+                // Reuse the HTTP client's URL parser without calling/sending a
+                // request. Offline addresses and local servers remain valid.
+                let valid = !value.chars().any(char::is_control)
+                    && value.split_once("://").is_some_and(|(scheme, _)|
+                        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+                    && ureq::get(value).request_url().is_ok();
+                if valid { Ok(()) } else {
+                    Err(crate::i18n::t(
+                        "请输入完整的 http:// 或 https:// 地址，或留空。尚未保存。",
+                        "Enter a complete http:// or https:// address, or leave blank. Not saved.",
+                    ))
+                }
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn apply(self, store: &mut ConfigStore, value: String) {
+        match self {
+            Self::CursorColor => {
+                if value.trim().is_empty() {
+                    // Empty is the existing configuration's default-colour
+                    // sentinel, as advertised by this field's description.
+                    store.cache.terminal_cursor_color.clear();
+                } else {
+                    store.set_terminal_cursor_color(&value);
+                }
+            }
+            _ => {
+                let (enabled, url, user, password, path, certs) = match self {
+                    Self::WebdavUrl => webdav_with_url(store, value),
+                    Self::WebdavUsername => webdav_with_username(store, value),
+                    Self::WebdavPath => webdav_with_remote_path(store, value),
+                    Self::CursorColor => unreachable!(),
+                };
+                store.set_webdav_settings(enabled, url, user, password, path, certs);
+            }
+        }
+    }
+}
 impl SettingsView {
     pub(crate) fn new(store: Rc<std::cell::RefCell<ConfigStore>>) -> Self {
         Self {
@@ -182,6 +258,7 @@ impl SettingsView {
             paste: None,
             webdav_password_input: None,
             _webdav_password_subscription: None,
+            text_drafts: std::collections::HashMap::new(),
         }
     }
 
@@ -189,13 +266,131 @@ impl SettingsView {
     pub(crate) fn take_action(&mut self) -> Option<SettingsAction> {
         self.pending.take()
     }
+
+    fn text_field(
+        &mut self,
+        kind: TextSetting,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> SettingField<SharedString> {
+        if !self.text_drafts.contains_key(&kind) {
+            let initial = kind.read(&self.store.borrow());
+            let input = cx.new(|cx| InputState::new(window, cx).default_value(initial.clone()));
+            let subscription = cx.subscribe_in(&input, window, move |view, input, event: &InputEvent, window, cx| {
+                match event {
+                    InputEvent::Change => {
+                        let draft = view.text_drafts.get_mut(&kind).expect("registered draft");
+                        let value = input.read(cx).value().to_string();
+                        // The toolkit can emit Change again after Enter with
+                        // unchanged text. Keep validation feedback until an
+                        // actual edit, and do not mark a successful save dirty.
+                        if value == draft.last_value { return; }
+                        draft.last_value = value;
+                        draft.dirty = true;
+                        draft.error = None;
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } | InputEvent::Blur => {
+                        let dirty = view.text_drafts.get(&kind).is_some_and(|draft| draft.dirty);
+                        if !dirty { return; }
+                        let value = input.read(cx).value().to_string();
+                        let result = kind.validate(&value).and_then(|()| {
+                            let mut store = view.store.borrow_mut();
+                            let before = store.cache.clone();
+                            kind.apply(&mut store, value);
+                            if store.save().is_err() {
+                                store.cache = before;
+                                Err(crate::i18n::t(
+                                    "保存失败，输入已保留。请检查配置文件后按 Enter 重试。",
+                                    "Could not save. Your input is kept; check the profile and press Enter to retry.",
+                                ))
+                            } else { Ok(kind.read(&store)) }
+                        });
+                        let draft = view.text_drafts.get_mut(&kind).expect("registered draft");
+                        match result {
+                            Ok(saved) => {
+                                draft.dirty = false;
+                                draft.error = None;
+                                draft.last_value = saved.clone();
+                                input.update(cx, |input, cx| input.set_value(saved, window, cx));
+                            }
+                            Err(error) => draft.error = Some(error),
+                        }
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            });
+            self.text_drafts.insert(
+                kind,
+                TextDraft {
+                    input,
+                    last_value: initial,
+                    dirty: false,
+                    error: None,
+                    _subscription: subscription,
+                },
+            );
+        }
+        let draft = self.text_drafts.get_mut(&kind).expect("created above");
+        if !draft.dirty {
+            let saved = kind.read(&self.store.borrow());
+            if draft.input.read(cx).value().as_ref() != saved {
+                draft.last_value = saved.clone();
+                draft
+                    .input
+                    .update(cx, |input, cx| input.set_value(saved, window, cx));
+            }
+        }
+        let input = draft.input.clone();
+        let error = draft.error;
+        SettingField::element(
+            move |options: &gpui_kit::component::setting::RenderOptions,
+                  _: &mut Window,
+                  cx: &mut gpui_kit::App| {
+                v_flex()
+                    .id(SharedString::from(format!("settings-text-{kind:?}")))
+                    .gap_1()
+                    .map(|this| {
+                        if options.layout().is_horizontal() {
+                            this.w_64()
+                        } else {
+                            this.w_full()
+                        }
+                    })
+                    .child(
+                        Input::new(&input)
+                            .w_full()
+                            .disabled(options.is_disabled())
+                            .with_size(options.size()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(if error.is_some() {
+                                cx.theme().danger
+                            } else {
+                                cx.theme().muted_foreground
+                            })
+                            .child(error.unwrap_or_else(|| {
+                                crate::i18n::t(
+                                    "按 Enter 或离开输入框保存。",
+                                    "Press Enter or leave the field to save.",
+                                )
+                            })),
+                    )
+                    .into_any_element()
+            },
+        )
+    }
 }
 
 /// Write one setting and persist it.
 ///
-/// Every setter goes through here, so "changed a setting" and "saved the file" cannot
+/// Immediate setters go through here, so "changed a setting" and "saved the file" cannot
 /// drift apart: a settings view where one control forgot to save would be a control
 /// that silently reverts on restart, which is the worst way for a preference to fail.
+/// Text drafts instead validate and report errors at their explicit commit boundary.
 ///
 /// A failure to save is logged rather than dialogued: the in-memory value is already
 /// correct and the next change will try again, and interrupting someone mid-adjustment
@@ -215,6 +410,301 @@ fn persist(
 /// The settings view.
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Each page's groups are one builder method; this render is only the
+        // navigation and the dispatch. The builders capture the same values
+        // the inline sections did — the view's entity and the shared store —
+        // only the naming moved.
+        // Copied out of the theme up front: the entry closure needs `&mut cx`
+        // for its click listeners, and a live `cx.theme()` borrow would fight it.
+        let theme = cx.theme();
+        let sidebar_bg = theme.sidebar;
+        let sidebar_border = theme.sidebar_border;
+        let sidebar_fg = theme.sidebar_foreground;
+        let accent = theme.sidebar_accent;
+        let accent_fg = theme.sidebar_accent_foreground;
+        let radius = theme.radius;
+        let muted_fg = theme.muted_foreground;
+        let foreground = theme.foreground;
+        let entry = |this: &mut Self,
+                     selected: SettingsPageId,
+                     label_zh: &'static str,
+                     label_en: &'static str,
+                     icon: IconName,
+                     cx: &mut Context<Self>| {
+            let is_active = this.selected == selected;
+            h_flex()
+                .id(SharedString::from(format!("settings-nav-{selected:?}")))
+                .h_7()
+                .w_full()
+                .flex_shrink_0()
+                .px_2()
+                .gap_x_2()
+                .rounded(radius)
+                .text_sm()
+                .cursor_pointer()
+                .when(is_active, |this| {
+                    this.font_weight(FontWeight::MEDIUM)
+                        .bg(accent)
+                        .text_color(accent_fg)
+                })
+                .when(!is_active, |this| {
+                    this.text_color(sidebar_fg)
+                        .hover(|this| this.bg(accent.opacity(0.8)))
+                })
+                .child(Icon::new(icon).size_4())
+                .child(SharedString::from(crate::i18n::t(label_zh, label_en)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.selected = selected;
+                    cx.notify();
+                }))
+                .into_any_element()
+        };
+
+        // A section header is the fold: name at the group level (small, muted,
+        // semibold — a different voice from the entries' normal weight), a
+        // chevron that swings between states, a count badge while folded, and
+        // an accent bar down its left edge while the page showing lives inside
+        // it — because a folded section must still say where the selection is.
+        let section = |this: &mut Self,
+                       name_zh: &'static str,
+                       name_en: &'static str,
+                       pages: &[SettingsPageId],
+                       cx: &mut Context<Self>| {
+            let folded = this.folded_sections.contains(name_zh);
+            let turn = this
+                .chevron_turn
+                .try_borrow()
+                .ok()
+                .and_then(|map| map.get(name_zh).copied());
+            let contains_selected = pages.contains(&this.selected);
+            let muted = sidebar_fg;
+            let count = pages.len();
+            let name = name_zh;
+            // The bar is outside the rounded row: a hairline hugging the
+            // sidebar's left edge reads as "this section holds what you are
+            // looking at", not as "this row is hovered". Invisible (not
+            // absent) while uninterested, so the row never shifts.
+            let indicator = if contains_selected {
+                accent
+            } else {
+                gpui_kit::transparent_black()
+            };
+            let header = h_flex()
+                .id(SharedString::from(format!("settings-section-{name}")))
+                .h_6()
+                .w_full()
+                .flex_shrink_0()
+                .mt_1p5()
+                .px_2()
+                .gap_x_1p5()
+                .rounded(radius)
+                .border_l_2()
+                .border_color(indicator)
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .text_color(if contains_selected {
+                    muted
+                } else {
+                    muted.opacity(0.75)
+                })
+                .hover(|row| {
+                    row.text_color(sidebar_fg)
+                        .bg(gpui_kit::hsla(0.0, 0.0, 0.5, 0.08))
+                })
+                .child(super::chevron::folding_chevron(
+                    &format!("settings-{name}"),
+                    folded,
+                    turn,
+                    muted,
+                ))
+                .child(SharedString::from(crate::i18n::t(
+                    name_zh,
+                    name_en,
+                )))
+                .when(folded, |row| {
+                    row.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted.opacity(0.7))
+                            .child(SharedString::from(count.to_string())),
+                    )
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    // The view folds it and swings the chevron; the page
+                    // showing is untouched — a fold is navigation housekeeping,
+                    // not navigation.
+                    if !this.folded_sections.remove(name) {
+                        this.folded_sections.insert(name);
+                    }
+                    super::chevron::bump_turn(&this.chevron_turn, name);
+                    cx.notify();
+                }));
+            if folded {
+                header.into_any_element()
+            } else {
+                // The guide rail: one left border drawn by the container, so
+                // the children read as *inside* the section rather than as a
+                // stack of unrelated rows that happen to be indented.
+                v_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .ml_2()
+                    .border_l_1()
+                    .border_color(sidebar_border)
+                    .pl_1()
+                    .gap_0p5()
+                    .children(pages.iter().map(|page| match page {
+                        SettingsPageId::TermFont => entry(
+                            this,
+                            SettingsPageId::TermFont,
+                            "字体",
+                            "Font",
+                            IconName::Type,
+                            cx,
+                        ),
+                        SettingsPageId::TermCursor => entry(
+                            this,
+                            SettingsPageId::TermCursor,
+                            "光标",
+                            "Cursor",
+                            IconName::TextCursor,
+                            cx,
+                        ),
+                        SettingsPageId::TermInput => entry(
+                            this,
+                            SettingsPageId::TermInput,
+                            "输入",
+                            "Input",
+                            IconName::Keyboard,
+                            cx,
+                        ),
+                        SettingsPageId::TermHighlight => entry(
+                            this,
+                            SettingsPageId::TermHighlight,
+                            "输出高亮",
+                            "Highlight",
+                            IconName::Highlighter,
+                            cx,
+                        ),
+                        // Sections only ever name their own children; the
+                        // direct subjects never appear in NAV_SECTIONS.
+                        _ => div().into_any_element(),
+                    }))
+                    .into_any_element()
+            }
+        };
+
+
+        let sidebar_bg = theme.sidebar;
+        let sidebar_border = theme.sidebar_border;
+        let sidebar_fg = theme.sidebar_foreground;
+        let accent = theme.sidebar_accent;
+        let muted_fg = theme.muted_foreground;
+        let foreground = theme.foreground;
+        let sidebar = v_flex()
+            .w(px(170.))
+            .h_full()
+            .flex_shrink_0()
+            .overflow_hidden()
+            .bg(sidebar_bg)
+            .border_r_1()
+            .border_color(sidebar_border)
+            .p_2()
+            .gap_0p5()
+            // 界面 — a subject of its own, no fold over one entry.
+            .child(entry(
+                self,
+                SettingsPageId::Interface,
+                "界面",
+                "Interface",
+                IconName::SlidersHorizontal,
+                cx,
+            ))
+            .children(
+                NAV_SECTIONS
+                    .iter()
+                    .map(|(name_zh, name_en, pages)| section(self, name_zh, name_en, pages, cx)),
+            )
+            // 文件 / 同步 — single-page subjects, kept direct for the same
+            // reason 界面 is.
+            .children(NAV_DIRECT.iter().map(|(page, zh, en, icon)| {
+                entry(self, *page, zh, en, *icon, cx)
+            }));
+
+        let page = match self.selected {
+            SettingsPageId::Interface => {
+                SettingPage::new(crate::i18n::t("界面", "Interface"))
+                    .group(self.appearance_group(window, cx))
+            }
+            SettingsPageId::TermFont => {
+                SettingPage::new(crate::i18n::t("字体", "Font"))
+                    .groups(self.font_and_cursor_groups(window, cx))
+            }
+            SettingsPageId::TermCursor => {
+                // 光标 shares the font page's groups: its fields read the same
+                // appearance values, so one builder builds both and this arm
+                // filters to the cursor's half by rebuilding it.
+                SettingPage::new(crate::i18n::t("光标", "Cursor"))
+                    .groups(self.cursor_group_only(window, cx))
+            }
+            SettingsPageId::TermInput => {
+                SettingPage::new(crate::i18n::t("输入", "Input")).group(self.input_group(window, cx))
+            }
+            SettingsPageId::TermHighlight => {
+                SettingPage::new(crate::i18n::t("输出高亮", "Highlight")).group(self.highlight_group(window, cx))
+            }
+            SettingsPageId::Connections => {
+                // The paste-a-list importer lives here, not on its own page:
+                // it imports connections, and it used to sit under a "粘贴"
+                // heading where nobody looking to add connections would find
+                // it — and nobody looking for paste *settings* wanted it.
+                SettingPage::new(crate::i18n::t("连接", "Connections"))
+                    .group(self.connections_group(window, cx))
+                    .group(self.paste_group(window, cx))
+            }
+            SettingsPageId::Files => {
+                SettingPage::new(crate::i18n::t("文件", "Files")).group(self.download_group(window, cx))
+            }
+            SettingsPageId::Sync => SettingPage::new(crate::i18n::t("同步", "Sync")).group(self.webdav_group(window, cx)),
+            SettingsPageId::McpPermissions => {
+                SettingPage::new(crate::i18n::t("MCP 与权限", "MCP & permissions"))
+                    .groups(self.mcp_permissions_groups(window, cx))
+            }
+        };
+
+        // The toolkit's own sidebar is collapsed to zero: it would only repeat
+        // the single selected entry next to ours, and its group menu is a
+        // scroll jump.
+        h_flex()
+            .size_full()
+            .min_w_0()
+            .child(sidebar)
+            .child(
+                div()
+                    // Every leaf is rendered as toolkit page 0. Separate its
+                    // keyed field state so an input cannot retain another
+                    // page's cached setter at the same group/row position.
+                    .id(SharedString::from(format!("settings-content-{:?}", self.selected)))
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .overflow_hidden()
+                    .child(
+                        Settings::new("settings")
+                            .sidebar_width(px(0.))
+                            .sidebar_size_range(px(0.)..px(0.))
+                            .page(page)
+                            .into_any_element(),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+impl SettingsView {
+    /// The 界面 page: theme, language, and the window chrome.
+    fn appearance_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
         let store = self.store.clone();
 
         // ---- Appearance ---------------------------------------------------
@@ -313,9 +803,54 @@ impl Render for SettingsView {
                 },
             )
         };
+        let appearance = SettingGroup::new()
+            .title(crate::i18n::t("外观", "Appearance"))
+            .item(
+                SettingItem::new(crate::i18n::t("主题", "Theme"), theme).description(
+                    crate::i18n::t(
+                        "窗口配色。终端始终为暗色。",
+                        "The window colours. The terminal stays dark.",
+                    ),
+                ),
+            )
+            .item(
+                SettingItem::new(
+                    crate::i18n::t("面板字号 (%)", "Panel font size (%)"),
+                    panel_font,
+                )
+                .description(crate::i18n::t(
+                    "侧栏与其他面板的字号,百分比(80–160)。",
+                    "The sidebar and other panels' font size, as a percentage.",
+                )),
+            )
+            .item(
+                SettingItem::new(crate::i18n::t("语言", "Language"), language)
+                    .description(crate::i18n::t("界面语言。", "The interface language.")),
+            );
 
-        // ---- Unattended access --------------------------------------------
-        //
+        appearance
+    }
+
+    /// The MCP server's own switches.
+    fn mcp_permissions_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<SettingGroup> {
+        let store = self.store.clone();
+
+        // ---- MCP server ---------------------------------------------------
+        let store_for_mcp = store.clone();
+        let mcp_enabled = {
+            let current = store.borrow().mcp_enabled();
+            SettingField::switch(
+                move |_| current,
+                move |value, _| {
+                    persist(
+                        &store_for_mcp,
+                        |s| s.set_mcp_enabled(value),
+                        "the MCP server switch",
+                    )
+                },
+            )
+        };
+
         // The four switches, reworded for both callers and with the MCP server's own
         // on-switch separated out. See this module's doc for why.
         let store_for_saved = store.clone();
@@ -358,22 +893,6 @@ impl Render for SettingsView {
                         &store_for_transfers,
                         |s| s.set_mcp_allow_file_transfers(value),
                         "the file-transfers switch",
-                    )
-                },
-            )
-        };
-
-        // ---- MCP server ---------------------------------------------------
-        let store_for_mcp = store.clone();
-        let mcp_enabled = {
-            let current = store.borrow().mcp_enabled();
-            SettingField::switch(
-                move |_| current,
-                move |value, _| {
-                    persist(
-                        &store_for_mcp,
-                        |s| s.set_mcp_enabled(value),
-                        "the MCP server switch",
                     )
                 },
             )
@@ -609,30 +1128,23 @@ impl Render for SettingsView {
                 )),
             );
 
-        let appearance = SettingGroup::new()
-            .title(crate::i18n::t("外观", "Appearance"))
-            .item(
-                SettingItem::new(crate::i18n::t("主题", "Theme"), theme).description(
-                    crate::i18n::t(
-                        "窗口配色。终端始终为暗色。",
-                        "The window colours. The terminal stays dark.",
-                    ),
-                ),
-            )
-            .item(
-                SettingItem::new(
-                    crate::i18n::t("面板字号 (%)", "Panel font size (%)"),
-                    panel_font,
-                )
-                .description(crate::i18n::t(
-                    "侧栏与其他面板的字号,百分比。",
-                    "The sidebar and other panels' font size, as a percentage.",
-                )),
-            )
-            .item(
-                SettingItem::new(crate::i18n::t("语言", "Language"), language)
-                    .description(crate::i18n::t("界面语言。", "The interface language.")),
-            );
+        vec![mcp_server, unattended, approval_group]
+    }
+
+    /// The 字体 and 光标 pages' groups, built together: the cursor's fields read
+    /// the same appearance values the font fields write.
+    /// The 光标 page's group: the cursor's fields ride the font builder (they
+    /// read the same appearance values), so this is the combined builder's
+    /// second group. Two `SettingGroup`s for the price of one build.
+    fn cursor_group_only(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<SettingGroup> {
+        self.font_and_cursor_groups(window, cx)
+            .into_iter()
+            .skip(1)
+            .collect()
+    }
+
+    fn font_and_cursor_groups(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<SettingGroup> {
+        let store = self.store.clone();
 
         // ---- Font page -----------------------------------------------------
         //
@@ -766,6 +1278,21 @@ impl Render for SettingsView {
             )
         };
 
+        let store_for_padding = store.clone();
+        let terminal_padding = {
+            let current = store.borrow().terminal_padding();
+            SettingField::switch(
+                move |_| current,
+                move |value, _| {
+                    persist(
+                        &store_for_padding,
+                        |s| s.set_terminal_padding(value),
+                        "the terminal padding setting",
+                    )
+                },
+            )
+        };
+
         let store_for_spacing = store.clone();
         let line_spacing = {
             let current = f64::from(store.borrow().terminal_line_spacing());
@@ -811,25 +1338,9 @@ impl Render for SettingsView {
             )
         };
 
-        let store_for_cursor_color = store.clone();
-        let cursor_color = {
-            let current = SharedString::from(store.borrow().terminal_cursor_color().to_string());
-            SettingField::input(
-                move |_| current.clone(),
-                move |value, _| {
-                    persist(
-                        &store_for_cursor_color,
-                        // The setter refuses an unparseable colour rather than storing one,
-                        // so a half-typed hex keeps the previous cursor rather than
-                        // making it invisible.
-                        |s| {
-                            s.set_terminal_cursor_color(value.as_ref());
-                        },
-                        "the terminal cursor colour",
-                    )
-                },
-            )
-        };
+        // The store refuses partial hex colours. Keep that safety boundary,
+        // but retain incomplete text until the user commits the field.
+        let cursor_color = self.text_field(TextSetting::CursorColor, window, cx);
 
         let font_group = SettingGroup::new()
             .title(crate::i18n::t("字体", "Font"))
@@ -880,6 +1391,13 @@ impl Render for SettingsView {
                 ),
             )
             .item(
+                SettingItem::new(crate::i18n::t("内边距", "Grid inset"), terminal_padding)
+                    .description(crate::i18n::t(
+                        "让终端输出与面板边缘留出几像素,而不是顶格贴边。",
+                        "Inset the terminal output a few pixels from the pane's edge                          instead of drawing it flush.",
+                    )),
+            )
+            .item(
                 SettingItem::new(crate::i18n::t("行距", "Line spacing"), line_spacing).description(
                     crate::i18n::t(
                         "行高的倍数,1.0 为字体自身行高(0.8–1.5)。",
@@ -903,6 +1421,12 @@ impl Render for SettingsView {
                     ),
                 ),
             );
+        vec![font_group, cursor_group]
+    }
+
+    /// The 文件 page: where downloads land and how big the dock is.
+    fn download_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
 
         // ---- Download page -------------------------------------------------
         //
@@ -939,6 +1463,24 @@ impl Render for SettingsView {
             )
         };
 
+        // Read per frame by the shell, so a change is visible without
+        // reopening anything; the dock's top edge is draggable too, and both
+        // doors write the same setting.
+        let store_for_panel_height = store.clone();
+        let panel_height = {
+            let current = f64::from(store.borrow().quick_panel_height());
+            SettingField::number_input(
+                Default::default(),
+                move |_| current,
+                move |value, _| {
+                    persist(
+                        &store_for_panel_height,
+                        |s| s.set_quick_panel_height(value as f32),
+                        "the panel strip's height",
+                    )
+                },
+            )
+        };
         let download_group = SettingGroup::new()
             .title(crate::i18n::t("下载", "Downloads"))
             .item(
@@ -961,7 +1503,47 @@ impl Render for SettingsView {
                     "With this on the directory above is ignored and every download opens a \
                      picker.",
                 )),
+            )
+            .item(
+                SettingItem::new(
+                    crate::i18n::t("启动时隐藏文件面板", "Hide file panel on startup"),
+                    {
+                        let store = store.clone();
+                        let current = store.borrow().collapse_sftp_default();
+                        SettingField::switch(
+                            move |_| current,
+                            move |value, _| {
+                                persist(
+                                    &store,
+                                    |s| s.set_collapse_sftp_default(value),
+                                    "the file panel startup visibility",
+                                )
+                            },
+                        )
+                    },
+                )
+                .description(crate::i18n::t(
+                    "新窗口默认隐藏文件面板；可从终端标签栏的文件夹按钮重新显示。",
+                    "New windows start with the file panel hidden. Reopen it with the folder button in the terminal tab bar.",
+                )),
+            )
+
+            .item(
+                SettingItem::new(
+                    crate::i18n::t("面板区域高度", "Panel strip height"),
+                    panel_height,
+                )
+                .description(crate::i18n::t(
+                    "终端下方文件面板的高度,单位像素(120–600);也可直接拖拽面板的上边缘调整。",
+                    "The height of the file panel under the terminal, in pixels (120-600);                      dragging the panel's top edge works too.",
+                )),
             );
+        download_group
+    }
+
+    /// The 输出高亮 page: the preset and the user's rules.
+    fn highlight_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
 
         // ---- Output highlighting -------------------------------------------
         //
@@ -1153,6 +1735,12 @@ impl Render for SettingsView {
                     .description(description),
             );
         }
+        highlight_group
+    }
+
+    /// The 输入 page: the paste review and the keyboard habits.
+    fn input_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
 
         // ---- Input ----------------------------------------------------------
         //
@@ -1190,23 +1778,6 @@ impl Render for SettingsView {
         };
 
         // The panel strip under the terminal: a size the settings own, because the window
-        // has no drag handle for it yet — the shell reads it every frame, so a change here
-        // is visible without reopening the window.
-        let store_for_panel_height = store.clone();
-        let panel_height = {
-            let current = f64::from(store.borrow().quick_panel_height());
-            SettingField::number_input(
-                Default::default(),
-                move |_| current,
-                move |value, _| {
-                    persist(
-                        &store_for_panel_height,
-                        |s| s.set_quick_panel_height(value as f32),
-                        "the panel strip's height",
-                    )
-                },
-            )
-        };
 
         let input_group = SettingGroup::new()
             .title(crate::i18n::t("输入", "Input"))
@@ -1230,41 +1801,15 @@ impl Render for SettingsView {
                     "启用 Ctrl+Alt+V、Shift+Insert 与中键粘贴。",
                     "Enables Ctrl+Alt+V, Shift+Insert and middle-click paste.",
                 )),
-            )
-            .item(
-                SettingItem::new(
-                    crate::i18n::t("启动时隐藏文件面板", "Hide file panel on startup"),
-                    {
-                        let store = store.clone();
-                        let current = store.borrow().collapse_sftp_default();
-                        SettingField::switch(
-                            move |_| current,
-                            move |value, _| {
-                                persist(
-                                    &store,
-                                    |s| s.set_collapse_sftp_default(value),
-                                    "the file panel startup visibility",
-                                )
-                            },
-                        )
-                    },
-                )
-                .description(crate::i18n::t(
-                    "新窗口默认隐藏文件面板；可从终端标签栏的文件夹按钮重新显示。",
-                    "New windows start with the file panel hidden. Reopen it with the folder button in the terminal tab bar.",
-                )),
-            )
-            .item(
-                SettingItem::new(
-                    crate::i18n::t("面板区域高度", "Panel strip height"),
-                    panel_height,
-                )
-                .description(crate::i18n::t(
-                    "终端下方文件/命令面板的高度,单位像素。",
-                    "The height of the files/commands panel under the terminal, in pixels.",
-                )),
             );
 
+        input_group
+    }
+
+    /// The 连接 page: import and export, and the list's maintenance buttons.
+    fn connections_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
+        let this = cx.entity();
         // ---- Connections page ----------------------------------------------
         //
         // Importing `~/.ssh/config` and exporting the list used to sit in the session
@@ -1341,6 +1886,12 @@ impl Render for SettingsView {
         // handful of hosts written in a chat message or a wiki page. The box says what it
         // wants and counts what it understood while you type, because a parser that only
         // reports after the fact makes the user guess which line it disliked.
+        connections_group
+    }
+
+    /// The 粘贴 page: what a multi-line paste does before it reaches the session.
+    fn paste_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
         let paste_group = {
             if self.paste.is_none() {
                 self.paste = Some(cx.new(|cx| {
@@ -1407,38 +1958,19 @@ impl Render for SettingsView {
                          are skipped.",
                         )),
                 )
-        };
+        };        paste_group
+    }
 
+    /// The 同步 page: the WebDAV mirror.
+    fn webdav_group(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SettingGroup {
+        let store = self.store.clone();
         // The WebDAV settings: six fields that write the whole configuration at once,
         // because the store's setter takes all of it — half-written is a state nobody
         // meant to save, such as an enabled sync with the previous password.
-        let webdav_string =
-            |pick: fn(&ConfigStore) -> String,
-             make: fn(&ConfigStore, String) -> (bool, String, String, String, String, bool),
-             store: &Rc<std::cell::RefCell<ConfigStore>>| {
-                let read_store = store.clone();
-                let write_store = store.clone();
-                SettingField::input(
-                    move |_| SharedString::from(pick(&read_store.borrow())),
-                    move |value, _| {
-                        persist(
-                            &write_store,
-                            |s| {
-                                let (enabled, url, user, password, path, certs) =
-                                    make(s, value.to_string());
-                                s.set_webdav_settings(enabled, url, user, password, path, certs)
-                            },
-                            "a WebDAV setting",
-                        )
-                    },
-                )
-            };
-        let webdav_url = webdav_string(|s| s.webdav_url().to_string(), webdav_with_url, &store);
-        let webdav_user = webdav_string(
-            |s| s.webdav_username().to_string(),
-            webdav_with_username,
-            &store,
-        );
+        // These setters trim/normalize their values. Doing that while typing
+        // destroys intermediate URL slashes and path/username edits.
+        let webdav_url = self.text_field(TextSetting::WebdavUrl, window, cx);
+        let webdav_user = self.text_field(TextSetting::WebdavUsername, window, cx);
         // The password is masked and write-only: the stored value never comes
         // back into the form (audit N-中5). Created lazily on the first render
         // of the sync section, because an input needs a window.
@@ -1512,11 +2044,7 @@ impl Render for SettingsView {
                 },
             )
         };
-        let webdav_path = webdav_string(
-            |s| s.webdav_remote_path().to_string(),
-            webdav_with_remote_path,
-            &store,
-        );
+        let webdav_path = self.text_field(TextSetting::WebdavPath, window, cx);
         let webdav_enabled = {
             let read = store.clone();
             let write = store.clone();
@@ -1702,286 +2230,7 @@ impl Render for SettingsView {
         // screen does not do those.
         // Copied out of the theme up front: the entry closure needs `&mut cx`
         // for its click listeners, and a live `cx.theme()` borrow would fight it.
-        let theme = cx.theme();
-        let sidebar_bg = theme.sidebar;
-        let sidebar_border = theme.sidebar_border;
-        let sidebar_fg = theme.sidebar_foreground;
-        let accent = theme.sidebar_accent;
-        let accent_fg = theme.sidebar_accent_foreground;
-        let radius = theme.radius;
-        // Direct entries — the single-page subjects — sit at the section level:
-        // icon plus label, a click selects. Children of a folded section live
-        // one level down, drawn inside a guide rail so the hierarchy reads
-        // without colour alone.
-        let entry = |this: &mut Self,
-                     selected: SettingsPageId,
-                     label_zh: &'static str,
-                     label_en: &'static str,
-                     icon: IconName,
-                     cx: &mut Context<Self>| {
-            let is_active = this.selected == selected;
-            h_flex()
-                .id(SharedString::from(format!("settings-nav-{selected:?}")))
-                .h_7()
-                .w_full()
-                .flex_shrink_0()
-                .px_2()
-                .gap_x_2()
-                .rounded(radius)
-                .text_sm()
-                .cursor_pointer()
-                .when(is_active, |this| {
-                    this.font_weight(FontWeight::MEDIUM)
-                        .bg(accent)
-                        .text_color(accent_fg)
-                })
-                .when(!is_active, |this| {
-                    this.text_color(sidebar_fg)
-                        .hover(|this| this.bg(accent.opacity(0.8)))
-                })
-                .child(Icon::new(icon).size_4())
-                .child(SharedString::from(crate::i18n::t(label_zh, label_en)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.selected = selected;
-                    cx.notify();
-                }))
-                .into_any_element()
-        };
-
-        // A section header is the fold: name at the group level (small, muted,
-        // semibold — a different voice from the entries' normal weight), a
-        // chevron that swings between states, a count badge while folded, and
-        // an accent bar down its left edge while the page showing lives inside
-        // it — because a folded section must still say where the selection is.
-        let section = |this: &mut Self,
-                       name_zh: &'static str,
-                       name_en: &'static str,
-                       pages: &[SettingsPageId],
-                       cx: &mut Context<Self>| {
-            let folded = this.folded_sections.contains(name_zh);
-            let turn = this
-                .chevron_turn
-                .try_borrow()
-                .ok()
-                .and_then(|map| map.get(name_zh).copied());
-            let contains_selected = pages.contains(&this.selected);
-            let muted = sidebar_fg;
-            let count = pages.len();
-            let name = name_zh;
-            // The bar is outside the rounded row: a hairline hugging the
-            // sidebar's left edge reads as "this section holds what you are
-            // looking at", not as "this row is hovered". Invisible (not
-            // absent) while uninterested, so the row never shifts.
-            let indicator = if contains_selected {
-                accent
-            } else {
-                gpui_kit::transparent_black()
-            };
-            let header = h_flex()
-                .id(SharedString::from(format!("settings-section-{name}")))
-                .h_6()
-                .w_full()
-                .flex_shrink_0()
-                .mt_1p5()
-                .px_2()
-                .gap_x_1p5()
-                .rounded(radius)
-                .border_l_2()
-                .border_color(indicator)
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .text_color(if contains_selected {
-                    muted
-                } else {
-                    muted.opacity(0.75)
-                })
-                .hover(|row| row.text_color(muted))
-                .child(super::chevron::folding_chevron(
-                    &format!("settings-{name}"),
-                    folded,
-                    turn,
-                    muted,
-                ))
-                .child(SharedString::from(crate::i18n::t(
-                    name_zh,
-                    name_en,
-                )))
-                .when(folded, |row| {
-                    row.child(
-                        div()
-                            .text_xs()
-                            .text_color(muted.opacity(0.7))
-                            .child(SharedString::from(count.to_string())),
-                    )
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    // The view folds it and swings the chevron; the page
-                    // showing is untouched — a fold is navigation housekeeping,
-                    // not navigation.
-                    if !this.folded_sections.remove(name) {
-                        this.folded_sections.insert(name);
-                    }
-                    super::chevron::bump_turn(&this.chevron_turn, name);
-                    cx.notify();
-                }));
-            if folded {
-                header.into_any_element()
-            } else {
-                // The guide rail: one left border drawn by the container, so
-                // the children read as *inside* the section rather than as a
-                // stack of unrelated rows that happen to be indented.
-                v_flex()
-                    .w_full()
-                    .flex_shrink_0()
-                    .ml_2()
-                    .border_l_1()
-                    .border_color(sidebar_border)
-                    .pl_1()
-                    .gap_0p5()
-                    .children(pages.iter().map(|page| match page {
-                        SettingsPageId::TermFont => entry(
-                            this,
-                            SettingsPageId::TermFont,
-                            "字体",
-                            "Font",
-                            IconName::Type,
-                            cx,
-                        ),
-                        SettingsPageId::TermCursor => entry(
-                            this,
-                            SettingsPageId::TermCursor,
-                            "光标",
-                            "Cursor",
-                            IconName::TextCursor,
-                            cx,
-                        ),
-                        SettingsPageId::TermInput => entry(
-                            this,
-                            SettingsPageId::TermInput,
-                            "输入",
-                            "Input",
-                            IconName::Keyboard,
-                            cx,
-                        ),
-                        SettingsPageId::TermHighlight => entry(
-                            this,
-                            SettingsPageId::TermHighlight,
-                            "输出高亮",
-                            "Highlight",
-                            IconName::Highlighter,
-                            cx,
-                        ),
-                        SettingsPageId::Connections => entry(
-                            this,
-                            SettingsPageId::Connections,
-                            "连接",
-                            "Connections",
-                            IconName::Plug,
-                            cx,
-                        ),
-                        SettingsPageId::Pasting => entry(
-                            this,
-                            SettingsPageId::Pasting,
-                            "粘贴",
-                            "Pasting",
-                            IconName::ClipboardPaste,
-                            cx,
-                        ),
-                        // Sections only ever name their own children; the
-                        // direct subjects never appear in NAV_SECTIONS.
-                        _ => div().into_any_element(),
-                    }))
-                    .into_any_element()
-            }
-        };
-
-        let sidebar = v_flex()
-            .w(px(170.))
-            .h_full()
-            .flex_shrink_0()
-            .overflow_hidden()
-            .bg(sidebar_bg)
-            .border_r_1()
-            .border_color(sidebar_border)
-            .p_2()
-            .gap_0p5()
-            // 界面 — a subject of its own, no fold over one entry.
-            .child(entry(
-                self,
-                SettingsPageId::Interface,
-                "界面",
-                "Interface",
-                IconName::SlidersHorizontal,
-                cx,
-            ))
-            .children(
-                NAV_SECTIONS
-                    .iter()
-                    .map(|(name_zh, name_en, pages)| section(self, name_zh, name_en, pages, cx)),
-            )
-            // 文件 / 同步 — single-page subjects, kept direct for the same
-            // reason 界面 is.
-            .children(NAV_DIRECT.iter().map(|(page, zh, en, icon)| {
-                entry(self, *page, zh, en, *icon, cx)
-            }));
-
-        let page = match self.selected {
-            SettingsPageId::Interface => {
-                SettingPage::new(crate::i18n::t("界面", "Interface")).group(appearance)
-            }
-            SettingsPageId::TermFont => {
-                SettingPage::new(crate::i18n::t("字体", "Font")).group(font_group)
-            }
-            SettingsPageId::TermCursor => {
-                SettingPage::new(crate::i18n::t("光标", "Cursor")).group(cursor_group)
-            }
-            SettingsPageId::TermInput => {
-                SettingPage::new(crate::i18n::t("输入", "Input")).group(input_group)
-            }
-            SettingsPageId::TermHighlight => {
-                SettingPage::new(crate::i18n::t("输出高亮", "Highlight")).group(highlight_group)
-            }
-            SettingsPageId::Connections => {
-                SettingPage::new(crate::i18n::t("连接", "Connections")).group(connections_group)
-            }
-            SettingsPageId::Pasting => {
-                SettingPage::new(crate::i18n::t("粘贴", "Pasting")).group(paste_group)
-            }
-            SettingsPageId::Files => {
-                SettingPage::new(crate::i18n::t("文件", "Files")).group(download_group)
-            }
-            SettingsPageId::Sync => SettingPage::new(crate::i18n::t("同步", "Sync")).group(webdav_group),
-            SettingsPageId::McpPermissions => {
-                SettingPage::new(crate::i18n::t("MCP 与权限", "MCP & permissions"))
-                    .group(mcp_server)
-                    .group(unattended)
-                    .group(approval_group)
-            }
-        };
-
-        // The toolkit's own sidebar is collapsed to zero: it would only repeat
-        // the single selected entry next to ours, and its group menu is a
-        // scroll jump.
-        h_flex()
-            .size_full()
-            .min_w_0()
-            .child(sidebar)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .overflow_hidden()
-                    .child(
-                        Settings::new("settings")
-                            .sidebar_width(px(0.))
-                            .sidebar_size_range(px(0.)..px(0.))
-                            .page(page)
-                            .into_any_element(),
-                    ),
-            )
-            .into_any_element()
+        webdav_group
     }
 }
 
@@ -2029,6 +2278,10 @@ fn webdav_with_remote_path(store: &ConfigStore, value: String) -> WebDavSettings
 }
 
 #[cfg(test)]
+#[path = "settings_input_tests.rs"]
+mod input_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -2045,7 +2298,6 @@ mod tests {
             SettingsPageId::TermInput,
             SettingsPageId::TermHighlight,
             SettingsPageId::Connections,
-            SettingsPageId::Pasting,
             SettingsPageId::Files,
             SettingsPageId::Sync,
             SettingsPageId::McpPermissions,

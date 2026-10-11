@@ -1180,6 +1180,16 @@ impl ConfigStore {
         self.cache.terminal_line_spacing = value.clamp(0.8, 1.5);
     }
 
+    /// Whether the terminal grid is inset from its pane's edge. Missing or
+    /// legacy config means on: a flush grid is the old look, not the default.
+    pub fn terminal_padding(&self) -> bool {
+        self.cache.terminal_padding
+    }
+
+    pub fn set_terminal_padding(&mut self, value: bool) {
+        self.cache.terminal_padding = value;
+    }
+
     pub fn paste_confirm_enabled(&self) -> bool {
         !self.cache.paste_confirm_disabled
     }
@@ -1420,12 +1430,17 @@ impl ConfigStore {
         if height <= 0.0 {
             default_quick_panel_height()
         } else {
-            height
+            // Legacy configs may hold an unclamped value from before the
+            // setter had bounds.
+            height.clamp(120.0, 600.0)
         }
     }
 
     pub fn set_quick_panel_height(&mut self, height: f32) {
-        self.cache.quick_panel_height = height;
+        // The same bounds the drag gesture clamps to. The settings field had
+        // no floor: a 0 saved here mounted a dock with no rows at all, and a
+        // 9999 ate the terminal.
+        self.cache.quick_panel_height = height.clamp(120.0, 600.0);
     }
 
     pub fn quick_panel_dock(&self) -> String {

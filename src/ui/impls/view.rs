@@ -48,6 +48,14 @@ const FIND_BAR_SLIDE: std::time::Duration = std::time::Duration::from_millis(160
 /// sidebar's own slide runs at.
 const FIND_BAR_TICK_MS: u64 = 16;
 
+/// The find bar lives on the terminal background, so it must use that palette
+/// even when the surrounding application is light. Keep the secondary text at
+/// readable contrast instead of inheriting the window's muted foreground.
+fn find_bar_colors(is_dark: bool) -> (Hsla, Hsla, Hsla) {
+    let foreground = rgba_to_hsla(terminal::terminal_foreground(is_dark));
+    (foreground, foreground.opacity(0.8), foreground.opacity(0.3))
+}
+
 /// The size the settings stepper owns, and what Ctrl+0 returns a session to.
 ///
 /// A constant here rather than read from the store because the view is built before the
@@ -69,6 +77,9 @@ pub(crate) struct TerminalSettings {
     pub(crate) family: SharedString,
     pub(crate) font_size: u32,
     pub(crate) bold: bool,
+    /// Inset the grid from the pane's edge, so output does not sit flush
+    /// against the frame.
+    pub(crate) padding: bool,
     pub(crate) line_spacing: f32,
     pub(crate) cursor_style: CursorStyle,
     /// The cursor's colour, already parsed, or the theme's when unset.
@@ -113,6 +124,7 @@ impl TerminalSettings {
             family,
             font_size: store.font_size(),
             bold: store.terminal_bold(),
+            padding: store.terminal_padding(),
             line_spacing: store.terminal_line_spacing(),
             cursor_style: CursorStyle::from_setting(store.terminal_cursor_style()),
             cursor_color: crate::config::hex_to_rgb(store.terminal_cursor_color())
@@ -163,6 +175,11 @@ pub(crate) struct TerminalView {
     /// connects into. `None` under the tab id means no session is open, and input is
     /// dropped rather than queued somewhere nobody will read.
     handles: Rc<std::cell::RefCell<HashMap<String, SessionHandle>>>,
+    /// The page this tab belongs to, for the one notification the strip cannot
+    /// get anywhere else: a session-state transition (dialling, live, ended) is
+    /// written into a plain shared map no dependency tracker can see, and the
+    /// tab strip that draws the dot is cached between page notifications.
+    page: Option<gpui_kit::WeakEntity<super::pages::terminal_page::TerminalPage>>,
     /// Keeps the message pump alive for as long as the view is.
     _pump: Task<()>,
     /// The last size sent to the session, so a resize goes out only when it changes.
@@ -252,6 +269,8 @@ pub(crate) struct TerminalView {
     /// when it opens a tab and pushes changes to every tab, so a terminal never has to
     /// know where a preference is stored — and a view drawn by a test has no store.
     bold: bool,
+    /// Inset the grid from the pane's edge (the padding setting).
+    padding: bool,
     line_spacing: f32,
     /// The insertion cursor's shape and colour.
     cursor_style: CursorStyle,
@@ -280,6 +299,7 @@ impl TerminalView {
         tunnels: super::session_state::TabTunnels,
         opened_file: Arc<Mutex<Option<super::session_state::OpenedFile>>>,
         messages: tokio::sync::mpsc::UnboundedReceiver<UiMessage>,
+        page: Option<gpui_kit::WeakEntity<super::pages::terminal_page::TerminalPage>>,
         cx: &mut Context<Self>,
     ) -> Self {
         let (cols, rows) = (80u16, 24u16);
@@ -322,8 +342,11 @@ impl TerminalView {
 
         let family = appearance.family.clone();
         let font_size = px(appearance.font_size as f32);
+        let padding = appearance.padding;
         Self {
+            page,
             tab_id,
+            padding,
             buffer,
             snapshot: GridSnapshot::default(),
             metrics: None,
@@ -710,43 +733,20 @@ impl TerminalView {
         let ctrl = keystroke.modifiers.control;
         let alt = keystroke.modifiers.alt;
         let shift = keystroke.modifiers.shift;
-        // Enter, when this view happens to be the focused one. The shell also catches it at
-        // the window, which is where the original catches it and the only place that works
-        // whichever widget has focus.
+        // Enter, when this view happens to be the focused one. The shell also catches
+        // it at the window, which is where the original catches it and the only place
+        // that works whichever widget has focus — so this branch stops the event here:
+        // one ended session must not be reconnected twice by two layers that both
+        // saw the same key.
         if keystroke.key == "enter" && !ctrl && !alt && self.request_reconnect_if_ended(cx) {
+            cx.stop_propagation();
             return;
         }
-        // The clipboard shortcuts, which are the platform's own and cannot be left to
-        // the encoder: Ctrl+C and Ctrl+V are SIGINT and a literal 0x16 to a shell, so
-        // sending them through would interrupt the program instead of copying.
-        //
-        // The set is the original's: Ctrl+Shift+C copies (plain Ctrl+C stays SIGINT,
-        // which is the one shortcut a terminal must not take away), Ctrl+V and
-        // Ctrl+Shift+V paste, and Shift+Insert pastes because that is the X11 habit.
-        if ctrl && shift && keystroke.key == "c" {
-            self.copy_selection(cx);
-            return;
-        }
-        if ctrl && keystroke.key == "v" {
-            self.paste_from_clipboard(window, cx);
-            return;
-        }
-        // The shortcuts beyond the platform's own, which the settings can turn off: each
-        // is a habit from another terminal, and each is also a surprise in a program that
-        // wants the mouse or the key for itself.
-        if self.paste_shortcuts
-            && ((ctrl && alt && keystroke.key == "v") || (shift && keystroke.key == "insert"))
-        {
-            self.paste_from_clipboard(window, cx);
-            return;
-        }
-        // Ctrl+F opens the find bar. What is typed goes into the bar's own input rather
-        // than being read from here: a terminal has no text to search by keystroke.
-        if ctrl && keystroke.key == "f" {
-            self.find_open = true;
-            self.animate_find_to(FIND_BAR_HEIGHT, cx);
-            return;
-        }
+        // Copy, paste, find and zoom moved to actions bound in the `Terminal`
+        // context (`impls/actions.rs`); the keymap consumes those chords before
+        // this handler runs, so they are no longer matched here. Ctrl+C stays
+        // unmatched on purpose — it is SIGINT — and Escape/Backspace above are
+        // state-gated, which a static binding cannot be.
         // Escape closes the bar and clears the query, so the highlights go with it. A
         // search that outlived its bar would leave rectangles on screen with nothing to
         // explain them.
@@ -778,23 +778,6 @@ impl TerminalView {
                 _ => return,
             }
         }
-        // Font zoom. The size is a property of this view, because one view is one
-        // session and zooming a session should not resize the others — which is what
-        // the original's per-tab Ctrl+= means. Ctrl+Shift+… zooms every session there;
-        // that needs the shell to reach every tab and is not this view's to do.
-        if ctrl {
-            let step = match keystroke.key.as_str() {
-                "=" | "+" | "add" => Some(1),
-                "-" | "minus" | "subtract" => Some(-1),
-                "0" => Some(0),
-                _ => None,
-            };
-            if let Some(step) = step {
-                self.zoom_font(step, cx);
-                return;
-            }
-        }
-
         // Paging keys scroll the scrollback, but only on the normal screen. A
         // full-screen program — `less`, `vim`, `tmux` — puts the terminal on the
         // alternate screen and expects these keys itself, so there they fall through to
@@ -893,6 +876,20 @@ impl TerminalView {
     /// because a permanent "connected" would be a line that never changes and therefore
     /// never informs.
     fn status_line(&self) -> Option<SharedString> {
+        // An ended session names the way back: the red line in the scrollback is
+        // output, and output scrolls; the status line is furniture, and it is
+        // where an affordance belongs.
+        if self.conn_state == 2 {
+            let base = self
+                .status
+                .clone()
+                .unwrap_or_else(|| crate::i18n::t("已断开", "Disconnected").to_string());
+            return Some(SharedString::from(format!(
+                "{} · {}",
+                base,
+                crate::i18n::t("Enter 重连", "Enter to reconnect")
+            )));
+        }
         if let Some(status) = &self.status {
             return Some(SharedString::from(status.clone()));
         }
@@ -1051,6 +1048,36 @@ impl TerminalView {
     /// item through `EntityInputHandler::paste` on some paths and as a keystroke on
     /// others, and both have to end in the same encoder. Ctrl+V and Ctrl+Shift+V are
     /// bound here; the trait method covers the rest.
+    /// The opt-in paste pair: Ctrl+Alt+V and Shift+Insert. When the setting is
+    /// off, the chord means what it always meant to the program on the other end
+    /// of the PTY, so the bytes it would have sent are sent instead — the same
+    /// fall-through the pre-action handler had.
+    fn paste_alternate(
+        &mut self,
+        action: &crate::ui::PasteAlternate,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.paste_shortcuts {
+            self.paste_from_clipboard(window, cx);
+            return;
+        }
+        let bytes = if action.insert {
+            terminal::key_to_pty_bytes("insert", false, false, false)
+        } else {
+            terminal::key_to_pty_bytes("v", true, true, false)
+        };
+        self.send_bytes(&bytes);
+        cx.notify();
+    }
+
+    /// Open the find bar. What is typed goes into the bar's own input rather than
+    /// being read from here: a terminal has no text to search by keystroke.
+    fn open_find(&mut self, cx: &mut Context<Self>) {
+        self.find_open = true;
+        self.animate_find_to(FIND_BAR_HEIGHT, cx);
+    }
+
     fn paste_from_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else {
             return;
@@ -1465,6 +1492,32 @@ impl Render for TerminalView {
             .role(Role::Terminal)
             .aria_label("Terminal")
             .key_context("Terminal")
+            // The bound chords arrive here as actions — `impls/actions.rs` is where
+            // their keystrokes live — and everything the keymap cannot express
+            // (state-gated Escape, alt-screen paging) still reaches `send_key`.
+            .on_action(cx.listener(|this, _: &crate::ui::CopySelection, _, cx| {
+                this.copy_selection(cx);
+            }))
+            .on_action(cx.listener(|this, _: &crate::ui::Paste, window, cx| {
+                this.paste_from_clipboard(window, cx);
+            }))
+            .on_action(cx.listener(
+                |this, action: &crate::ui::PasteAlternate, window, cx| {
+                    this.paste_alternate(action, window, cx);
+                },
+            ))
+            .on_action(cx.listener(|this, _: &crate::ui::Find, _, cx| {
+                this.open_find(cx);
+            }))
+            .on_action(cx.listener(|this, _: &crate::ui::ZoomIn, _, cx| {
+                this.zoom_font(1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &crate::ui::ZoomOut, _, cx| {
+                this.zoom_font(-1, cx);
+            }))
+            .on_action(cx.listener(|this, _: &crate::ui::ZoomReset, _, cx| {
+                this.zoom_font(0, cx);
+            }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.send_key(event, window, cx);
                 // Notified rather than waiting for the PTY to echo: a keystroke that
@@ -1553,8 +1606,7 @@ impl Render for TerminalView {
                 // slot; with it, the grid sees one height change per tick instead of a
                 // jump that shoves the session.
                 let hits = self.snapshot.find_matches.len();
-                let border = cx.theme().border;
-                let muted = cx.theme().muted_foreground;
+                let (foreground, muted, border) = find_bar_colors(true);
                 let height = px(self.find_height);
                 this.child(
                     div()
@@ -1570,6 +1622,7 @@ impl Render for TerminalView {
                                 .py_1()
                                 .border_b_1()
                                 .border_color(border)
+                                .text_color(foreground)
                                 .text_sm()
                                 .child(
                                     gpui_kit::component::Icon::new(
@@ -1591,7 +1644,23 @@ impl Render for TerminalView {
                         ),
                 )
             })
-            .child(div().flex_1().relative().child(terminal_grid(
+            // The grid, inset a few pixels from the pane's edge when the setting
+            // asks: output that starts flush at the corner reads as clipped. The
+            // inset is the box the grid fills, so every geometry that flows from
+            // the painted bounds — the click-to-cell conversion, the selection
+            // and match rectangles, the scrollbar — inherits the same origin and
+            // stays in step for free. The box is the positioned element itself
+            // rather than a padded wrapper, because padding does not offset an
+            // absolutely positioned child, and a wrapper that only holds one is
+            // a box of zero height.
+            .child(div().flex_1().relative().child(
+                div()
+                    .absolute()
+                    .when(self.padding, |this| {
+                        this.top(px(6.)).left(px(10.)).right(px(4.)).bottom(px(4.))
+                    })
+                    .when(!self.padding, |this| this.inset_0())
+                    .child(terminal_grid(
                 self.snapshot.clone(),
                 metrics,
                 style,
@@ -1616,7 +1685,8 @@ impl Render for TerminalView {
                         window.request_animation_frame();
                     }
                 },
-            )))
+            )),
+            ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
@@ -1718,7 +1788,17 @@ async fn pump_messages(
     tunnels: super::session_state::TabTunnels,
     opened_file: Arc<Mutex<Option<super::session_state::OpenedFile>>>,
 ) {
-    while let Some(message) = messages.recv().await {
+    const MAX_MESSAGES_PER_TURN: usize = 64;
+    let mut pending = None;
+    loop {
+        let message = match pending.take() {
+            Some(message) => message,
+            None => match messages.recv().await {
+                Some(message) => message,
+                None => break,
+            },
+        };
+        let mut processed = 1;
         let update = match message {
             UiMessage::Render { gate } => this.update(cx, |view, cx| {
                 view.refresh();
@@ -1731,29 +1811,68 @@ async fn pump_messages(
                     gate.finish_flush(through, true);
                 }
             }),
-            UiMessage::Events { tab_id, events } => this.update(cx, |view, cx| {
-                for event in events {
-                    apply_event(
-                        &opened_file,
-                        view,
-                        &buffer,
-                        &sftp_listings,
-                        &sftp_trees,
-                        &statuses,
-                        &transfers,
-                        &tunnels,
-                        &tab_id,
-                        event,
-                    );
+            UiMessage::Events { tab_id, events } => {
+                // A ready channel must not become one terminal snapshot per
+                // progress packet. Bound the local batch and preserve every
+                // event in order; a render request is a barrier, not an event
+                // that may be moved past a later batch.
+                let mut batches = vec![(tab_id, events)];
+                while processed < MAX_MESSAGES_PER_TURN {
+                    match messages.try_recv() {
+                        Ok(UiMessage::Events { tab_id, events }) => {
+                            batches.push((tab_id, events));
+                            processed += 1;
+                        }
+                        Ok(render) => {
+                            pending = Some(render);
+                            break;
+                        }
+                        Err(_) => break,
+                    }
                 }
-                view.refresh();
-                cx.notify();
-            }),
+                this.update(cx, |view, cx| {
+                    let mut terminal_changed = false;
+                    for (tab_id, events) in batches {
+                        for event in events {
+                            // Transfers have their own shared store and polled
+                            // view. Their bytes do not change the terminal grid.
+                            terminal_changed |=
+                                !matches!(&event, SessionEvent::SftpTransfer { .. });
+                            apply_event(
+                                &opened_file,
+                                view,
+                                cx,
+                                &buffer,
+                                &sftp_listings,
+                                &sftp_trees,
+                                &statuses,
+                                &transfers,
+                                &tunnels,
+                                &tab_id,
+                                event,
+                            );
+                        }
+                    }
+                    if terminal_changed {
+                        view.refresh();
+                        cx.notify();
+                    }
+                })
+            }
         };
         // A failure means the window is gone, and the buffer goes with it — which is
         // what closes the session.
         if update.is_err() {
             break;
+        }
+        if processed == MAX_MESSAGES_PER_TURN || pending.is_some() || !messages.is_empty() {
+            // recv().await is immediately ready while the producer runs ahead.
+            // A non-zero timer really returns control to GPUI, allowing input
+            // and the transfer list's own poll to run before the stream ends.
+            // No view lease or store lock is held across this yield.
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1))
+                .await;
         }
     }
 }
@@ -1767,6 +1886,7 @@ fn apply_event(
     opened_file: &Arc<Mutex<Option<super::session_state::OpenedFile>>>,
 
     view: &mut TerminalView,
+    cx: &mut gpui_kit::Context<TerminalView>,
     buffer: &Arc<Mutex<TermBuffer>>,
     sftp_listings: &crate::core::SftpListings,
     sftp_trees: &super::session_state::TabTrees,
@@ -1816,6 +1936,14 @@ fn apply_event(
                     status.state = 1;
                 }
             }
+            // The tab strip's dot lives on the page, which is cached between its
+            // own notifications: a transition is a rare event, and telling the
+            // page is what repaints the chip.
+            if let Some(page) = view.page.as_ref() {
+                if let Some(page) = page.upgrade() {
+                    let _ = page.update(cx, |_, cx| cx.notify());
+                }
+            }
             view.conn_state = 1;
             view.status = Some(crate::i18n::t("已连接", "Connected").to_string())
         }
@@ -1826,6 +1954,12 @@ fn apply_event(
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
                     status.state = 2;
+                }
+            }
+            // As above: the strip's greyed dot waits on the page being told.
+            if let Some(page) = view.page.as_ref() {
+                if let Some(page) = page.upgrade() {
+                    let _ = page.update(cx, |_, cx| cx.notify());
                 }
             }
             // Release the heavy scrollback first: a disconnected tab is kept for
@@ -2146,6 +2280,34 @@ impl PendingPrompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::gpui::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+
+    #[test]
+    fn find_bar_text_keeps_contrast_on_each_terminal_palette() {
+        fn luminance(rgb: [f64; 3]) -> f64 {
+            let linear = rgb.map(|v| {
+                let v = v / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            });
+            linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+        }
+        for is_dark in [true, false] {
+            let fg = terminal::terminal_foreground(is_dark);
+            let bg = terminal::terminal_background(is_dark);
+            let foreground = rgba_to_hsla(fg);
+            assert_eq!(find_bar_colors(is_dark),
+                (foreground, foreground.opacity(0.8), foreground.opacity(0.3)));
+            // The hit counter and search icon use the least opaque text color.
+            let background = [bg.r as f64, bg.g as f64, bg.b as f64];
+            let secondary = [fg.r as f64, fg.g as f64, fg.b as f64]
+                .into_iter().zip(background).map(|(fg, bg)| fg * 0.8 + bg * 0.2)
+                .collect::<Vec<_>>();
+            let a = luminance(background);
+            let b = luminance([secondary[0], secondary[1], secondary[2]]);
+            let contrast = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+            assert!(contrast >= 4.5, "find text contrast is {contrast}, dark={is_dark}");
+        }
+    }
 
     /// What the PTY receives for a GPUI-named key.
     fn bytes_for(key: &str) -> Vec<u8> {
@@ -2207,6 +2369,7 @@ mod tests {
             family: SharedString::from("test"),
             font_size: 13,
             bold: true,
+            padding: false,
             line_spacing: 1.0,
             cursor_style: CursorStyle::Block,
             cursor_color: None,
@@ -2266,5 +2429,401 @@ mod tests {
             crate::terminal::OutputHighlightPreset::Off
         );
         assert!(buffer.custom_highlight_rules.is_empty());
+    }
+
+    struct ProgressHarness {
+        terminal: Entity<TerminalView>,
+        transfers: Entity<crate::ui::TransferListView>,
+    }
+
+    impl Render for ProgressHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(div().h(px(200.)).child(self.terminal.clone()))
+                .child(self.transfers.clone())
+        }
+    }
+
+    #[gpui_kit::gpui::test]
+    fn live_transfer_events_reach_the_store_and_polling_view_before_completion(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::core::EventSink as _;
+        let (fixture, cx) = progress_fixture(cx);
+        let ProgressFixture {
+            records,
+            sink,
+            harness,
+            ..
+        } = fixture;
+        let transfers = harness.read_with(cx, |harness, _| harness.transfers.clone());
+        for transferred in [0, 32768, 1024 * 1024, 9 * 1024 * 1024] {
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![SessionEvent::SftpTransfer {
+                    id: "live-progress".into(),
+                    name: "synthetic.bin".into(),
+                    is_upload: false,
+                    transferred,
+                    total: 16 * 1024 * 1024,
+                    state: 0,
+                    msg: String::new(),
+                }],
+            );
+            cx.run_until_parked();
+            {
+                let store = records.lock().unwrap();
+                let row = store
+                    .get("live-progress")
+                    .expect("progress reaches real event handler");
+                assert_eq!(row.transferred, transferred);
+                assert_eq!(row.phase, crate::core::TransferPhase::Active);
+            }
+            cx.background_executor
+                .advance_clock(std::time::Duration::from_millis(600));
+            cx.run_until_parked();
+            cx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+                window.draw(cx).clear(cx);
+            });
+            assert!(transfers.read_with(cx, |view, _| view.has_active()));
+            assert!(
+                cx.debug_bounds("cancel-live-progress").is_some(),
+                "running transfer must already offer Cancel at {transferred} bytes"
+            );
+        }
+        let cancel = cx.debug_bounds("cancel-live-progress").unwrap();
+        cx.simulate_click(cancel.center(), Default::default());
+        assert_eq!(
+            transfers.update(cx, |view, _| view.take_action()),
+            Some(crate::ui::TransferAction::Cancel("live-progress".into()))
+        );
+        sink.deliver(
+            "synthetic-transfer-tab",
+            vec![SessionEvent::SftpTransfer {
+                id: "live-progress".into(),
+                name: "synthetic.bin".into(),
+                is_upload: false,
+                transferred: 16 * 1024 * 1024,
+                total: 16 * 1024 * 1024,
+                state: 1,
+                msg: String::new(),
+            }],
+        );
+        cx.run_until_parked();
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(600));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.draw(cx).clear(cx);
+        });
+        assert!(!transfers.read_with(cx, |view, _| view.has_active()));
+        assert!(cx.debug_bounds("cancel-live-progress").is_none());
+        assert_eq!(records.lock().unwrap().rows().len(), 1);
+    }
+
+    struct ProgressFixture {
+        records: crate::core::TransferRecords,
+        sink: super::super::event_sink::GpuiEventSink,
+        gates: crate::terminal::RenderGates,
+        harness: Entity<ProgressHarness>,
+    }
+
+    fn progress_fixture(cx: &mut TestAppContext) -> (ProgressFixture, &mut VisualTestContext) {
+        cx.update(gpui_kit::init);
+        let records = Arc::new(Mutex::new(crate::core::TransferStore::new()));
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let gates = Arc::new(Mutex::new(HashMap::new()));
+        let sink = super::super::event_sink::GpuiEventSink::new(sender, gates.clone());
+        let shared = records.clone();
+        let (harness, cx) = cx.add_window_view(move |_, cx| {
+            let terminal = cx.new(|cx| {
+                TerminalView::new(
+                    "synthetic-transfer-tab".into(),
+                    appearance_with(crate::terminal::OutputHighlightPreset::Off, vec![]),
+                    std::rc::Rc::new(std::cell::RefCell::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    shared.clone(),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(None)),
+                    receiver,
+                    None,
+                    cx,
+                )
+            });
+            let transfers = cx.new(|cx| crate::ui::TransferListView::new(shared, cx));
+            ProgressHarness {
+                terminal,
+                transfers,
+            }
+        });
+        cx.run_until_parked();
+        (
+            ProgressFixture {
+                records,
+                sink,
+                gates,
+                harness,
+            },
+            cx,
+        )
+    }
+
+    fn progress_event(bytes: u64, total: u64, state: u8) -> SessionEvent {
+        SessionEvent::SftpTransfer {
+            id: "live-progress".into(),
+            name: "synthetic.bin".into(),
+            is_upload: false,
+            transferred: bytes,
+            total,
+            state,
+            msg: String::new(),
+        }
+    }
+
+    #[gpui_kit::gpui::test]
+    fn transfer_backlog_yields_to_polling_and_terminal_input_before_done(cx: &mut TestAppContext) {
+        use crate::core::EventSink as _;
+        let (fixture, cx) = progress_fixture(cx);
+        let ProgressFixture {
+            records,
+            sink,
+            harness,
+            ..
+        } = fixture;
+        let terminal = harness.read_with(cx, |harness, _| harness.terminal.clone());
+        let transfers = harness.read_with(cx, |harness, _| harness.transfers.clone());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (commands, mut input) = tokio::sync::mpsc::unbounded_channel();
+        terminal.update(cx, |view, _| {
+            view.handles.borrow_mut().insert(
+                "synthetic-transfer-tab".into(),
+                SessionHandle {
+                    tab_id: "synthetic-transfer-tab".into(),
+                    commands,
+                    join: runtime.spawn(std::future::pending::<()>()),
+                },
+            );
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let focus = terminal.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+            window.draw(cx).clear(cx);
+        });
+        cx.run_until_parked();
+        // Arm the real 500-ms list poll just before it becomes due. A small
+        // bounded backlog can then prove timer fairness without benchmarking
+        // tens of thousands of expensive baseline terminal snapshots.
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(499));
+        cx.run_until_parked();
+        const TOTAL: u64 = 512;
+        for bytes in 1..=TOTAL {
+            let mut events = vec![progress_event(bytes, TOTAL, u8::from(bytes == TOTAL))];
+            if bytes == 1 {
+                // A mixed batch must still update ordinary terminal state.
+                events.insert(0, SessionEvent::Status("backlog fixture".into()));
+            }
+            sink.deliver("synthetic-transfer-tab", events);
+        }
+        cx.run_until_parked();
+        {
+            let store = records.lock().unwrap();
+            let current = store.get("live-progress").unwrap();
+            assert!(
+                current.transferred > 0 && current.transferred < TOTAL,
+                "one runnable pump turn must not exhaust a continuously-ready queue: {}",
+                current.transferred
+            );
+            assert_eq!(current.phase, crate::core::TransferPhase::Active);
+        }
+        // Let the list's real 500-ms timer run while the transfer is unfinished.
+        // No explicit TransferListView::refresh is called anywhere in this test.
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(1));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.draw(cx).clear(cx);
+        });
+        assert!(transfers.read_with(cx, |view, _| view.has_active()));
+        assert!(cx.debug_bounds("cancel-live-progress").is_some());
+        assert!(
+            records
+                .lock()
+                .unwrap()
+                .get("live-progress")
+                .unwrap()
+                .transferred
+                < TOTAL
+        );
+        // Native key input must remain routable with more progress still queued.
+        cx.simulate_input("responsive");
+        let mut typed = Vec::new();
+        while let Ok(command) = input.try_recv() {
+            if let SessionCommand::RawInput(bytes) = command {
+                typed.extend(bytes);
+            }
+        }
+        assert_eq!(typed, b"responsive");
+        let cancel = cx.debug_bounds("cancel-live-progress").unwrap();
+        cx.simulate_click(cancel.center(), Default::default());
+        assert_eq!(
+            transfers.update(cx, |view, _| view.take_action()),
+            Some(crate::ui::TransferAction::Cancel("live-progress".into()))
+        );
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+        let store = records.lock().unwrap();
+        assert_eq!(store.rows().len(), 1);
+        assert_eq!(store.get("live-progress").unwrap().transferred, TOTAL);
+        assert_eq!(
+            store.get("live-progress").unwrap().phase,
+            crate::core::TransferPhase::Done
+        );
+        assert_eq!(
+            terminal
+                .read_with(cx, |view, _| view.status.clone())
+                .as_deref(),
+            Some("backlog fixture")
+        );
+    }
+
+    #[gpui_kit::gpui::test]
+    fn bounded_event_batches_preserve_output_order_and_render_barriers(cx: &mut TestAppContext) {
+        use crate::core::EventSink as _;
+        for count in [63, 64, 65] {
+            let (fixture, cx) = progress_fixture(cx);
+            let ProgressFixture {
+                records,
+                sink,
+                gates,
+                harness,
+            } = fixture;
+            let gate = Arc::new(crate::terminal::TabRenderGate::new(
+                std::time::Duration::ZERO,
+            ));
+            gates
+                .lock()
+                .unwrap()
+                .insert("synthetic-transfer-tab".into(), gate.clone());
+            for bytes in 1..=count {
+                sink.deliver(
+                    "synthetic-transfer-tab",
+                    vec![progress_event(bytes, count, 0)],
+                );
+            }
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![
+                    SessionEvent::Output("A\x1b[".into()),
+                    progress_event(count, count, 0),
+                ],
+            );
+            let ticket = sink.request_render("synthetic-transfer-tab").unwrap();
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![
+                    SessionEvent::Output("31m中".into()),
+                    SessionEvent::Output("文\x1b[0mB".into()),
+                    progress_event(count, count, 4),
+                ],
+            );
+            // A render barrier already removed from the channel must still be
+            // processed after the last sender closes, followed by later events.
+            drop(sink);
+            cx.run_until_parked();
+            for _ in 0..8 {
+                if format!("{:?}", gate.wait_for(1, std::time::Duration::ZERO)) == "Settled" {
+                    break;
+                }
+                cx.background_executor
+                    .advance_clock(std::time::Duration::from_millis(1));
+                cx.run_until_parked();
+            }
+            assert_eq!(
+                format!("{:?}", ticket.wait_for_flush(std::time::Duration::ZERO)),
+                "Settled"
+            );
+            let at_barrier = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .buffer
+                    .lock()
+                    .unwrap()
+                    .parser
+                    .screen()
+                    .contents()
+            });
+            assert_eq!(
+                at_barrier, "A",
+                "later output must not cross a render barrier"
+            );
+            let snapshot_at_barrier = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .snapshot
+                    .spans
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>()
+            });
+            assert_eq!(
+                snapshot_at_barrier.trim(),
+                "A",
+                "the gate must acknowledge a current snapshot"
+            );
+            assert_eq!(
+                records.lock().unwrap().get("live-progress").unwrap().phase,
+                crate::core::TransferPhase::Active
+            );
+            for _ in 0..8 {
+                cx.background_executor
+                    .advance_clock(std::time::Duration::from_millis(1));
+                cx.run_until_parked();
+            }
+            let text = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .buffer
+                    .lock()
+                    .unwrap()
+                    .parser
+                    .screen()
+                    .contents()
+            });
+            assert_eq!(
+                text, "A中文B",
+                "batch boundary {count} changed terminal bytes/order"
+            );
+            let snapshot = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .snapshot
+                    .spans
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>()
+            });
+            assert_eq!(snapshot.trim(), "A中文B");
+            let store = records.lock().unwrap();
+            assert_eq!(store.rows().len(), 1);
+            assert_eq!(
+                store.get("live-progress").unwrap().phase,
+                crate::core::TransferPhase::Cancelled
+            );
+        }
     }
 }
