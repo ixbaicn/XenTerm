@@ -18,7 +18,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use gpui_kit::{
-    component::{dialog::DialogButtonProps, h_flex, v_flex, ActiveTheme, Root, Sizable as _, Size,
+    component::{dialog::DialogButtonProps, h_flex, v_flex, ActiveTheme, WindowExt as _, Sizable as _, Size,
         spinner::Spinner},
     div,
     prelude::*,
@@ -37,6 +37,10 @@ use super::event_sink::UiMessage;
 use super::terminal::{rgba_to_hsla, CursorStyle, GridStyle};
 use super::{terminal_grid, CellMetrics, GridSnapshot};
 
+#[cfg(test)]
+#[path = "view_insert_tests.rs"]
+mod insert_tests;
+
 /// The find bar's resting height, in pixels: one text line and its padding.
 /// The slide's ceiling and the closed state's zero are the only two values the
 /// animation needs; the bar clips inside its wrapper, so this bounds rather
@@ -47,6 +51,14 @@ const FIND_BAR_SLIDE: std::time::Duration = std::time::Duration::from_millis(160
 /// The slide's tick, in milliseconds — one layout per tick, the pace the
 /// sidebar's own slide runs at.
 const FIND_BAR_TICK_MS: u64 = 16;
+
+/// The find bar lives on the terminal background, so it must use that palette
+/// even when the surrounding application is light. Keep the secondary text at
+/// readable contrast instead of inheriting the window's muted foreground.
+fn find_bar_colors(is_dark: bool) -> (Hsla, Hsla, Hsla) {
+    let foreground = rgba_to_hsla(terminal::terminal_foreground(is_dark));
+    (foreground, foreground.opacity(0.8), foreground.opacity(0.3))
+}
 
 /// The size the settings stepper owns, and what Ctrl+0 returns a session to.
 ///
@@ -119,8 +131,8 @@ impl TerminalSettings {
             padding: store.terminal_padding(),
             line_spacing: store.terminal_line_spacing(),
             cursor_style: CursorStyle::from_setting(store.terminal_cursor_style()),
-            cursor_color: crate::config::hex_to_rgb(store.terminal_cursor_color())
-                .map(|(r, g, b)| rgba_to_hsla(crate::terminal::Rgba { r, g, b, a: 255 })),
+            cursor_color: crate::config::cursor_color_rgba(store.terminal_cursor_color())
+                .map(|[r, g, b, a]| rgba_to_hsla(crate::terminal::Rgba { r, g, b, a })),
             // The preset and the on-switch are one setting in the buffer's terms: a
             // disabled highlighter is the `Off` preset, which is what makes "enabled" and
             // "which preset" two controls over one behaviour rather than two behaviours.
@@ -796,22 +808,7 @@ impl TerminalView {
             }
         }
 
-        let bytes = match gpui_key_name(&keystroke.key) {
-            // A named key, translated into the encoding the shared encoder speaks.
-            Some(named) => terminal::key_to_pty_bytes(named, ctrl, alt, false),
-            // Printable text, which is what `key_char` carries: it is the character
-            // the layout would have typed, so on a layout where the key is labelled
-            // differently it is still what the user meant. Ctrl+C and the rest go
-            // through the same call, which is where the control-byte mapping lives.
-            //
-            // Text also arrives through `EntityInputHandler`, and the two must not
-            // both send it: an ordinary letter here would be typed twice. Named keys
-            // are excluded from that path — the platform sends no character for
-            // Enter or an arrow — and `key_char` is `None` for them, so this arm
-            // fires only for control combinations, which the handler never sees.
-            None if ctrl => terminal::key_to_pty_bytes(&keystroke.key, ctrl, alt, false),
-            None => Vec::new(),
-        };
+        let bytes = gpui_key_bytes(&keystroke.key, ctrl, alt, shift);
         self.send_bytes(&bytes);
     }
 
@@ -958,79 +955,73 @@ impl TerminalView {
         let bytes = paste.bytes;
         let lines = paste.text.lines().count();
 
-        Root::update(window, cx, move |root, window, cx| {
-            root.open_dialog(
-                move |dialog, _window, cx| {
-                    let send = bytes.clone();
-                    let view = view.clone();
-                    dialog
-                        .title(crate::i18n::t("确认多行粘贴", "Confirm multi-line paste"))
-                        // Only the callbacks: a `Dialog` renders these, not its buttons,
-                        // so the visible ones are in the footer. See `super::dialogs`.
-                        .button_props(
-                            DialogButtonProps::default()
-                                .on_ok(move |_, _window, cx| {
-                                    let _ = view.update(cx, |view, cx| {
-                                        view.send_bytes(&send);
-                                        cx.notify();
-                                    });
-                                    true
-                                })
-                                // Cancelling sends nothing at all, which is the whole
-                                // point: a backdrop click must not accept a paste.
-                                .on_cancel(|_, _, _| true),
-                        )
+        window.open_dialog(cx, move |dialog, _window, cx| {
+            let send = bytes.clone();
+            let view = view.clone();
+            dialog
+                .title(crate::i18n::t("确认多行粘贴", "Confirm multi-line paste"))
+                // Only the callbacks: a `Dialog` renders these, not its buttons,
+                // so the visible ones are in the footer. See `super::dialogs`.
+                .button_props(
+                    DialogButtonProps::default()
+                        .on_ok(move |_, _window, cx| {
+                            let _ = view.update(cx, |view, cx| {
+                                view.send_bytes(&send);
+                                cx.notify();
+                            });
+                            true
+                        })
+                        // Cancelling sends nothing at all, which is the whole
+                        // point: a backdrop click must not accept a paste.
+                        .on_cancel(|_, _, _| true),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .max_w(px(720.))
+                        .child(div().text_sm().child(SharedString::from(format!(
+                            "{}{}",
+                            crate::i18n::t(
+                                "粘贴的内容包含换行,可能一次执行多条命令。",
+                                "The pasted text contains line breaks and may run \
+                                         several commands."
+                            ),
+                            if lines > 0 {
+                                format!(
+                                    " ({})",
+                                    match crate::i18n::t("行", "lines") {
+                                        "行" => format!("{lines} 行"),
+                                        other => format!("{lines} {other}"),
+                                    }
+                                )
+                            } else {
+                                String::new()
+                            },
+                        ))))
                         .child(
-                            v_flex()
-                                .gap_2()
-                                .max_w(px(720.))
-                                .child(div().text_sm().child(SharedString::from(format!(
-                                    "{}{}",
-                                    crate::i18n::t(
-                                        "粘贴的内容包含换行,可能一次执行多条命令。",
-                                        "The pasted text contains line breaks and may run \
-                                             several commands."
-                                    ),
-                                    if lines > 0 {
-                                        format!(
-                                            " ({})",
-                                            match crate::i18n::t("行", "lines") {
-                                                "行" => format!("{lines} 行"),
-                                                other => format!("{lines} {other}"),
-                                            }
-                                        )
-                                    } else {
-                                        String::new()
-                                    },
-                                ))))
-                                .child(
-                                    div()
-                                        .id("paste-preview")
-                                        .when(large, |this| this.h(px(360.)))
-                                        .when(!large, |this| this.max_h(px(200.)))
-                                        .w_full()
-                                        .overflow_y_scroll()
-                                        .p_2()
-                                        .rounded_md()
-                                        .border_1()
-                                        .border_color(cx.theme().border)
-                                        .bg(cx.theme().muted)
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_xs()
-                                        .child(SharedString::from(shown.clone())),
-                                ),
-                        )
-                        // The action row: a plain `Dialog` draws no buttons of its own, so
-                        // without this the only way to answer is the keyboard.
-                        .footer(super::answer_footer(
-                            SharedString::from(crate::i18n::t("粘贴", "Paste")),
-                            false,
-                            SharedString::from(crate::i18n::t("取消", "Cancel")),
-                        ))
-                },
-                window,
-                cx,
-            );
+                            div()
+                                .id("paste-preview")
+                                .when(large, |this| this.h(px(360.)))
+                                .when(!large, |this| this.max_h(px(200.)))
+                                .w_full()
+                                .overflow_y_scroll()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .bg(cx.theme().muted)
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_xs()
+                                .child(SharedString::from(shown.clone())),
+                        ),
+                )
+                // The action row: a plain `Dialog` draws no buttons of its own, so
+                // without this the only way to answer is the keyboard.
+                .footer(super::answer_footer(
+                    SharedString::from(crate::i18n::t("粘贴", "Paste")),
+                    false,
+                    SharedString::from(crate::i18n::t("取消", "Cancel")),
+                ))
         });
     }
 
@@ -1055,9 +1046,9 @@ impl TerminalView {
             return;
         }
         let bytes = if action.insert {
-            terminal::key_to_pty_bytes("insert", false, false, false)
+            gpui_key_bytes("insert", false, false, true)
         } else {
-            terminal::key_to_pty_bytes("v", true, true, false)
+            gpui_key_bytes("v", true, true, false)
         };
         self.send_bytes(&bytes);
         cx.notify();
@@ -1099,6 +1090,27 @@ impl TerminalView {
     }
 }
 
+/// Shared routing for a physical key and a disabled optional paste chord.
+/// Printable text still belongs to the input handler and must not be sent twice.
+fn gpui_key_bytes(key: &str, ctrl: bool, alt: bool, shift: bool) -> Vec<u8> {
+    match gpui_key_name(key) {
+        // A named key, translated into the encoding the shared encoder speaks.
+        Some(named) => terminal::key_to_pty_bytes_with_shift(named, ctrl, alt, shift, false),
+        // Printable text, which is what `key_char` carries: it is the character
+        // the layout would have typed, so on a layout where the key is labelled
+        // differently it is still what the user meant. Ctrl+C and the rest go
+        // through the same call, which is where the control-byte mapping lives.
+        //
+        // Text also arrives through `EntityInputHandler`, and the two must not
+        // both send it: an ordinary letter here would be typed twice. Named keys
+        // are excluded from that path — the platform sends no character for
+        // Enter or an arrow — and `key_char` is `None` for them, so this arm
+        // fires only for control combinations, which the handler never sees.
+        None if ctrl => terminal::key_to_pty_bytes(key, ctrl, alt, false),
+        None => Vec::new(),
+    }
+}
+
 /// Translate the shell's name for a special key into the text the shared encoder reads.
 ///
 /// The encoder reads a special key as a Unicode Private Use Area character —
@@ -1128,6 +1140,7 @@ fn gpui_key_name(key: &str) -> Option<&'static str> {
         "end" => "\u{F72B}",
         "pageup" => "\u{F72C}",
         "pagedown" => "\u{F72D}",
+        "insert" => "\u{F727}",
         "delete" => "\u{F728}",
         "f1" => "\u{F704}",
         "f2" => "\u{F705}",
@@ -1598,8 +1611,7 @@ impl Render for TerminalView {
                 // slot; with it, the grid sees one height change per tick instead of a
                 // jump that shoves the session.
                 let hits = self.snapshot.find_matches.len();
-                let border = cx.theme().border;
-                let muted = cx.theme().muted_foreground;
+                let (foreground, muted, border) = find_bar_colors(true);
                 let height = px(self.find_height);
                 this.child(
                     div()
@@ -1615,6 +1627,7 @@ impl Render for TerminalView {
                                 .py_1()
                                 .border_b_1()
                                 .border_color(border)
+                                .text_color(foreground)
                                 .text_sm()
                                 .child(
                                     gpui_kit::component::Icon::new(
@@ -1780,7 +1793,17 @@ async fn pump_messages(
     tunnels: super::session_state::TabTunnels,
     opened_file: Arc<Mutex<Option<super::session_state::OpenedFile>>>,
 ) {
-    while let Some(message) = messages.recv().await {
+    const MAX_MESSAGES_PER_TURN: usize = 64;
+    let mut pending = None;
+    loop {
+        let message = match pending.take() {
+            Some(message) => message,
+            None => match messages.recv().await {
+                Some(message) => message,
+                None => break,
+            },
+        };
+        let mut processed = 1;
         let update = match message {
             UiMessage::Render { gate } => this.update(cx, |view, cx| {
                 view.refresh();
@@ -1793,30 +1816,76 @@ async fn pump_messages(
                     gate.finish_flush(through, true);
                 }
             }),
-            UiMessage::Events { tab_id, events } => this.update(cx, |view, cx| {
-                for event in events {
-                    apply_event(
-                        &opened_file,
-                        view,
-                        cx,
-                        &buffer,
-                        &sftp_listings,
-                        &sftp_trees,
-                        &statuses,
-                        &transfers,
-                        &tunnels,
-                        &tab_id,
-                        event,
-                    );
+            UiMessage::Events { tab_id, generation, events } => {
+                // A ready channel must not become one terminal snapshot per
+                // progress packet. Bound the local batch and preserve every
+                // event in order; a render request is a barrier, not an event
+                // that may be moved past a later batch.
+                let mut batches = vec![(tab_id, generation, events)];
+                while processed < MAX_MESSAGES_PER_TURN {
+                    match messages.try_recv() {
+                        Ok(UiMessage::Events { tab_id, generation, events }) => {
+                            batches.push((tab_id, generation, events));
+                            processed += 1;
+                        }
+                        Ok(render) => {
+                            pending = Some(render);
+                            break;
+                        }
+                        Err(_) => break,
+                    }
                 }
-                view.refresh();
-                cx.notify();
-            }),
+                this.update(cx, |view, cx| {
+                    let mut terminal_changed = false;
+                    for (tab_id, generation, events) in batches {
+                        // Check on the UI thread, not just before enqueueing: an
+                        // older worker may finish while a replacement already runs.
+                        if let Some(generation) = generation {
+                            let current = statuses.lock().ok().and_then(|statuses| statuses.get(&tab_id).map(|status| status.monitor_generation));
+                            if current != Some(generation) {
+                                continue;
+                            }
+                        }
+                        for event in events {
+                            // Transfers have their own shared store and polled
+                            // view. Their bytes do not change the terminal grid.
+                            terminal_changed |=
+                                !matches!(&event, SessionEvent::SftpTransfer { .. });
+                            apply_event(
+                                &opened_file,
+                                view,
+                                cx,
+                                &buffer,
+                                &sftp_listings,
+                                &sftp_trees,
+                                &statuses,
+                                &transfers,
+                                &tunnels,
+                                &tab_id,
+                                event,
+                            );
+                        }
+                    }
+                    if terminal_changed {
+                        view.refresh();
+                        cx.notify();
+                    }
+                })
+            }
         };
         // A failure means the window is gone, and the buffer goes with it — which is
         // what closes the session.
         if update.is_err() {
             break;
+        }
+        if processed == MAX_MESSAGES_PER_TURN || pending.is_some() || !messages.is_empty() {
+            // recv().await is immediately ready while the producer runs ahead.
+            // A non-zero timer really returns control to GPUI, allowing input
+            // and the transfer list's own poll to run before the stream ends.
+            // No view lease or store lock is held across this yield.
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1))
+                .await;
         }
     }
 }
@@ -1878,6 +1947,9 @@ fn apply_event(
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
                     status.state = 1;
+                    if status.monitor_state == crate::session::protocol::ResourceMonitorState::Waiting {
+                        status.monitor_started_at = Some(std::time::Instant::now());
+                    }
                 }
             }
             // The tab strip's dot lives on the page, which is cached between its
@@ -1898,6 +1970,9 @@ fn apply_event(
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
                     status.state = 2;
+                    status.monitor_state = crate::session::protocol::ResourceMonitorState::Unavailable;
+                    status.sampled_at = None;
+                    status.cpu_sampled = false;
                 }
             }
             // As above: the strip's greyed dot waits on the page being told.
@@ -2079,6 +2154,7 @@ fn apply_event(
         // whether or not the panel is on screen, and a history that only advanced while
         // someone was looking would have holes in it.
         SessionEvent::ResourceStats {
+            cpu_sampled,
             cpu_percent,
             mem_used_kib,
             mem_total_kib,
@@ -2092,6 +2168,22 @@ fn apply_event(
         } => {
             if let Ok(mut statuses) = statuses.lock() {
                 if let Some(status) = statuses.get_mut(tab_id) {
+                    if status.state == 2 {
+                        return;
+                    }
+                    // The separate one-shot system probe is not a fresh streaming sample.
+                    // In particular its first CPU baseline must not overwrite a measured rate.
+                    if let Some(sys) = sys {
+                        status.sys = sys;
+                        return;
+                    }
+                    use crate::session::protocol::ResourceMonitorState as State;
+                    if matches!(status.monitor_state, State::Paused | State::Unsupported) || mem_total_kib == 0 {
+                        return;
+                    }
+                    status.monitor_state = State::Available;
+                    status.sampled_at = Some(std::time::Instant::now());
+                    status.cpu_sampled = cpu_sampled;
                     status.cpu = cpu_percent;
                     status.mem_used_kib = mem_used_kib;
                     status.mem_total_kib = mem_total_kib;
@@ -2099,9 +2191,6 @@ fn apply_event(
                     status.swap_total_kib = swap_total_kib;
                     status.net = net;
                     status.disks = disks;
-                    if let Some(sys) = sys {
-                        status.sys = sys;
-                    }
                     // A sample means the monitor channel is alive, which is a stronger
                     // statement than "the socket is up": it is what makes the tab's dot
                     // green even if the `Connected` event was missed.
@@ -2114,6 +2203,20 @@ fn apply_event(
                     // Append the selected interface's total rate to its own sparkline.
                     let (_, rx, tx) = crate::resource::selected_iface(status);
                     crate::resource::push_ring(&mut status.net_hist, (rx + tx) as f32);
+                }
+            }
+        }
+        SessionEvent::ResourceMonitorStatus { state } => {
+            if let Ok(mut statuses) = statuses.lock() {
+                if let Some(status) = statuses.get_mut(tab_id) {
+                    if status.state != 2 {
+                        status.monitor_state = state;
+                        if state == crate::session::protocol::ResourceMonitorState::Waiting {
+                            status.monitor_started_at = Some(std::time::Instant::now());
+                            status.sampled_at = None;
+                            status.cpu_sampled = false;
+                        }
+                    }
                 }
             }
         }
@@ -2224,6 +2327,34 @@ impl PendingPrompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::gpui::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+
+    #[test]
+    fn find_bar_text_keeps_contrast_on_each_terminal_palette() {
+        fn luminance(rgb: [f64; 3]) -> f64 {
+            let linear = rgb.map(|v| {
+                let v = v / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            });
+            linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+        }
+        for is_dark in [true, false] {
+            let fg = terminal::terminal_foreground(is_dark);
+            let bg = terminal::terminal_background(is_dark);
+            let foreground = rgba_to_hsla(fg);
+            assert_eq!(find_bar_colors(is_dark),
+                (foreground, foreground.opacity(0.8), foreground.opacity(0.3)));
+            // The hit counter and search icon use the least opaque text color.
+            let background = [bg.r as f64, bg.g as f64, bg.b as f64];
+            let secondary = [fg.r as f64, fg.g as f64, fg.b as f64]
+                .into_iter().zip(background).map(|(fg, bg)| fg * 0.8 + bg * 0.2)
+                .collect::<Vec<_>>();
+            let a = luminance(background);
+            let b = luminance([secondary[0], secondary[1], secondary[2]]);
+            let contrast = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+            assert!(contrast >= 4.5, "find text contrast is {contrast}, dark={is_dark}");
+        }
+    }
 
     /// What the PTY receives for a GPUI-named key.
     fn bytes_for(key: &str) -> Vec<u8> {
@@ -2346,4 +2477,404 @@ mod tests {
         );
         assert!(buffer.custom_highlight_rules.is_empty());
     }
+
+    struct ProgressHarness {
+        terminal: Entity<TerminalView>,
+        transfers: Entity<crate::ui::TransferListView>,
+    }
+
+    impl Render for ProgressHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(div().h(px(200.)).child(self.terminal.clone()))
+                .child(self.transfers.clone())
+        }
+    }
+
+    #[gpui_kit::gpui::test]
+    fn live_transfer_events_reach_the_store_and_polling_view_before_completion(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::core::EventSink as _;
+        let (fixture, cx) = progress_fixture(cx);
+        let ProgressFixture {
+            records,
+            sink,
+            harness,
+            ..
+        } = fixture;
+        let transfers = harness.read_with(cx, |harness, _| harness.transfers.clone());
+        for transferred in [0, 32768, 1024 * 1024, 9 * 1024 * 1024] {
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![SessionEvent::SftpTransfer {
+                    id: "live-progress".into(),
+                    name: "synthetic.bin".into(),
+                    is_upload: false,
+                    transferred,
+                    total: 16 * 1024 * 1024,
+                    state: 0,
+                    msg: String::new(),
+                }],
+            );
+            cx.run_until_parked();
+            {
+                let store = records.lock().unwrap();
+                let row = store
+                    .get("live-progress")
+                    .expect("progress reaches real event handler");
+                assert_eq!(row.transferred, transferred);
+                assert_eq!(row.phase, crate::core::TransferPhase::Active);
+            }
+            cx.background_executor
+                .advance_clock(std::time::Duration::from_millis(600));
+            cx.run_until_parked();
+            cx.update(|window, cx| {
+                window.simulate_next_frame(cx);
+                window.draw(cx).clear(cx);
+            });
+            assert!(transfers.read_with(cx, |view, _| view.has_active()));
+            assert!(
+                cx.debug_bounds("cancel-live-progress").is_some(),
+                "running transfer must already offer Cancel at {transferred} bytes"
+            );
+        }
+        let cancel = cx.debug_bounds("cancel-live-progress").unwrap();
+        cx.simulate_click(cancel.center(), Default::default());
+        assert_eq!(
+            transfers.update(cx, |view, _| view.take_action()),
+            Some(crate::ui::TransferAction::Cancel("live-progress".into()))
+        );
+        sink.deliver(
+            "synthetic-transfer-tab",
+            vec![SessionEvent::SftpTransfer {
+                id: "live-progress".into(),
+                name: "synthetic.bin".into(),
+                is_upload: false,
+                transferred: 16 * 1024 * 1024,
+                total: 16 * 1024 * 1024,
+                state: 1,
+                msg: String::new(),
+            }],
+        );
+        cx.run_until_parked();
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(600));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.draw(cx).clear(cx);
+        });
+        assert!(!transfers.read_with(cx, |view, _| view.has_active()));
+        assert!(cx.debug_bounds("cancel-live-progress").is_none());
+        assert_eq!(records.lock().unwrap().rows().len(), 1);
+    }
+
+    struct ProgressFixture {
+        records: crate::core::TransferRecords,
+        sink: super::super::event_sink::GpuiEventSink,
+        gates: crate::terminal::RenderGates,
+        harness: Entity<ProgressHarness>,
+    }
+
+    fn progress_fixture(cx: &mut TestAppContext) -> (ProgressFixture, &mut VisualTestContext) {
+        cx.update(gpui_kit::init);
+        let records = Arc::new(Mutex::new(crate::core::TransferStore::new()));
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let gates = Arc::new(Mutex::new(HashMap::new()));
+        let sink = super::super::event_sink::GpuiEventSink::new(sender, gates.clone());
+        let shared = records.clone();
+        let (harness, cx) = cx.add_window_view(move |_, cx| {
+            let terminal = cx.new(|cx| {
+                TerminalView::new(
+                    "synthetic-transfer-tab".into(),
+                    appearance_with(crate::terminal::OutputHighlightPreset::Off, vec![]),
+                    std::rc::Rc::new(std::cell::RefCell::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    shared.clone(),
+                    Arc::new(Mutex::new(HashMap::new())),
+                    Arc::new(Mutex::new(None)),
+                    receiver,
+                    None,
+                    cx,
+                )
+            });
+            let transfers = cx.new(|cx| crate::ui::TransferListView::new(shared, cx));
+            ProgressHarness {
+                terminal,
+                transfers,
+            }
+        });
+        cx.run_until_parked();
+        (
+            ProgressFixture {
+                records,
+                sink,
+                gates,
+                harness,
+            },
+            cx,
+        )
+    }
+
+    fn progress_event(bytes: u64, total: u64, state: u8) -> SessionEvent {
+        SessionEvent::SftpTransfer {
+            id: "live-progress".into(),
+            name: "synthetic.bin".into(),
+            is_upload: false,
+            transferred: bytes,
+            total,
+            state,
+            msg: String::new(),
+        }
+    }
+
+    #[gpui_kit::gpui::test]
+    fn transfer_backlog_yields_to_polling_and_terminal_input_before_done(cx: &mut TestAppContext) {
+        use crate::core::EventSink as _;
+        let (fixture, cx) = progress_fixture(cx);
+        let ProgressFixture {
+            records,
+            sink,
+            harness,
+            ..
+        } = fixture;
+        let terminal = harness.read_with(cx, |harness, _| harness.terminal.clone());
+        let transfers = harness.read_with(cx, |harness, _| harness.transfers.clone());
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (commands, mut input) = tokio::sync::mpsc::unbounded_channel();
+        terminal.update(cx, |view, _| {
+            view.handles.borrow_mut().insert(
+                "synthetic-transfer-tab".into(),
+                SessionHandle {
+                    tab_id: "synthetic-transfer-tab".into(),
+                    commands,
+                    join: runtime.spawn(std::future::pending::<()>()),
+                },
+            );
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let focus = terminal.read(cx).focus_handle(cx);
+            window.focus(&focus, cx);
+            window.draw(cx).clear(cx);
+        });
+        cx.run_until_parked();
+        // Arm the real 500-ms list poll just before it becomes due. A small
+        // bounded backlog can then prove timer fairness without benchmarking
+        // tens of thousands of expensive baseline terminal snapshots.
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(499));
+        cx.run_until_parked();
+        const TOTAL: u64 = 512;
+        for bytes in 1..=TOTAL {
+            let mut events = vec![progress_event(bytes, TOTAL, u8::from(bytes == TOTAL))];
+            if bytes == 1 {
+                // A mixed batch must still update ordinary terminal state.
+                events.insert(0, SessionEvent::Status("backlog fixture".into()));
+            }
+            sink.deliver("synthetic-transfer-tab", events);
+        }
+        cx.run_until_parked();
+        {
+            let store = records.lock().unwrap();
+            let current = store.get("live-progress").unwrap();
+            assert!(
+                current.transferred > 0 && current.transferred < TOTAL,
+                "one runnable pump turn must not exhaust a continuously-ready queue: {}",
+                current.transferred
+            );
+            assert_eq!(current.phase, crate::core::TransferPhase::Active);
+        }
+        // Let the list's real 500-ms timer run while the transfer is unfinished.
+        // No explicit TransferListView::refresh is called anywhere in this test.
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(1));
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.draw(cx).clear(cx);
+        });
+        assert!(transfers.read_with(cx, |view, _| view.has_active()));
+        assert!(cx.debug_bounds("cancel-live-progress").is_some());
+        assert!(
+            records
+                .lock()
+                .unwrap()
+                .get("live-progress")
+                .unwrap()
+                .transferred
+                < TOTAL
+        );
+        // Native key input must remain routable with more progress still queued.
+        cx.simulate_input("responsive");
+        let mut typed = Vec::new();
+        while let Ok(command) = input.try_recv() {
+            if let SessionCommand::RawInput(bytes) = command {
+                typed.extend(bytes);
+            }
+        }
+        assert_eq!(typed, b"responsive");
+        let cancel = cx.debug_bounds("cancel-live-progress").unwrap();
+        cx.simulate_click(cancel.center(), Default::default());
+        assert_eq!(
+            transfers.update(cx, |view, _| view.take_action()),
+            Some(crate::ui::TransferAction::Cancel("live-progress".into()))
+        );
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+        let store = records.lock().unwrap();
+        assert_eq!(store.rows().len(), 1);
+        assert_eq!(store.get("live-progress").unwrap().transferred, TOTAL);
+        assert_eq!(
+            store.get("live-progress").unwrap().phase,
+            crate::core::TransferPhase::Done
+        );
+        assert_eq!(
+            terminal
+                .read_with(cx, |view, _| view.status.clone())
+                .as_deref(),
+            Some("backlog fixture")
+        );
+    }
+
+    #[gpui_kit::gpui::test]
+    fn bounded_event_batches_preserve_output_order_and_render_barriers(cx: &mut TestAppContext) {
+        use crate::core::EventSink as _;
+        for count in [63, 64, 65] {
+            let (fixture, cx) = progress_fixture(cx);
+            let ProgressFixture {
+                records,
+                sink,
+                gates,
+                harness,
+            } = fixture;
+            let gate = Arc::new(crate::terminal::TabRenderGate::new(
+                std::time::Duration::ZERO,
+            ));
+            gates
+                .lock()
+                .unwrap()
+                .insert("synthetic-transfer-tab".into(), gate.clone());
+            for bytes in 1..=count {
+                sink.deliver(
+                    "synthetic-transfer-tab",
+                    vec![progress_event(bytes, count, 0)],
+                );
+            }
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![
+                    SessionEvent::Output("A\x1b[".into()),
+                    progress_event(count, count, 0),
+                ],
+            );
+            let ticket = sink.request_render("synthetic-transfer-tab").unwrap();
+            sink.deliver(
+                "synthetic-transfer-tab",
+                vec![
+                    SessionEvent::Output("31m中".into()),
+                    SessionEvent::Output("文\x1b[0mB".into()),
+                    progress_event(count, count, 4),
+                ],
+            );
+            // A render barrier already removed from the channel must still be
+            // processed after the last sender closes, followed by later events.
+            drop(sink);
+            cx.run_until_parked();
+            for _ in 0..8 {
+                if format!("{:?}", gate.wait_for(1, std::time::Duration::ZERO)) == "Settled" {
+                    break;
+                }
+                cx.background_executor
+                    .advance_clock(std::time::Duration::from_millis(1));
+                cx.run_until_parked();
+            }
+            assert_eq!(
+                format!("{:?}", ticket.wait_for_flush(std::time::Duration::ZERO)),
+                "Settled"
+            );
+            let at_barrier = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .buffer
+                    .lock()
+                    .unwrap()
+                    .parser
+                    .screen()
+                    .contents()
+            });
+            assert_eq!(
+                at_barrier, "A",
+                "later output must not cross a render barrier"
+            );
+            let snapshot_at_barrier = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .snapshot
+                    .spans
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>()
+            });
+            assert_eq!(
+                snapshot_at_barrier.trim(),
+                "A",
+                "the gate must acknowledge a current snapshot"
+            );
+            assert_eq!(
+                records.lock().unwrap().get("live-progress").unwrap().phase,
+                crate::core::TransferPhase::Active
+            );
+            for _ in 0..8 {
+                cx.background_executor
+                    .advance_clock(std::time::Duration::from_millis(1));
+                cx.run_until_parked();
+            }
+            let text = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .buffer
+                    .lock()
+                    .unwrap()
+                    .parser
+                    .screen()
+                    .contents()
+            });
+            assert_eq!(
+                text, "A中文B",
+                "batch boundary {count} changed terminal bytes/order"
+            );
+            let snapshot = harness.read_with(cx, |harness, cx| {
+                harness
+                    .terminal
+                    .read(cx)
+                    .snapshot
+                    .spans
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect::<String>()
+            });
+            assert_eq!(snapshot.trim(), "A中文B");
+            let store = records.lock().unwrap();
+            assert_eq!(store.rows().len(), 1);
+            assert_eq!(
+                store.get("live-progress").unwrap().phase,
+                crate::core::TransferPhase::Cancelled
+            );
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "view_resource_tests.rs"]
+mod resource_tests;

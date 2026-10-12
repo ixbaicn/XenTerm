@@ -56,7 +56,7 @@ use gpui_kit::{
     prelude::*,
     px,
     uniform_list, AnyElement, Context, Entity, FontWeight, Hsla, IntoElement, ListSizingBehavior,
-    Point, Render, SharedString, UniformListScrollHandle, Window,
+    Point, Render, SharedString, TestSupportExt as _, UniformListScrollHandle, Window,
 };
 
 // The full Lucide catalog rather than the component library's curated subset: a file
@@ -239,6 +239,21 @@ impl SftpPanelView {
             .map(|(_, generation)| *generation)
     }
 
+    /// A destructive request must still describe this exact, settled listing.
+    pub(crate) fn matches_delete_request(
+        &self,
+        tab: &str,
+        path: &str,
+        generation: u64,
+        selected: &[String],
+    ) -> bool {
+        self.loading_since.is_none()
+            && self.synced_generation(tab) == Some(generation)
+            && self.listing.generation() == generation
+            && self.listing.path() == path
+            && self.listing.selected_paths() == selected
+    }
+
     /// Show a freshly arrived tree.
     ///
     /// Pushed rather than built here: the session owns which directories are expanded, and
@@ -392,6 +407,8 @@ impl SftpPanelView {
             // An id is required before an interaction handler: GPUI's hit test needs to
             // know which element owns the click.
             .id(SharedString::from(format!("sftp-col-{label}")))
+            .test_support()
+            .aria_label(label.clone())
             // Keyed on the column rather than the label, so a test names a column and not a
             // translated word. An id and a debug selector are two different things.
             .debug_selector(move || format!("sftp-col-{column_for_debug:?}"))
@@ -427,10 +444,24 @@ impl Render for SftpPanelView {
         let files: Vec<SftpFile> = self.listing.files().to_vec();
         let selected_count = files.iter().filter(|f| f.selected).count();
 
-        let header = self.column_header(SftpColumn::Name, "名称", None, cx);
-        let size_header = self.column_header(SftpColumn::Size, "大小", Some(SIZE_WIDTH), cx);
-        let mtime_header =
-            self.column_header(SftpColumn::Modified, "修改时间", Some(MTIME_WIDTH), cx);
+        let header = self.column_header(
+            SftpColumn::Name,
+            crate::i18n::t("名称", "Name"),
+            None,
+            cx,
+        );
+        let size_header = self.column_header(
+            SftpColumn::Size,
+            crate::i18n::t("大小", "Size"),
+            Some(SIZE_WIDTH),
+            cx,
+        );
+        let mtime_header = self.column_header(
+            SftpColumn::Modified,
+            crate::i18n::t("修改时间", "Modified"),
+            Some(MTIME_WIDTH),
+            cx,
+        );
 
         // The rows are virtual: `uniform_list` mounts only the visible window, so a
         // ten-thousand-entry directory costs one screenful of elements rather than ten
@@ -1060,6 +1091,23 @@ fn file_row(
                         // One entry per other open session: the original copies a file
                         // by naming the target tab, and a menu is where its targets belong.
                         let mut menu = menu;
+                        // Copying a path is the one row action a directory wants too.
+                        // Build it before the early return so both kinds share it.
+                        let copy_path_item =
+                            PopupMenuItem::new(crate::i18n::t("复制路径", "Copy path"))
+                                .on_click({
+                                    let panel = panel.clone();
+                                    let target = open_path.clone();
+                                    move |_, _, cx| {
+                                        if let Some(panel) = panel.upgrade() {
+                                            let _ = panel.update(cx, |panel, cx| {
+                                                panel.pending =
+                                                    Some(PanelAction::CopyPath(target.clone()));
+                                                cx.notify();
+                                            });
+                                        }
+                                    }
+                                });
                         for (id, label) in other_tabs.iter() {
                             let panel = panel.clone();
                             let target = id.clone();
@@ -1103,7 +1151,7 @@ fn file_row(
                                 ),
                             );
                             if is_dir {
-                                return menu;
+                                return menu.item(copy_path_item);
                             }
                             let target = open_path.clone();
                             let panel_for_open = panel.clone();
@@ -1147,8 +1195,6 @@ fn file_row(
                                 }),
                             )
                         }
-                        // Copying a path is the one row action a directory wants too, so it
-                        // comes before the early return above rather than after it.
                         .item(
                             PopupMenuItem::new(crate::i18n::t("查看", "View")).on_click({
                                 let panel = panel.clone();
@@ -1179,22 +1225,7 @@ fn file_row(
                                 }
                             }),
                         )
-                        .item(
-                            PopupMenuItem::new(crate::i18n::t("复制路径", "Copy path"))
-                                .on_click({
-                                    let panel = panel.clone();
-                                    let target = open_path.clone();
-                                    move |_, _, cx| {
-                                        if let Some(panel) = panel.upgrade() {
-                                            let _ = panel.update(cx, |panel, cx| {
-                                                panel.pending =
-                                                    Some(PanelAction::CopyPath(target.clone()));
-                                                cx.notify();
-                                            });
-                                        }
-                                    }
-                                }),
-                        )
+                        .item(copy_path_item)
                     }
                 }),
         )
@@ -1409,6 +1440,68 @@ mod tests {
             action,
             Some(PanelAction::Sort(crate::core::SftpColumn::Size))
         );
+    }
+
+    /// Language changes repaint labels while preserving column geometry and actions.
+    #[gpui_kit::gpui::test]
+    fn column_labels_follow_runtime_language_and_keep_sort_targets(cx: &mut TestAppContext) {
+        struct RestoreLanguage(bool);
+        impl Drop for RestoreLanguage {
+            fn drop(&mut self) {
+                crate::i18n::set_language(if self.0 { "en" } else { "zh" });
+            }
+        }
+        let _restore = RestoreLanguage(crate::i18n::is_en());
+        cx.update(gpui_kit::init);
+        let (view, cx) = cx.add_window_view(panel_with_listing);
+        let mut geometry = None;
+        for (language, labels) in [
+            ("zh", ["名称", "大小", "修改时间"]),
+            ("en", ["Name", "Size", "Modified"]),
+            ("zh", ["名称", "大小", "修改时间"]),
+        ] {
+            crate::i18n::set_language(language);
+            view.update(cx, |_, cx| cx.notify());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+            let columns = [SftpColumn::Name, SftpColumn::Size, SftpColumn::Modified];
+            let bounds: Vec<_> = columns
+                .iter()
+                .map(|column| {
+                    cx.debug_bounds(leaked(format!("sftp-col-{column:?}")))
+                        .unwrap()
+                })
+                .collect();
+            if let Some(previous) = &geometry {
+                assert_eq!(&bounds, previous);
+            } else {
+                geometry = Some(bounds.clone());
+            }
+            let actual: Vec<_> = cx.update(|window, _| {
+                gpui_kit::base::test_support::snapshots(window)
+                    .into_iter()
+                    .filter_map(|node| {
+                        let path = format!("{:?}", node.path().last()?);
+                        path.contains("sftp-col-")
+                            .then(|| node.label().map(|s| s.to_string()))
+                            .flatten()
+                    })
+                    .collect()
+            });
+            for label in labels {
+                assert!(
+                    actual.iter().any(|text| text == label),
+                    "{language} must render {label}, got {actual:?}"
+                );
+            }
+            for (column, bounds) in columns.into_iter().zip(bounds) {
+                cx.simulate_click(bounds.center(), Modifiers::default());
+                assert_eq!(
+                    view.update(cx, |panel, _| panel.take_action()),
+                    Some(PanelAction::Sort(column))
+                );
+            }
+        }
     }
 
     /// The batch buttons, which offer themselves only when there is something to act on —

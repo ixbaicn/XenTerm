@@ -14,6 +14,7 @@
   <a href="https://github.com/ixbaicn/XenTerm/releases"><img src="https://img.shields.io/github/v/release/ixbaicn/XenTerm?style=flat-square&label=Release&color=00b8d4" alt="Release"></a>
   <a href="https://github.com/ixbaicn/XenTerm/commits/master"><img src="https://img.shields.io/github/last-commit/ixbaicn/XenTerm?style=flat-square&label=Last%20commit" alt="Last commit"></a>
   <a href="#%E8%AE%B8%E5%8F%AF%E8%AF%81"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License: MIT"></a>
+  <a href="https://coderabbit.ai"><img src="https://img.shields.io/coderabbit/prs/github/ixbaicn/XenTerm?utm_source=oss&utm_medium=github&utm_campaign=ixbaicn%2FXenTerm&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews" alt="CodeRabbit Pull Request Reviews"></a>
 </p>
 
 <p align="center">
@@ -452,6 +453,8 @@ xenterm/
 ```
 
 ## 开发
+
+贡献前请阅读[社区贡献指南](CONTRIBUTING.zh-CN.md)（[English](CONTRIBUTING.md)），了解 PR 组织、冲突处理、审核就绪和 API 版本核验要求。
 
 - **界面只有 GPUI。** 没有需要额外构建的特性开关，也没有第二个要同步维护的前端。
   直接运行 `xenterm` 和迁移期遗留的 `xenterm gpui` 参数打开的是同一个外壳。

@@ -1,7 +1,5 @@
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 
 use super::structs::CliCommand;
@@ -19,6 +17,34 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
     let command = CliCommand::parse(Some(command_name))
         .ok_or_else(|| anyhow!("unknown CLI command: {command_name}"))?;
     let value = match command {
+        CliCommand::Export => {
+            let path = args
+                .get(3)
+                .filter(|arg| !arg.starts_with('-'))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "usage: xenterm cli export <new-file.json> --include-credentials [--json]"
+                    )
+                })?;
+            for arg in &args[4..] {
+                if !matches!(arg.as_str(), "--include-credentials" | "--json") {
+                    return Err(anyhow!(
+                        "unknown export option (expected --include-credentials or --json)"
+                    ));
+                }
+            }
+            if !args[4..].iter().any(|arg| arg == "--include-credentials") {
+                return Err(anyhow!(
+                    "portable exports contain recoverable credentials; pass --include-credentials to write a private sessions export"
+                ));
+            }
+            // Keep credential export local to an explicit CLI invocation. It is
+            // deliberately not registered as an automation or MCP tool.
+            let store = crate::config::ConfigStore::load().context("load XenTerm configuration")?;
+            let count = store.export_to_new(std::path::Path::new(path))?;
+            eprintln!("Warning: portable exports contain recoverable credentials. Keep the file private. Only saved sessions are exported; global settings, host trust and external key files are not included.");
+            json!({"exported": count, "scope": "sessions", "includes_credentials": true})
+        }
         CliCommand::Import => {
             let path = args
                 .get(3)
@@ -33,37 +59,49 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
             }
             let dry_run = args[4..].iter().any(|arg| arg == "--dry-run");
             if args[4..].iter().any(|arg| arg == "--preserve-ids") {
-                let mut store = crate::config::ConfigStore::load()?;
+                require_independent_migration_profile(crate::config::has_explicit_data_dir())?;
+                let mut store = if dry_run {
+                    crate::config::ConfigStore::load_migration_preview()?
+                } else {
+                    crate::config::ConfigStore::load()?
+                };
                 let summary = store.import_from_preserving_ids(Path::new(path), dry_run)?;
                 let mut value = serde_json::to_value(summary)?;
                 value["dry_run"] = json!(dry_run);
                 value
             } else {
-                runtime.block_on(call_cli("import_sessions", &json!({
-                    "local_path": path, "dry_run": dry_run
-                })))?
+                runtime.block_on(call_cli(
+                    "import_sessions",
+                    &json!({
+                        "local_path": path, "dry_run": dry_run
+                    }),
+                ))?
             }
-        }
-        CliCommand::Export => {
-            let path = args.get(3).filter(|arg| !arg.starts_with("--"))
-                .ok_or_else(|| anyhow!("usage: xenterm cli export <file> [--json]"))?;
-            if args[4..].iter().any(|arg| arg != "--json") {
-                return Err(anyhow!("unknown export option (expected --json)"));
-            }
-            let store = crate::config::ConfigStore::load()?;
-            let (raw, count) = store.export_json()?;
-            write_export_file(Path::new(path), &crate::config::data_dir(), &raw)?;
-            json!({ "exported": count, "path": path })
         }
         CliCommand::SyncNative => {
-            let path = args.get(3).filter(|arg| !arg.starts_with("--"))
-                .ok_or_else(|| anyhow!("usage: xenterm cli sync-native <sessions.json> [--json]"))?;
-            if args[4..].iter().any(|arg| arg != "--json") {
-                return Err(anyhow!("unknown sync-native option (expected --json)"));
+            require_independent_migration_profile(crate::config::has_explicit_data_dir())?;
+            let path = args
+                .get(3)
+                .filter(|arg| !arg.starts_with("--"))
+                .ok_or_else(|| {
+                    anyhow!("usage: xenterm cli sync-native <sessions.json> [--dry-run] [--json]")
+                })?;
+            if args[4..]
+                .iter()
+                .any(|arg| !matches!(arg.as_str(), "--json" | "--dry-run"))
+            {
+                return Err(anyhow!(
+                    "unknown sync-native option (expected --dry-run or --json)"
+                ));
             }
-            let mut store = crate::config::ConfigStore::load()?;
-            let (updated, added) = store.sync_native_snapshot(Path::new(path))?;
-            json!({ "updated": updated, "added": added })
+            let dry_run = args[4..].iter().any(|arg| arg == "--dry-run");
+            let mut store = if dry_run {
+                crate::config::ConfigStore::load_migration_preview()?
+            } else {
+                crate::config::ConfigStore::load()?
+            };
+            let (updated, added) = store.sync_native_snapshot_preview(Path::new(path), dry_run)?;
+            json!({ "updated": updated, "added": added, "dry_run": dry_run })
         }
         CliCommand::Sessions => {
             let group = option_value(args, "--group")?;
@@ -180,17 +218,14 @@ pub(crate) fn run(args: &[String]) -> Result<()> {
         }
     };
 
-    let options = if command == CliCommand::Exec {
-        &args[..args.iter().position(|arg| arg == "--").unwrap_or(args.len())]
-    } else { args };
+    let options = local_options(command, args);
     if options.iter().any(|arg| arg == "--json") {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         print_human(command, &value);
     }
     if command == CliCommand::Exec {
-        anyhow::ensure!(value.get("timed_out").and_then(Value::as_bool) != Some(true), "remote command timed out");
-        anyhow::ensure!(value.get("exit_code").and_then(Value::as_i64) == Some(0), "remote command failed");
+        ensure_remote_success(&value)?;
     }
     Ok(())
 }
@@ -206,33 +241,42 @@ fn permissions_mode(args: &[String]) -> Result<Option<crate::config::McpAccessMo
         [value] => crate::config::McpAccessMode::parse(value)
             .map(Some)
             .ok_or_else(|| anyhow!("unknown access mode: {value}; expected restricted or full")),
-        _ => Err(anyhow!("usage: xenterm cli permissions [restricted|full] [--json]")),
+        _ => Err(anyhow!(
+            "usage: xenterm cli permissions [restricted|full] [--json]"
+        )),
     }
 }
 
-fn write_export_file(path: &Path, profile_dir: &Path, raw: &str) -> Result<()> {
-    let name = path.file_name().ok_or_else(|| anyhow!("export requires a file path"))?;
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let parent = parent.canonicalize().context("resolve export directory")?;
-    let profile = profile_dir.canonicalize().context("resolve profile directory")?;
-    if parent.starts_with(&profile) {
-        return Err(anyhow!("export destination must be outside the profile directory"));
+/// A remote program's flags after `--` must never change local CLI behavior.
+fn local_options(command: CliCommand, args: &[String]) -> &[String] {
+    if command == CliCommand::Exec {
+        &args[..args
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(args.len())]
+    } else {
+        args
     }
-    let target = parent.join(name);
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(&target).context("create new export file")?;
-    if let Err(error) = file.write_all(raw.as_bytes()).and_then(|_| file.sync_all()) {
-        drop(file);
-        let _ = std::fs::remove_file(&target);
-        return Err(error).context("write export file");
-    }
+}
+
+/// Preserve the result output for scripts, but make failed remote commands fail
+/// locally too. A missing exit status cannot be treated as confirmed success.
+fn ensure_remote_success(value: &Value) -> Result<()> {
+    anyhow::ensure!(
+        value.get("timed_out").and_then(Value::as_bool) != Some(true),
+        "remote command timed out"
+    );
+    anyhow::ensure!(
+        value.get("exit_code").and_then(Value::as_i64) == Some(0),
+        "remote command failed"
+    );
+    Ok(())
+}
+
+/// Stable identifiers must stay within an independent local-key profile.
+fn require_independent_migration_profile(explicit: bool) -> Result<()> {
+    anyhow::ensure!(explicit,
+        "stable-ID and native snapshot migrations require a separate --data-dir profile with local credential storage; export from the original application and initialize that independent profile with a portable import");
     Ok(())
 }
 
@@ -248,6 +292,10 @@ fn option_value<'a>(args: &'a [String], option: &str) -> Result<Option<&'a str>>
 
 fn print_human(command: CliCommand, value: &Value) {
     match command {
+        CliCommand::Export => println!(
+            "Exported {} saved sessions",
+            value.get("exported").and_then(Value::as_u64).unwrap_or(0)
+        ),
         CliCommand::Import => {
             println!(
                 "{} {} sessions, skipped {} duplicates",
@@ -269,14 +317,19 @@ fn print_human(command: CliCommand, value: &Value) {
                 }
             }
         }
-        CliCommand::Export => println!(
-            "Exported {} sessions to {}",
-            value.get("exported").and_then(Value::as_u64).unwrap_or(0),
-            text(value, "path")
-        ),
         CliCommand::SyncNative => println!(
-            "Updated {} sessions, added {} sessions",
+            "{} {} sessions, {} {} sessions",
+            if value.get("dry_run").and_then(Value::as_bool) == Some(true) {
+                "Would update"
+            } else {
+                "Updated"
+            },
             value.get("updated").and_then(Value::as_u64).unwrap_or(0),
+            if value.get("dry_run").and_then(Value::as_bool) == Some(true) {
+                "would add"
+            } else {
+                "added"
+            },
             value.get("added").and_then(Value::as_u64).unwrap_or(0)
         ),
         CliCommand::Sessions => {
@@ -344,9 +397,9 @@ fn print_help() {
     println!(
         "XenTerm CLI\n\n\
          Usage:\n\
+           xenterm cli export <new-file.json> --include-credentials [--json]\n\
            xenterm cli import <export.json> [--dry-run] [--preserve-ids] [--json]\n\
-           xenterm cli export <file> [--json]\n\
-           xenterm cli sync-native <sessions.json> [--json]\n\
+           xenterm cli sync-native <sessions.json> [--dry-run] [--json]\n\
            xenterm cli permissions [restricted|full] [--json]\n\
            xenterm cli sessions [--group <name>] [--json]\n\
            xenterm cli session <session-id> [--json]\n\
@@ -366,13 +419,20 @@ mod tests {
     fn permissions_arguments_reject_unknown_or_ambiguous_modes() {
         assert_eq!(permissions_mode(&[]).unwrap(), None);
         assert_eq!(permissions_mode(&["--json".into()]).unwrap(), None);
-        assert_eq!(permissions_mode(&["full".into(), "--json".into()]).unwrap(),
-            Some(crate::config::McpAccessMode::Full));
-        assert_eq!(permissions_mode(&["restricted".into()]).unwrap(),
-            Some(crate::config::McpAccessMode::Restricted));
+        assert_eq!(
+            permissions_mode(&["full".into(), "--json".into()]).unwrap(),
+            Some(crate::config::McpAccessMode::Full)
+        );
+        assert_eq!(
+            permissions_mode(&["restricted".into()]).unwrap(),
+            Some(crate::config::McpAccessMode::Restricted)
+        );
         assert!(permissions_mode(&["anything".into()]).is_err());
         assert!(permissions_mode(&["full".into(), "restricted".into()]).is_err());
-        assert_eq!(CliCommand::parse(Some("permissions")), Some(CliCommand::Permissions));
+        assert_eq!(
+            CliCommand::parse(Some("permissions")),
+            Some(CliCommand::Permissions)
+        );
     }
 
     #[test]
@@ -386,40 +446,52 @@ mod tests {
         ];
         assert_eq!(option_value(&args, "--group").unwrap(), Some("prod"));
         assert_eq!(option_value(&args, "--json").unwrap(), None);
-        assert_eq!(CliCommand::parse(Some("sync-native")), Some(CliCommand::SyncNative));
+        assert_eq!(
+            CliCommand::parse(Some("sync-native")),
+            Some(CliCommand::SyncNative)
+        );
     }
 
     #[test]
-    fn export_creates_new_file_without_overwriting_profile_or_existing_output() {
-        let root = std::env::temp_dir().join(format!("xenterm-cli-export-{}", uuid::Uuid::new_v4()));
-        let profile = root.join("profile");
-        std::fs::create_dir_all(&profile).unwrap();
-        let output = root.join("sessions-export.json");
-        let payload = r#"{"meatshell_export":1,"sessions":[]}"#;
-        write_export_file(&output, &profile, payload).unwrap();
-        assert_eq!(std::fs::read_to_string(&output).unwrap(), payload);
-        assert!(write_export_file(&output, &profile, "replacement").is_err());
-        assert_eq!(std::fs::read_to_string(&output).unwrap(), payload);
-        assert!(write_export_file(&profile.join("sessions.db"), &profile, payload).is_err());
-        assert!(!profile.join("sessions.db").exists());
-        std::fs::remove_dir_all(root).unwrap();
+    fn migration_modes_require_explicit_independent_profiles() {
+        assert!(require_independent_migration_profile(true).is_ok());
+        assert!(require_independent_migration_profile(false)
+            .unwrap_err()
+            .to_string()
+            .contains("--data-dir"));
     }
 
-    #[cfg(unix)]
     #[test]
-    fn export_rejects_symlink_and_uses_private_mode() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
-        let root = std::env::temp_dir().join(format!("xenterm-cli-export-{}", uuid::Uuid::new_v4()));
-        let profile = root.join("profile");
-        std::fs::create_dir_all(&profile).unwrap();
-        let output = root.join("new.json");
-        write_export_file(&output, &profile, "synthetic").unwrap();
-        let mode = std::fs::metadata(&output).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-        let link = root.join("link.json");
-        symlink(&output, &link).unwrap();
-        assert!(write_export_file(&link, &profile, "replacement").is_err());
-        assert_eq!(std::fs::read_to_string(output).unwrap(), "synthetic");
-        std::fs::remove_dir_all(root).unwrap();
+    fn remote_options_are_not_local_options() {
+        let args = [
+            "xenterm",
+            "cli",
+            "exec",
+            "fixture",
+            "--",
+            "command",
+            "--json",
+            "--timeout",
+            "not-a-number",
+        ]
+        .map(String::from);
+        let local = local_options(CliCommand::Exec, &args);
+        assert_eq!(local.len(), 4);
+        assert!(!local.iter().any(|arg| arg == "--json"));
+        assert_eq!(option_value(local, "--timeout").unwrap(), None);
+        assert_eq!(local_options(CliCommand::Sessions, &args), args);
+    }
+
+    #[test]
+    fn only_confirmed_zero_remote_exit_is_success() {
+        assert!(ensure_remote_success(&json!({"exit_code": 0, "timed_out": false})).is_ok());
+        for value in [
+            json!({"exit_code": 17}),
+            json!({"exit_code": null}),
+            json!({}),
+            json!({"exit_code": 0, "timed_out": true}),
+        ] {
+            assert!(ensure_remote_success(&value).is_err());
+        }
     }
 }

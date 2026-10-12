@@ -76,6 +76,8 @@ mod tab_strip;
 mod tokens;
 #[path = "impls/terminal.rs"]
 mod terminal;
+#[path = "impls/color_area.rs"]
+mod color_area;
 #[path = "impls/transfers.rs"]
 mod transfers;
 #[path = "impls/tunnels.rs"]
@@ -85,6 +87,9 @@ mod view;
 
 #[cfg(test)]
 mod dialog_parity_tests;
+
+#[cfg(test)]
+mod toolkit_regression_tests;
 
 #[cfg(test)]
 #[path = "../../tests/app/ui_animations/mod.rs"]
@@ -102,9 +107,8 @@ pub(crate) use shell::run;
 // able to do for the shell to open it, focus it and point it at a tab.
 pub(crate) use shell::TabFollower;
 // The action row every dialog in this shell ends with, because a `Dialog` renders its
-// button callbacks and not its buttons; and the subscription that keeps a view mounting
-// the dialog layer repainting when the queue behind it changes.
-pub(crate) use dialogs::{answer_footer, follow_root};
+// button callbacks and not its buttons. Root now hosts and repaints the overlay layers.
+pub(crate) use dialogs::answer_footer;
 // What the shell names. The grid, the snapshot it draws and the measured cell size
 // are the three things a caller has to hold to put a terminal in a window; the
 // painters, the image conversion and the colour bridge stayed inside `terminal`.

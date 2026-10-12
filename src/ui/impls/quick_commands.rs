@@ -25,17 +25,20 @@ use std::rc::Rc;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
-        h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+        h_flex,
+        popover::PopoverState,
+        v_flex, ActiveTheme as _, Icon, Sizable as _,
     },
     div,
     prelude::*,
     px, Animation, AnimationExt as _, AnyElement, Context, FontWeight, IntoElement, Render,
-    SharedString, Window,
+    SharedString, WeakEntity, Window,
 };
 
 // The full Lucide catalog rather than the component library's curated subset: the icons
 // this panel needs for its own actions are not in that subset.
 use gpui_kit::assets::IconName;
+use gpui_kit::TestSupportExt as _;
 
 use crate::config::ConfigStore;
 use crate::core::quick::{self, QuickRow};
@@ -98,6 +101,9 @@ pub(crate) struct QuickCommandsView {
     chrome: bool,
     /// The last thing the user asked for, drained by the shell.
     pending: Option<QuickAction>,
+    /// The popup currently hosting this view. Weak because its content owns
+    /// this view, and retaining the popup here would create a cycle.
+    popover: Option<WeakEntity<PopoverState>>,
     /// How many times each group has turned, which is what makes its chevron
     /// swing rather than swap.
     chevron_turn: super::chevron::TurnCounter,
@@ -120,9 +126,22 @@ impl QuickCommandsView {
             edge,
             chrome,
             pending: None,
+            popover: None,
             chevron_turn: super::chevron::new_turn_counter(),
             flash: None,
             flash_epoch: 0,
+        }
+    }
+
+    pub(crate) fn bind_popover(&mut self, popover: WeakEntity<PopoverState>) {
+        self.popover = Some(popover);
+    }
+
+    /// Close only the originating popup, before another overlay is opened.
+    fn dismiss_popover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(popover) = self.popover.take().and_then(|host| host.upgrade()) {
+            popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+            window.refresh();
         }
     }
 
@@ -179,8 +198,10 @@ impl QuickCommandsView {
                     .font_weight(FontWeight::BOLD)
                     .child(crate::i18n::t("快速命令", "Quick commands")),
             )
-            .child(close.on_click(cx.listener(|this, _, _, _| {
+            .child(close.on_click(cx.listener(|this, _, window, cx| {
+                this.dismiss_popover(window, cx);
                 this.pending = Some(QuickAction::Close);
+                cx.notify();
             })))
             .into_any_element()
     }
@@ -199,6 +220,7 @@ impl QuickCommandsView {
             // An id, because a row that can be clicked has to be a stateful element for
             // GPUI to route the click to it.
             .id(SharedString::from(format!("quick-group-{}", row.group)))
+            .debug_selector(|| format!("quick-group-{}", row.group))
             .w_full()
             .h(px(26.))
             .gap_1()
@@ -238,6 +260,9 @@ impl QuickCommandsView {
             .when(folded && count > 0, |this| {
                 this.child(
                     div()
+                        .id(SharedString::from(format!("quick-group-count-{}", row.group)))
+                        .test_support()
+                        .aria_label(count.to_string())
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .child(SharedString::from(count.to_string())),
@@ -334,13 +359,14 @@ impl Render for QuickCommandsView {
             );
         }
         for (index, row) in rows.iter().enumerate() {
-            // How many entries follow this heading before the next one: the count is what
-            // makes a folded group readable as "there is something in here".
+            // The first command also carries the heading; count it along with
+            // the following entries, but not an empty group's placeholder.
             let count = rows[index..]
                 .iter()
                 .skip(1)
                 .take_while(|next| !next.header)
-                .count();
+                .count()
+                + usize::from(row.index.is_some());
             let folded = self.collapsed.contains(&row.group);
             if row.header {
                 body.push(self.group_header(row, count, cx));
@@ -380,10 +406,16 @@ impl Render for QuickCommandsView {
                             .label(crate::i18n::t("管理快速命令", "Manage commands"))
                             .ghost()
                             .w_full()
-                            .on_click(cx.listener(|this, _, _, _| {
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.dismiss_popover(window, cx);
                                 this.pending = Some(QuickAction::Manage);
+                                cx.notify();
                             })),
                     ),
             )
     }
 }
+
+#[cfg(test)]
+#[path = "quick_group_count_tests.rs"]
+mod count_tests;
