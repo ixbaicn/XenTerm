@@ -78,6 +78,8 @@ fn find_bar_colors(is_dark: bool) -> (Hsla, Hsla, Hsla) {
 /// the rule is what makes two sets equal — a compiled rule has forgotten its pattern.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TerminalSettings {
+    pub(crate) wallpaper: crate::wallpaper::WallpaperSettings,
+    pub(crate) wallpaper_asset_dir: std::path::PathBuf,
     pub(crate) family: SharedString,
     pub(crate) font_size: u32,
     pub(crate) bold: bool,
@@ -125,6 +127,8 @@ impl TerminalSettings {
             SharedString::from(configured.to_string())
         };
         Self {
+            wallpaper: store.wallpaper_settings(),
+            wallpaper_asset_dir: store.wallpaper_asset_dir(),
             family,
             font_size: store.font_size(),
             bold: store.terminal_bold(),
@@ -157,6 +161,8 @@ struct PendingPaste {
 
 /// The terminal pane.
 pub(crate) struct TerminalView {
+    wallpaper: Option<gpui_kit::Entity<super::wallpaper_layer::WallpaperLayer>>,
+    wallpaper_enabled: bool,
     /// Which tab's session this view draws. Every shared map — handles, buffers,
     /// gates, SFTP listings — is keyed by it.
     tab_id: String,
@@ -347,7 +353,11 @@ impl TerminalView {
         let family = appearance.family.clone();
         let font_size = px(appearance.font_size as f32);
         let padding = appearance.padding;
+        let wallpaper_enabled = appearance.wallpaper.enabled;
+        let wallpaper = wallpaper_enabled.then(|| cx.new(|cx| super::wallpaper_layer::WallpaperLayer::new_in(appearance.wallpaper.clone(), appearance.wallpaper_asset_dir.clone(), cx)));
         Self {
+            wallpaper,
+            wallpaper_enabled,
             page,
             tab_id,
             padding,
@@ -394,6 +404,18 @@ impl TerminalView {
     /// The next frame measures again, and the session is told the new grid size by the
     /// same path a window resize takes.
     pub(crate) fn set_appearance(&mut self, appearance: TerminalSettings, cx: &mut Context<Self>) {
+        self.wallpaper_enabled = appearance.wallpaper.enabled;
+        if self.wallpaper_enabled {
+            if let Some(layer) = &self.wallpaper {
+                layer.update(cx, |layer, cx| layer.set_settings_in(appearance.wallpaper.clone(), appearance.wallpaper_asset_dir.clone(), cx));
+            } else {
+                self.wallpaper = Some(cx.new(|cx| super::wallpaper_layer::WallpaperLayer::new_in(appearance.wallpaper.clone(), appearance.wallpaper_asset_dir.clone(), cx)));
+            }
+        } else {
+            // Disabled means the original render tree, with no image entity,
+            // asynchronous work, hitboxes or extra terminal paint callbacks.
+            self.wallpaper = None;
+        }
         self.zoom.set_base(appearance.font_size as i32);
         // A tab's own zoom override is kept: it is the user's adjustment to *this*
         // session, and a change to the base size should move the base it sits on rather
@@ -1585,6 +1607,7 @@ impl Render for TerminalView {
                 // is also in phase 0, and "Not connected" must not spin.
                 this.child(
                     h_flex()
+                        .debug_selector(|| "terminal-status-line".into())
                         .w_full()
                         .gap_2()
                         .px_2()
@@ -1617,6 +1640,7 @@ impl Render for TerminalView {
                 let height = px(self.find_height);
                 this.child(
                     div()
+                        .debug_selector(|| "terminal-find-bar".into())
                         .w_full()
                         .flex_shrink_0()
                         .h(height)
@@ -1660,7 +1684,10 @@ impl Render for TerminalView {
             // rather than a padded wrapper, because padding does not offset an
             // absolutely positioned child, and a wrapper that only holds one is
             // a box of zero height.
-            .child(div().flex_1().relative().child(
+            .child(div().debug_selector(|| "terminal-grid-container".into()).flex_1().relative()
+                // Keep terminal imagery below the status/find bars, including their animations.
+                .when_some(self.wallpaper.clone(), |this, layer| this.child(div().debug_selector(|| "terminal-wallpaper".into()).absolute().inset_0().child(layer)))
+                .child(
                 div()
                     .absolute()
                     .when(self.padding, |this| {
@@ -1672,7 +1699,7 @@ impl Render for TerminalView {
                 metrics,
                 style,
                 cursor,
-                background,
+                if self.wallpaper_enabled { gpui_kit::transparent_black() } else { background },
                 move |bounds, window, cx| {
                     // Registered during paint because that is the only phase
                     // `handle_input` accepts, and only while focused. This is
@@ -2415,6 +2442,8 @@ mod tests {
         rules: Vec<crate::config::OutputHighlightRule>,
     ) -> TerminalSettings {
         TerminalSettings {
+            wallpaper: Default::default(),
+            wallpaper_asset_dir: Default::default(),
             family: SharedString::from("test"),
             font_size: 13,
             bold: true,
