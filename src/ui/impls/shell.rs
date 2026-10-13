@@ -248,10 +248,11 @@ pub(crate) fn run() -> Result<()> {
                         )
                     });
 
-                    let shell = Shell {
+                    let mut shell = Shell {
                         pages: Pages::new(terminal),
                         window_width,
                         webdav_task: None,
+                        persistence_poll: None,
                         process_window: Detached::new(process_window_title),
                         execution_log_window: crate::ui::ExecutionLogWindowHandle::new(),
                         system_info_window: Detached::new(system_info_window_title),
@@ -265,6 +266,7 @@ pub(crate) fn run() -> Result<()> {
                         quick_connect_pick: None,
                         _quick_connect_subscription: None,
                     };
+                    shell.start_persistence_poll(cx);
                     shell
                 });
                 // `Root` has to be the window's first view. It is what the
@@ -380,6 +382,8 @@ pub(crate) struct Shell {
     window_width: Rc<Cell<f32>>,
     /// The WebDAV sync in flight, if any. Kept because dropping a Task cancels it.
     webdav_task: Option<gpui_kit::Task<()>>,
+    /// Observe background save outcomes without reviving the removed approval queue.
+    persistence_poll: Option<gpui_kit::Task<()>>,
     /// The process monitor, while it is open.
     ///
     /// Detached rather than a panel: a table you keep beside the terminal. See
@@ -426,6 +430,23 @@ pub(crate) struct Shell {
     /// The quick-connect palette's Confirm subscription, alive while the dialog
     /// is open. A dropped subscription is a list that renders and does nothing.
     _quick_connect_subscription: Option<Subscription>,
+}
+
+/// Kept separate from rendering so an idle window observes background saves.
+fn poll_persistence_feedback<T: 'static>(
+    cx: &mut Context<T>,
+    refresh: impl Fn(&mut T) -> bool + 'static,
+) -> gpui_kit::Task<()> {
+    cx.spawn(async move |this, cx| loop {
+        cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+        if this.update(cx, |view, cx| {
+            if refresh(view) {
+                cx.notify();
+            }
+        }).is_err() {
+            break;
+        }
+    })
 }
 
 /// An overlay drawn over the whole window, as a dialog.
@@ -560,6 +581,46 @@ mod persistence_warning_tests {
         }
     }
 
+    #[gpui_kit::gpui::test]
+    fn background_feedback_poll_notifies_without_any_render_or_input(cx: &mut TestAppContext) {
+        struct Feedback {
+            source: Rc<std::cell::RefCell<Option<String>>>,
+            warning: PersistenceWarning,
+            _poll: Option<gpui_kit::Task<()>>,
+        }
+        let source = Rc::new(std::cell::RefCell::new(None));
+        let view = cx.new(|cx| {
+            let mut view = Feedback {
+                source: source.clone(),
+                warning: PersistenceWarning::default(),
+                _poll: None,
+            };
+            view._poll = Some(poll_persistence_feedback(cx, |view: &mut Feedback| {
+                view.warning.refresh(view.source.borrow().clone())
+            }));
+            view
+        });
+        let notifications = Rc::new(Cell::new(0));
+        let count = notifications.clone();
+        let _subscription = cx.update(|cx| cx.observe(&view, move |_, _| {
+            count.set(count.get() + 1);
+        }));
+        cx.run_until_parked();
+        *source.borrow_mut() = Some(CONFLICT.into());
+        cx.executor().advance_clock(std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        assert_eq!(notifications.get(), 1);
+        assert_eq!(view.read_with(cx, |view, _| view.warning.message.clone()), Some(CONFLICT.into()));
+        cx.executor().advance_clock(std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        assert_eq!(notifications.get(), 1, "unchanged outcomes must not repaint");
+        *source.borrow_mut() = None;
+        cx.executor().advance_clock(std::time::Duration::from_secs(1));
+        cx.run_until_parked();
+        assert_eq!(notifications.get(), 2);
+        assert!(view.read_with(cx, |view, _| view.warning.message.is_none()));
+    }
+
     #[test]
     fn only_changed_save_feedback_requests_a_repaint() {
         let mut warning = PersistenceWarning::default();
@@ -669,6 +730,13 @@ impl Shell {
     fn refresh_persistence_warning(&mut self) -> bool {
         let error = self.state.store.borrow().persistence_error();
         self.persistence_warning.refresh(error)
+    }
+
+    /// Background saves can finish while the window is idle. Observe their
+    /// sanitized outcome once per second and repaint only when it changes.
+    /// This timer does not scan files or make approval/permission decisions.
+    fn start_persistence_poll(&mut self, cx: &mut Context<Self>) {
+        self.persistence_poll = Some(poll_persistence_feedback(cx, Self::refresh_persistence_warning));
     }
 
     /// Say something on the status line: readable for a few seconds, then it

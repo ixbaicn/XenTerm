@@ -241,32 +241,21 @@ fn permissions_mode(args: &[String]) -> Result<Option<crate::config::McpAccessMo
         [value] => crate::config::McpAccessMode::parse(value)
             .map(Some)
             .ok_or_else(|| anyhow!("unknown access mode: {value}; expected restricted or full")),
-        _ => Err(anyhow!("usage: xenterm cli permissions [restricted|full] [--json]")),
+        _ => Err(anyhow!(
+            "usage: xenterm cli permissions [restricted|full] [--json]"
+        )),
     }
 }
 
-fn write_export_file(path: &Path, profile_dir: &Path, raw: &str) -> Result<()> {
-    let name = path.file_name().ok_or_else(|| anyhow!("export requires a file path"))?;
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let parent = parent.canonicalize().context("resolve export directory")?;
-    let profile = profile_dir.canonicalize().context("resolve profile directory")?;
-    if parent.starts_with(&profile) {
-        return Err(anyhow!("export destination must be outside the profile directory"));
-    }
-    let target = parent.join(name);
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(&target).context("create new export file")?;
-    if let Err(error) = file.write_all(raw.as_bytes()).and_then(|_| file.sync_all()) {
-        drop(file);
-        let _ = std::fs::remove_file(&target);
-        return Err(error).context("write export file");
+/// A remote program's flags after `--` must never change local CLI behavior.
+fn local_options(command: CliCommand, args: &[String]) -> &[String] {
+    if command == CliCommand::Exec {
+        &args[..args
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(args.len())]
+    } else {
+        args
     }
 }
 
@@ -410,8 +399,7 @@ fn print_help() {
          Usage:\n\
            xenterm cli export <new-file.json> --include-credentials [--json]\n\
            xenterm cli import <export.json> [--dry-run] [--preserve-ids] [--json]\n\
-           xenterm cli export <file> [--json]\n\
-           xenterm cli sync-native <sessions.json> [--json]\n\
+           xenterm cli sync-native <sessions.json> [--dry-run] [--json]\n\
            xenterm cli permissions [restricted|full] [--json]\n\
            xenterm cli sessions [--group <name>] [--json]\n\
            xenterm cli session <session-id> [--json]\n\
@@ -431,13 +419,20 @@ mod tests {
     fn permissions_arguments_reject_unknown_or_ambiguous_modes() {
         assert_eq!(permissions_mode(&[]).unwrap(), None);
         assert_eq!(permissions_mode(&["--json".into()]).unwrap(), None);
-        assert_eq!(permissions_mode(&["full".into(), "--json".into()]).unwrap(),
-            Some(crate::config::McpAccessMode::Full));
-        assert_eq!(permissions_mode(&["restricted".into()]).unwrap(),
-            Some(crate::config::McpAccessMode::Restricted));
+        assert_eq!(
+            permissions_mode(&["full".into(), "--json".into()]).unwrap(),
+            Some(crate::config::McpAccessMode::Full)
+        );
+        assert_eq!(
+            permissions_mode(&["restricted".into()]).unwrap(),
+            Some(crate::config::McpAccessMode::Restricted)
+        );
         assert!(permissions_mode(&["anything".into()]).is_err());
         assert!(permissions_mode(&["full".into(), "restricted".into()]).is_err());
-        assert_eq!(CliCommand::parse(Some("permissions")), Some(CliCommand::Permissions));
+        assert_eq!(
+            CliCommand::parse(Some("permissions")),
+            Some(CliCommand::Permissions)
+        );
     }
 
     #[test]

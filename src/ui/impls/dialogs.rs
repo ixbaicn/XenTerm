@@ -15,19 +15,17 @@
 //! hosts the overlay layers itself; application views neither mount those layers
 //! nor subscribe to Root just to repaint them.
 
-use std::rc::Rc;
-
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
         dialog::{DialogAction, DialogButtonProps, DialogClose, DialogFooter},
         h_flex,
         input::{Input, InputState},
-        v_flex, Root, Sizable as _, WindowExt as _,
+        v_flex, WindowExt as _, Sizable as _,
     },
     div,
     prelude::*,
-    App, Context, Entity, IntoElement, SharedString, Subscription, Window,
+    App, Context, Entity, IntoElement, SharedString, Window,
 };
 
 /// Extend the toolkit's dialog keys with the native macOS cancel shortcut.
