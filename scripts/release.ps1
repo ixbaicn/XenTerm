@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidatePattern('^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$')]
+    # 版本号规范 v1 §1: stable versions are strictly vX.Y.Z — no suffixes,
+    # rc belongs to a channel, and scripts/version.sh would reject the tag.
+    [ValidatePattern('^v\d+\.\d+\.\d+$')]
     [string] $Tag,
 
     [switch] $Push,
@@ -118,9 +120,16 @@ if ($DryRun) {
 }
 
 Run-Cargo -CargoArgs @("check", "--locked")
-Run-CheckedOutput -Expected "xenterm $version" -Command @(
-    "cargo", "run", "--locked", "--", "--version"
-)
+# 版本号规范 v1 §5/§7: inject the tag's version for this verification build
+# so the binary reports xt-vX.Y.Z, exactly what the CI second check expects.
+$env:XT_VERSION = "xt-v$version"
+try {
+    Run-CheckedOutput -Expected "xenterm xt-v$version" -Command @(
+        "cargo", "run", "--locked", "--", "--version"
+    )
+} finally {
+    Remove-Item Env:XT_VERSION -ErrorAction SilentlyContinue
+}
 
 Run-Git -GitArgs @(
     "add",
