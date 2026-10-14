@@ -32,15 +32,21 @@ fn embed_windows_icon() {
 /// including the format self-check, which makes any invalid XT_VERSION (or any
 /// other resolution failure) fail the build instead of falling back (§7).
 ///
-/// Rerun policy: only the override env and the script itself invalidate the
-/// injected value. Without this, any source edit would re-run the script,
-/// roll the dev timestamp forward and recompile the whole crate every time.
-/// The consequence is that an untagged dev build keeps the timestamp of the
-/// last script run (cargo clean, a script edit or an XT_VERSION change
-/// refreshes it) — acceptable for a channel with no update detection (§8).
+/// Rerun policy: the override env, the script and the git metadata the script
+/// derives from (HEAD / refs) invalidate the injected value — a commit, branch
+/// checkout or new tag must refresh the string, otherwise an incremental build
+/// keeps reporting a stale hash in an otherwise-unchanged tree (§6). The cost
+/// is one crate recompile after each such metadata change (source edits don't
+/// trigger it), and a dev timestamp that rolls forward with the hash.
 fn inject_version() {
     println!("cargo:rerun-if-env-changed=XT_VERSION");
     println!("cargo:rerun-if-changed=scripts/version.sh");
+    // .git/refs is a directory, so cargo rescans it — that covers
+    // refs/heads (new commits on the current branch) and refs/tags; a HEAD
+    // file change covers branch switches, packed-refs covers post-gc refs.
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs");
+    println!("cargo:rerun-if-changed=.git/packed-refs");
 
     let bash = find_bash().unwrap_or_else(|e| panic!("cannot locate bash for scripts/version.sh: {e}; \
         set XT_BASH to a bash executable (Git Bash on Windows)"));

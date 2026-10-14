@@ -31,8 +31,8 @@ git push origin v0.5.7
 ```
 
 Release workflow 也会检查推送上来的 tag。比如 tag 名是 `v0.5.7` 时，
-`Cargo.toml`、`Cargo.lock` 和构建出的 `xenterm --version` 都必须是
-`0.5.7`，否则 workflow 会在发布前失败。
+`Cargo.toml` 和 `Cargo.lock` 必须是 `0.5.7`，构建产物的 `xenterm --version`
+必须输出 `xenterm xt-v0.5.7`，否则 workflow 会在发布前失败。
 
 <a name="english"></a>
 
@@ -69,5 +69,6 @@ git push origin v0.5.7
 ```
 
 The release workflow also checks pushed tags. A tag named `v0.5.7` must match
-`Cargo.toml`, `Cargo.lock`, and the built `xenterm --version` output,
-otherwise the workflow fails before publishing.
+`Cargo.toml` and `Cargo.lock` at `0.5.7`, and the built binary must print
+`xenterm xt-v0.5.7` from `xenterm --version`, otherwise the workflow fails
+before publishing.

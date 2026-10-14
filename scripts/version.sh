@@ -94,6 +94,12 @@ else
     TAG="$(current_tag)"
     if [ -n "$TAG" ]; then
         case "$TAG" in
+            # The rolling `beta` tag (release.yml recreates it on every main
+            # push) marks a channel, not a release: pin the channel here and
+            # let the branch derivation below finish the version string.
+            beta)
+                CHANNEL=beta
+                ;;
             v[0-9]*.[0-9]*.[0-9]*)
                 SEMVER="${TAG#v}"
                 printf '%s' "$SEMVER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
@@ -117,7 +123,8 @@ if [ -z "${VERSION:-}" ]; then
             beta|alpha|dev) CHANNEL="$XT_CHANNEL" ;;
             *) die "XT_CHANNEL='${XT_CHANNEL}' is not one of beta|alpha|dev (§1)" ;;
         esac
-    else
+    elif [ -z "$CHANNEL" ]; then
+        # Skipped when a `beta` tag already pinned the channel above.
         case "$BRANCH" in
             release/*) CHANNEL=stable ;;
             beta*)     CHANNEL=beta ;;
