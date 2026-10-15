@@ -48,7 +48,8 @@ json_string_or_null() {
             '\') printf '\\\\' ;;
             *)
                 printf -v code '%d' "'$char"
-                if ((code < 32)); then
+                # Bash 3.2 may report high UTF-8 bytes as signed values.
+                if ((code >= 0 && code < 32)); then
                     printf '\\u%04x' "$code"
                 else
                     printf '%s' "$char"
