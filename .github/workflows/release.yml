@@ -194,25 +194,16 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Verify binary version
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -eu
           # §7 second check: the artifact must report exactly XT_VERSION.
+          # One bash step for every OS: the Windows release exe is a
+          # GUI-subsystem binary (windows_subsystem = "windows"), which
+          # PowerShell neither waits for nor captures output from — bash
+          # reads the inherited pipe and waits for exit, so it works there.
           ACTUAL="$(target/${{ matrix.target }}/release/${{ matrix.bin }} --version)"
           test "$ACTUAL" = "xenterm ${XT_VERSION}"
-
-      - name: Verify binary version (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Same §7 check as above; a separate step because the bash one is
-          # kept off Windows (its original exclusion predates this workflow's
-          # version checks) and pwsh is native here.
-          $actual = & "target/${{ matrix.target }}/release/${{ matrix.bin }}" --version
-          if ($LASTEXITCODE -ne 0 -or $actual -ne "xenterm $env:XT_VERSION") {
-            throw "Expected 'xenterm $env:XT_VERSION', got '$actual' (exit $LASTEXITCODE)"
-          }
 
       # AppImage/MSI stay best-effort: if the tooling hiccups it must not block
       # the .tar.gz / .zip.
