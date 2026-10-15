@@ -41,7 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}           # stable | beta | dry-run
-      version: ${{ steps.resolve.outputs.version }}     # vX.Y.Z | beta-<sha7> | <ref>
+      version: ${{ steps.resolve.outputs.version }}     # artifact naming: vX.Y.Z | beta-<sha7> | <ref>
+      xt_version: ${{ steps.resolve.outputs.xt_version }}  # app version from scripts/version.sh (版本号规范 v1)
       deb_version: ${{ steps.resolve.outputs.deb_version }}
       app_version: ${{ steps.resolve.outputs.app_version }}
     steps:
@@ -109,6 +110,21 @@ jobs:
           echo "deb_version=$DEB_VERSION" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
+          # App version string per 版本号规范 v1: scripts/version.sh is the
+          # single assembly point. Tag refs resolve to xt-vX.Y.Z; the rolling
+          # beta leg forces the beta channel via XT_CHANNEL; other refs derive
+          # from their branch (usually dev).
+          if [ "$MODE" = "beta" ]; then
+            XT_APP_VERSION="$(XT_CHANNEL=beta bash scripts/version.sh)"
+          else
+            XT_APP_VERSION="$(bash scripts/version.sh)"
+          fi
+          printf '%s' "$XT_APP_VERSION" | grep -Eq \
+            '^xt-(v[0-9]+\.[0-9]+\.[0-9]+|(beta|alpha|dev)-[0-9a-f]{7}-T[0-9]{10})$' \
+            || { echo "scripts/version.sh produced an invalid version: $XT_APP_VERSION"; exit 1; }
+          echo "xt_version=$XT_APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "app version: $XT_APP_VERSION"
+
   # Fork pushes to main must not burn 8 release-build jobs on a rolling beta
   # they will never publish; everything else builds everywhere.
   build:
@@ -118,6 +134,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      # Injected into the binary by build.rs via scripts/version.sh (§5);
+      # verified against the built binary below (§7).
+      XT_VERSION: ${{ needs.prepare.outputs.xt_version }}
       DEB_VERSION: ${{ needs.prepare.outputs.deb_version }}
       APP_VERSION: ${{ needs.prepare.outputs.app_version }}
     strategy:
@@ -175,19 +194,16 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Verify binary version
-        if: runner.os != 'Windows'
         shell: bash
-        env:
-          MODE: ${{ needs.prepare.outputs.mode }}
         run: |
           set -eu
-          if [ "$MODE" = "stable" ]; then
-            EXPECTED="${VERSION#v}"
-          else
-            EXPECTED="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          fi
+          # §7 second check: the artifact must report exactly XT_VERSION.
+          # One bash step for every OS: the Windows release exe is a
+          # GUI-subsystem binary (windows_subsystem = "windows"), which
+          # PowerShell neither waits for nor captures output from — bash
+          # reads the inherited pipe and waits for exit, so it works there.
           ACTUAL="$(target/${{ matrix.target }}/release/${{ matrix.bin }} --version)"
-          test "$ACTUAL" = "xenterm ${EXPECTED}"
+          test "$ACTUAL" = "xenterm ${XT_VERSION}"
 
       # AppImage/MSI stay best-effort: if the tooling hiccups it must not block
       # the .tar.gz / .zip.
@@ -284,6 +300,8 @@ jobs:
 
             cp "target/${{ matrix.target }}/release/xenterm" "$CONTENTS/MacOS/"
             cp THIRD_PARTY_NOTICES.md "$CONTENTS/Resources/"
+            # Build provenance (版本号规范 v1 §6).
+            cp version.json "$CONTENTS/Resources/"
 
             # Generate .icns from the 512×512 PNG using sips + iconutil (both
             # ship with every macOS, no extra tooling needed in CI).
@@ -321,6 +339,8 @@ jobs:
             mkdir "$STAGE"
             cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "$STAGE/"
             cp README.md README.zh.md CHANGELOG.md THIRD_PARTY_NOTICES.md "$STAGE/" 2>/dev/null || true
+            # Build provenance (版本号规范 v1 §6).
+            cp version.json "$STAGE/" 2>/dev/null || true
             7z a "${STAGE}.zip" "$STAGE" >/dev/null
             echo "ASSET=${STAGE}.zip" >> "$GITHUB_ENV"
 
@@ -329,6 +349,8 @@ jobs:
             mkdir "$STAGE"
             cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "$STAGE/"
             cp README.md README.zh.md CHANGELOG.md THIRD_PARTY_NOTICES.md "$STAGE/" 2>/dev/null || true
+            # Build provenance (版本号规范 v1 §6).
+            cp version.json "$STAGE/" 2>/dev/null || true
             # Ship the desktop entry + installer + icon so the dock shows the icon.
             cp assets/xenterm.desktop assets/install-linux.sh "assets/icon@512.png" "$STAGE/" 2>/dev/null || true
             tar -czf "${STAGE}.tar.gz" "$STAGE"
@@ -442,6 +464,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      XT_VERSION: ${{ needs.prepare.outputs.xt_version }}
 
     steps:
       - name: Prepare Rocky Linux 8 (glibc 2.28) build dependencies
@@ -483,6 +506,14 @@ jobs:
           rustc --version
           cargo build --release --target ${{ matrix.target }}
 
+      - name: Verify binary version
+        shell: bash
+        run: |
+          set -eu
+          # §7 second check: the artifact must report exactly XT_VERSION.
+          ACTUAL="$(target/${{ matrix.target }}/release/xenterm --version)"
+          test "$ACTUAL" = "xenterm ${XT_VERSION}"
+
       - name: Verify glibc baseline
         shell: bash
         run: |
@@ -503,6 +534,8 @@ jobs:
           mkdir "$STAGE"
           cp "target/${{ matrix.target }}/release/xenterm" "$STAGE/"
           cp README.md README.zh.md CHANGELOG.md THIRD_PARTY_NOTICES.md "$STAGE/" 2>/dev/null || true
+          # Build provenance (版本号规范 v1 §6).
+          cp version.json "$STAGE/" 2>/dev/null || true
           cp assets/xenterm.desktop assets/install-linux.sh "assets/icon@512.png" "$STAGE/" 2>/dev/null || true
           tar -czf "${STAGE}.tar.gz" "$STAGE"
           echo "ASSET=${STAGE}.tar.gz" >> "$GITHUB_ENV"
