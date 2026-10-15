@@ -202,6 +202,18 @@ jobs:
           ACTUAL="$(target/${{ matrix.target }}/release/${{ matrix.bin }} --version)"
           test "$ACTUAL" = "xenterm ${XT_VERSION}"
 
+      - name: Verify binary version (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Same §7 check as above; a separate step because the bash one is
+          # kept off Windows (its original exclusion predates this workflow's
+          # version checks) and pwsh is native here.
+          $actual = & "target/${{ matrix.target }}/release/${{ matrix.bin }}" --version
+          if ($LASTEXITCODE -ne 0 -or $actual -ne "xenterm $env:XT_VERSION") {
+            throw "Expected 'xenterm $env:XT_VERSION', got '$actual' (exit $LASTEXITCODE)"
+          }
+
       # AppImage/MSI stay best-effort: if the tooling hiccups it must not block
       # the .tar.gz / .zip.
       - name: Build AppImage
