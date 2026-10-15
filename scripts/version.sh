@@ -31,6 +31,35 @@ valid_version() {
     printf '%s' "$1" | grep -Eq "$VERSION_REGEX"
 }
 
+# Quote arbitrary ref metadata without adding a JSON-tool dependency to builds.
+# Bash strings cannot contain NUL; escape every other JSON control byte.
+json_string_or_null() {
+    local value="$1" char code i
+    local LC_ALL=C
+    if [ -z "$value" ]; then
+        printf null
+        return
+    fi
+    printf '"'
+    for ((i = 0; i < ${#value}; i++)); do
+        char="${value:i:1}"
+        case "$char" in
+            '"') printf '\\"' ;;
+            '\') printf '\\\\' ;;
+            *)
+                printf -v code '%d' "'$char"
+                # Bash 3.2 may report high UTF-8 bytes as signed values.
+                if ((code >= 0 && code < 32)); then
+                    printf '\\u%04x' "$code"
+                else
+                    printf '%s' "$char"
+                fi
+                ;;
+        esac
+    done
+    printf '"'
+}
+
 # Channel of an already-validated version string, for version.json.
 channel_name() { printf '%s' "${1#xt-}" | cut -d- -f1; }
 
@@ -183,8 +212,8 @@ GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 JSON_SEMVER="$([ -n "$SEMVER" ] && printf '"%s"' "$SEMVER" || printf null)"
 JSON_HASH="$([ -n "$HASH" ] && printf '"%s"' "$HASH" || printf null)"
 JSON_TS="$([ -n "$TIMESTAMP" ] && printf '%s' "$TIMESTAMP" || printf null)"
-JSON_BRANCH="$([ -n "$BRANCH" ] && printf '"%s"' "$BRANCH" || printf null)"
-JSON_TAG="$([ -n "$TAG" ] && printf '"%s"' "$TAG" || printf null)"
+JSON_BRANCH="$(json_string_or_null "$BRANCH")"
+JSON_TAG="$(json_string_or_null "$TAG")"
 
 TMP_JSON="$VERSION_JSON.tmp$$"
 {
