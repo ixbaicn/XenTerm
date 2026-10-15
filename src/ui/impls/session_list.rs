@@ -116,6 +116,11 @@ pub(crate) struct SessionListDelegate {
     /// swing rather than swap. Shared with the click handlers, which receive
     /// an `App` and so cannot reach `&mut self`.
     chevron_turn: super::chevron::TurnCounter,
+    /// The row the toolkit last measured its uniform slot height from. The
+    /// list has no getter for the index it holds, so the change test that
+    /// keeps per-frame re-pointing from notifying a redraw every frame
+    /// happens here.
+    measure_hint: IndexPath,
 }
 
 /// One display group's slice of the flat `rows` vector.
@@ -143,6 +148,7 @@ impl SessionListDelegate {
             sections: Vec::new(),
             list: None,
             chevron_turn: super::chevron::new_turn_counter(),
+            measure_hint: IndexPath::default(),
         };
         delegate.rebuild_sections();
         delegate
@@ -259,6 +265,55 @@ fn reload_list(
     state.set_selected_index(selected, window, cx);
     state.set_right_clicked_index(right_clicked, window, cx);
     cx.notify();
+}
+
+/// Point the toolkit's slot measurement at a rendered session row.
+///
+/// The list lays every entry out at one height measured from a single item,
+/// so the item it measures decides whether rows fit their slots. The shapes
+/// this delegate draws are not all that height: a session row stacks a name
+/// and its detail on two lines, while a folded group's row and an empty
+/// group's placeholder are one muted line each. When the measured item is one
+/// of the short shapes — the `system` group sits first and starts collapsed,
+/// so its fold row is exactly what the default measurement picks — every
+/// session slot comes out one line short and each session's detail line
+/// paints over the next host's name, with the group's last row riding under
+/// the next section's header.
+///
+/// Measuring the tall shape instead only ever costs the short rows a little
+/// blank slot beneath their single line, which is the safe side of the
+/// trade. `connectable_at` applies the same test `render_item` does before it
+/// draws a session row, so the index chosen here is exactly a row the list
+/// paints in the tall shape. With no such row visible (everything folded or
+/// empty, or a search matching nothing) the index is left alone: every
+/// rendered row is then short in the same way, so the slots still agree.
+///
+/// Called at the top of every frame from [`SessionListView::render`], because
+/// the right answer moves with the rows — folding the group that held the
+/// measured row, a search, or a store edit all reshape the sections. Only an
+/// actual change notifies (`measure_hint`), so idle frames stay cheap.
+fn point_measure_at_session_row(
+    state: &mut ListState<SessionListDelegate>,
+    window: &mut Window,
+    cx: &mut Context<ListState<SessionListDelegate>>,
+) {
+    let measure = {
+        let delegate = state.delegate();
+        (0..delegate.sections_count(cx))
+            .flat_map(|section| {
+                let count = delegate.items_count(section, cx);
+                (0..count).map(move |row| IndexPath::new(row).section(section))
+            })
+            .find(|ix| delegate.connectable_at(*ix).is_some())
+    };
+    let Some(ix) = measure else {
+        return;
+    };
+    if state.delegate().measure_hint == ix {
+        return;
+    }
+    state.delegate_mut().measure_hint = ix;
+    state.set_item_to_measure_index(ix, window, cx);
 }
 
 impl ListDelegate for SessionListDelegate {
@@ -900,6 +955,12 @@ impl Render for SessionListView {
         if std::mem::take(&mut self.reload_pending) {
             self.list.update(cx, |state, cx| reload_list(state, window, cx));
         }
+        // Keep the toolkit measuring a session row (see the function's doc):
+        // the row that “decides the slot height” moves whenever folds, a
+        // search or a store edit reshape the sections, and the frame that
+        // draws the new rows is the latest a correction can land in.
+        self.list
+            .update(cx, |state, cx| point_measure_at_session_row(state, window, cx));
         let theme = cx.theme();
         let shown = self.len(cx);
         let muted = theme.muted_foreground;
@@ -1141,6 +1202,51 @@ mod tests {
                 );
             }
         });
+    }
+
+    /// The toolkit lays every row out in a slot sized from one measured item.
+    /// With the first group collapsed, that item used to be its one-line
+    /// fold row, and every two-line session row painted one line too tall —
+    /// the detail line drawing over the next host's name. The measurement
+    /// must point at a session row, so each session fits its slot.
+    #[gpui_kit::gpui::test]
+    fn collapsed_first_group_keeps_expanded_session_rows_their_slot_height(
+        cx: &mut TestAppContext,
+    ) {
+        let store = store(vec![
+            session("a1", "Alpha One", "g1"),
+            session("b1", "Beta One", "g2"),
+            session("b2", "Beta Two", "g2"),
+        ]);
+        store.borrow_mut().set_session_group_collapsed("g1", true);
+        let (view, cx) = open(cx, store.clone(), false);
+
+        fn assert_rows_fit(cx: &mut VisualTestContext) {
+            let b1 = cx
+                .debug_bounds("row-menu-b1")
+                .expect("the first visible session row");
+            let b2 = cx
+                .debug_bounds("row-menu-b2")
+                .expect("the second visible session row");
+            let slot = b2.origin.y - b1.origin.y;
+            assert!(
+                b1.size.height <= slot && b2.size.height <= slot,
+                "session rows {} and {} do not fit their {slot} slot: a slot \
+                 sized from a shorter row shape paints this row's detail line \
+                 over the next host's name",
+                b1.size.height,
+                b2.size.height
+            );
+        }
+        assert_rows_fit(cx);
+        assert!(cx.debug_bounds("row-menu-a1").is_none());
+
+        // Expanding the collapsed group reshapes the sections; the measurement
+        // has to follow, or the newly shown rows would inherit short slots.
+        store.borrow_mut().set_session_group_collapsed("g1", false);
+        reload(&view, cx);
+        assert_rows_fit(cx);
+        assert!(cx.debug_bounds("row-menu-a1").is_some());
     }
 
     /// The list draws every saved session in this small, deterministic fixture.
