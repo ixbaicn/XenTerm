@@ -10,9 +10,9 @@ name: CI
 
 on:
   push:
-    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "scripts/version.sh", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "scripts/version.sh", "tests/version_build_test.py", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "scripts/version.sh", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "scripts/version.sh", "tests/version_build_test.py", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
   workflow_dispatch:
 
 permissions:
@@ -114,6 +114,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Uses the real build.rs in an offline, dependency-free Cargo fixture.
+      # Windows icon resources require winresource; product builds cover Windows.
+      - name: Test incremental version build inputs
+        if: runner.os != 'Windows'
+        run: python tests/version_build_test.py
       - uses: Swatinem/rust-cache@v2
         with:
           key: migration-cli-${{ runner.os }}
@@ -191,4 +196,5 @@ jobs:
         run: bash -n assets/install-linux.sh
       - name: Run isolated installer regressions
         run: /usr/bin/python3 tests/install_linux_test.py
+
 
