@@ -54,7 +54,7 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
         run: |
           set -eu
-          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          CARGO_VERSION="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' crates/xenterm/Cargo.toml | head -n 1)"
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
             MODE=stable
             VERSION="$GITHUB_REF_NAME"
@@ -370,7 +370,7 @@ jobs:
           $candle = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($candle) { $env:PATH = "$($candle.DirectoryName);$env:PATH" }
           cargo install cargo-wix --locked
-          cargo wix --no-build --nocapture --target ${{ matrix.target }} --output "xenterm-$env:VERSION-windows-x86_64.msi"
+          cargo wix -p xenterm --no-build --nocapture --target ${{ matrix.target }} --output "xenterm-$env:VERSION-windows-x86_64.msi"
           echo "MSI=xenterm-$env:VERSION-windows-x86_64.msi" >> $env:GITHUB_ENV
 
       - name: Upload workflow artifact

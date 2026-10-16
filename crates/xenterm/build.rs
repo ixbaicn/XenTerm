@@ -17,9 +17,11 @@ fn main() {
 fn embed_windows_icon() {
     #[cfg(windows)]
     {
-        println!("cargo:rerun-if-changed=assets/xenterm.ico");
+        // The crate lives at crates/xenterm while the brand assets stay at the
+        // repository root, so every path out of the build script crosses ../../.
+        println!("cargo:rerun-if-changed=../../assets/xenterm.ico");
         let mut res = winresource::WindowsResource::new();
-        res.set_icon("assets/xenterm.ico");
+        res.set_icon("../../assets/xenterm.ico");
         if let Err(e) = res.compile() {
             println!("cargo:warning=failed to embed Windows icon: {e}");
         }
@@ -40,7 +42,7 @@ fn embed_windows_icon() {
 /// trigger it), and a dev timestamp that rolls forward with the hash.
 fn inject_version() {
     println!("cargo:rerun-if-env-changed=XT_VERSION");
-    println!("cargo:rerun-if-changed=scripts/version.sh");
+    println!("cargo:rerun-if-changed=../../scripts/version.sh");
     // .git/refs is a directory, so cargo rescans it — that covers
     // refs/heads (new commits on the current branch) and refs/tags; a HEAD
     // file change covers branch switches, packed-refs covers post-gc refs.
@@ -51,7 +53,7 @@ fn inject_version() {
     let bash = find_bash().unwrap_or_else(|e| panic!("cannot locate bash for scripts/version.sh: {e}; \
         set XT_BASH to a bash executable (Git Bash on Windows)"));
     let output = std::process::Command::new(&bash)
-        .arg("scripts/version.sh")
+        .arg("../../scripts/version.sh")
         .output();
     let output = match output {
         Ok(o) => o,
