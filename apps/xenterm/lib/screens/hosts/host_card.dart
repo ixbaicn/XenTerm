@@ -1,6 +1,10 @@
-/// One host, as the hosts screen shows it: the entity card (grid) or the
-/// full-width row (list). Compact — 60px tall, icon chip left, name over
-/// user@host, no pill (design-tokens.md §6).
+/// One host, as the hosts screen shows it.
+///
+/// Values are Termius's own, extracted verbatim from its bundles:
+/// grid card = width 430, padding 10/15, radius 15 (--corner-radius-large),
+/// bg --card-a (dark-grey-3), shadow 0 1px 1px rgba(0,0,0,.25), no border;
+/// list row = EntityItem: bg dark-grey-4, radius 14, padding 10, same shadow;
+/// icon chip = 36x36, radius 8 (--corner-radius-small-medium), svg ≤20px.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -31,11 +35,11 @@ class HostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Termius's entity card: surface fill on surface-high, selection is the
-    // blue ring; the icon chip is dark-grey-4 with light glyphs.
+    // Selection: Termius rings the card with the accent (the details panel's
+    // open state); idle cards carry no border — the shadow separates them.
     final border = selected
         ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-        : Border.all(color: theme.colorScheme.card);
+        : Border.all(color: Colors.transparent);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -45,11 +49,22 @@ class HostCard extends StatelessWidget {
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
           height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 15),
           decoration: BoxDecoration(
-            color: theme.colorScheme.card,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
+            // grid card: --card-a (dark-grey-3); list row: dark-grey-4.
+            color: grid
+                ? theme.colorScheme.card
+                : theme.colorScheme.secondary,
+            borderRadius:
+                BorderRadius.circular(grid ? TermiusRadius.cardLarge : 14),
             border: border,
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x40000000), // rgba(0,0,0,.25)
+                offset: Offset(0, 1),
+                blurRadius: 1,
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -58,12 +73,19 @@ class HostCard extends StatelessWidget {
                 height: 36,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.secondary,
+                  gradient: const LinearGradient(
+                    begin: Alignment(-1, -1), // 135deg
+                    end: Alignment(1, 1),
+                    colors: [
+                      Color(0x26415E71), // dark-grey-4-a15
+                      Color(0x26FFFFFF), // white-a15
+                    ],
+                  ),
                   borderRadius: BorderRadius.circular(TermiusRadius.card),
                 ),
                 child: Icon(
                   BootstrapIcons.hddRack,
-                  size: 16,
+                  size: 20,
                   color: theme.colorScheme.secondaryForeground,
                 ),
               ),
@@ -79,7 +101,6 @@ class HostCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.medium.copyWith(fontSize: 14),
                     ),
-                    const SizedBox(height: 1),
                     Text(
                       host.detail,
                       maxLines: 1,

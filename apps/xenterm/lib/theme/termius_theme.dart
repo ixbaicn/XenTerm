@@ -92,9 +92,27 @@ ColorScheme termiusLightScheme() {
 /// not a multiplier's byproduct.
 class TermiusRadius {
   static const double menu = 6; // --corner-radius-small-increased
-  static const double card = 8; // --corner-radius-small-medium
-  static const double field = 10; // --corner-radius-medium
+  static const double card = 8; // --corner-radius-small-medium (icon chips)
+  static const double field = 10; // --corner-radius-medium (inputs, tabs)
+  static const double cardLarge = 15; // --corner-radius-large (host cards)
   static const double pill = 1000; // --corner-radius-full
+}
+
+/// Termius metric constants extracted verbatim from its bundles
+/// (docs/termius/design-tokens.md §4 and the component style dumps).
+abstract final class TermiusMetrics {
+  /// --header-height: the search+Connect row's height.
+  static const double headerHeight = 56;
+
+  /// The search field's inner height and its dark fill (--dark-grey-5).
+  static const double searchFieldHeight = 36;
+  static const Color searchFieldFill = Color(0xFF3E4257);
+
+  /// HostsFiltersHeader: height 45, padding 4/12, gap 15.
+  static const double toolbarHeight = 45;
+
+  /// The hosts grid card's on-disk width (it may shrink in a narrower pane).
+  static const double gridCardWidth = 430;
 }
 
 /// Duration/easing slots from Termius's MUI theme (design-tokens.md §5).

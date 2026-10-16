@@ -72,31 +72,56 @@ class _HostsScreenState extends State<HostsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Search + Connect ────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  placeholder: const Text('查找主机或 ssh user@hostname…'),
-                  onChanged: (v) => setState(() => _query = v),
-                  style: theme.typography.normal.copyWith(fontSize: 14),
+        // ── Search + Connect: the header row, height 56, padding 8; the
+        // field is 36px tall on --dark-grey-5, radius 10, borderless, and
+        // Connect sits inside it at the right — Termius's exact header
+        // (w6e styles, dumped from its bundle).
+        Container(
+          height: TermiusMetrics.headerHeight,
+          color: theme.colorScheme.background,
+          padding: const EdgeInsets.all(8),
+          child: Container(
+            height: TermiusMetrics.searchFieldHeight,
+            decoration: BoxDecoration(
+              color: TermiusMetrics.searchFieldFill,
+              borderRadius: BorderRadius.circular(TermiusRadius.field),
+            ),
+            padding: const EdgeInsets.only(left: 10, right: 5),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    borderRadius: BorderRadius.zero,
+                    padding: EdgeInsets.zero,
+                    controller: _search,
+                    placeholder: Padding(
+                      padding: const EdgeInsets.only(left: 0),
+                      child: Text('查找主机或 ssh user@hostname…',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: theme.colorScheme.mutedForeground)),
+                    ),
+                    onChanged: (v) => setState(() => _query = v),
+                    style: theme.typography.normal.copyWith(
+                        fontSize: 13, color: theme.colorScheme.foreground),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              PrimaryButton(
-                density: ButtonDensity.compact,
-                onPressed: _selected == null ? null : () => _connect(_selected),
-                child: const Text('连接'),
-              ),
-            ],
+                PrimaryButton(
+                  density: ButtonDensity.compact,
+                  onPressed:
+                      _selected == null ? null : () => _connect(_selected),
+                  child: const Text('连接'),
+                ),
+              ],
+            ),
           ),
         ),
-        // ── Toolbar row ─────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        // ── Toolbar row: HostsFiltersHeader — height 45, padding 4/12,
+        // gap 15 (its own styles, extracted).
+        Container(
+          height: TermiusMetrics.toolbarHeight,
+          color: theme.colorScheme.background,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
               GhostButton(
@@ -107,7 +132,7 @@ class _HostsScreenState extends State<HostsScreen> {
                 trailing: const Icon(BootstrapIcons.caretDownFill, size: 10),
                 child: const Text('新建主机', style: TextStyle(fontSize: 13)),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 15),
               GhostButton(
                 density: ButtonDensity.compact,
                 size: ButtonSize.small,
@@ -115,7 +140,7 @@ class _HostsScreenState extends State<HostsScreen> {
                 leading: const Icon(BootstrapIcons.terminal, size: 14),
                 child: const Text('终端', style: TextStyle(fontSize: 13)),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 15),
               GhostButton(
                 density: ButtonDensity.compact,
                 size: ButtonSize.small,
@@ -179,7 +204,7 @@ class _HostsScreenState extends State<HostsScreen> {
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                 child: _layout == HostsLayout.cards
                     ? _cardGrid(hosts)
                     : _rowList(hosts),
@@ -205,6 +230,7 @@ class _HostsScreenState extends State<HostsScreen> {
   }
 
   Widget _cardGrid(List<Host> hosts) {
+    // The grid card is 430px wide on disk; cells shrink in narrower panes.
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 440,
@@ -212,9 +238,8 @@ class _HostsScreenState extends State<HostsScreen> {
         crossAxisSpacing: 10,
         childAspectRatio: 430 / 60,
       ),
-      itemCount: hosts.length + 1,
+      itemCount: hosts.length,
       itemBuilder: (context, index) {
-        if (index == hosts.length) return const _NewHostCard();
         final host = hosts[index];
         return HostCard.grid(
           host: host,
@@ -227,14 +252,8 @@ class _HostsScreenState extends State<HostsScreen> {
 
   Widget _rowList(List<Host> hosts) {
     return ListView.builder(
-      itemCount: hosts.length + 1,
+      itemCount: hosts.length,
       itemBuilder: (context, index) {
-        if (index == hosts.length) {
-          return const Padding(
-            padding: EdgeInsets.only(top: 10),
-            child: _NewHostCard(),
-          );
-        }
         final host = hosts[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: 6),
@@ -245,41 +264,6 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
         );
       },
-    );
-  }
-}
-
-/// The grid's last cell: a quiet card that adds rather than connects.
-class _NewHostCard extends StatelessWidget {
-  const _NewHostCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GhostButton(
-      density: ButtonDensity.compact,
-      onPressed: () {},
-      child: Container(
-        height: 60,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(TermiusRadius.card),
-          border: Border.all(color: theme.colorScheme.border),
-          color: theme.colorScheme.card,
-        ),
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(BootstrapIcons.plus,
-                  size: 14, color: theme.colorScheme.mutedForeground),
-              const SizedBox(width: 8),
-              Text('新建主机',
-                  style: theme.typography.normal.copyWith(
-                      fontSize: 13, color: theme.colorScheme.mutedForeground)),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
