@@ -6,6 +6,7 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../theme/termius_theme.dart';
+import 'title_bar.dart';
 import '../screens/hosts/hosts_screen.dart';
 
 enum NavDestination { hosts, keys, forwards, snippets, knownHosts, logs }
@@ -33,8 +34,14 @@ class _RootShellState extends State<RootShell> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      child: Row(
+      backgroundColor: theme.colorScheme.background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const TitleBar(),
+          Expanded(
+            child: Row(
+              children: [
           _NavRail(
             active: _active,
             destinations: _destinations,
@@ -42,6 +49,9 @@ class _RootShellState extends State<RootShell> {
           ),
           Container(width: 1, color: theme.colorScheme.border),
           Expanded(child: _screenFor(_active)),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -159,7 +169,7 @@ class _RailItemState extends State<_RailItem> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 32,
+          height: 40,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             color: background,
@@ -167,7 +177,7 @@ class _RailItemState extends State<_RailItem> {
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 14, color: foreground),
+              Icon(widget.icon, size: 15, color: foreground),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -175,7 +185,7 @@ class _RailItemState extends State<_RailItem> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.normal.copyWith(
-                    fontSize: 13,
+                    fontSize: 14,
                     color: foreground,
                   ),
                 ),
