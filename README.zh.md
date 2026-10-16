@@ -25,10 +25,13 @@
 
 ## XenTerm 是什么
 
-XenTerm 是一个原生桌面终端客户端。它保留了大家喜欢 FinalShell 的那些部分——资源监控侧栏、
-会话管理、多标签页终端、跟随 Shell 的 SFTP 面板，同时去掉了不喜欢的部分：几百 MB 的 JVM。
-它是一个单独的 Rust 二进制文件，界面直接构建在 [GPUI](https://gpui.rs) 之上，
-进程里既没有解释器，也没有 Web 运行时和垃圾回收器。
+XenTerm 是一个跨平台 SSH / SFTP / 终端客户端：**Rust 服务核心 + Flutter 界面**，
+目标覆盖 Windows / macOS / Linux 桌面三平台与 iOS / Android 移动两端。
+
+> **当前状态（UI 换代中）**：原 GPUI 界面已按计划移除，完整功能清单存档于
+> [docs/features.md](docs/features.md)，Termius 风格新界面的逆向规格见
+> [docs/termius/](docs/termius/)。Flutter 前端开发中；Rust 核心（会话/终端/SFTP/
+> 监控/CLI/MCP）在此期间保持可用，测试全绿。
 
 它是客户端，而不是 Shell 的重新实现：SSH、Telnet、串口会话最终都是和对端真实的程序通信，
 本地 Shell 则运行在真正的 PTY / ConPTY 里。
@@ -42,19 +45,18 @@ XenTerm 是一个原生桌面终端客户端。它保留了大家喜欢 FinalShe
 | **自动化** | 面向脚本和 CI 的 `cli`，以及面向 AI 客户端的 MCP 服务 |
 | **界面** | GPUI 渲染，中英双语，面板可折叠可停靠 |
 
-## 界面
+## 仓库结构
 
-窗口是一条导航栏加同一时刻的一个页面——共三个页面，每个页面自己持有状态，
-只把越过页面边界的事报告给外壳：
+```
+crates/xenterm/     Rust 服务核心（会话/终端/SFTP/隧道/监控/CLI/MCP）
+apps/xenterm/       Flutter 前端（开发中，Termius 风格复刻）
+docs/               功能清单、Termius 设计规格、版本与发布文档
+packaging/          AUR / Flatpak / remote-mcp 打包
+assets/             品牌图标与字体
+scripts/            version.sh（版本唯一拼接点）、release.ps1、make_icons.py
+```
 
-- **终端** —— 实际工作的界面：标签栏、可嵌套的横向分屏、带快捷命令与历史记录浮层的
-  悬浮命令行、资源侧栏，以及停靠在下方或右侧的文件面板。
-- **连接** —— 已保存的会话与内置本地 Shell，带分组、导入导出和会话编辑器。
-- **设置** —— 下表中列出的全部选项。
-
-两个监控界面是独立窗口而不是面板，因为它们是你要一边在终端里干活、一边放在旁边看的表格：
-**进程监控** 和 **系统信息**。传输列表、隧道列表和文件面板则是面板，
-因此始终附着在拥有这些会话的那个窗口上。
+前端与核心通过 FFI 桥接（flutter_rust_bridge）：iOS 不允许子进程，进程外方案不可行。
 
 ## 功能
 

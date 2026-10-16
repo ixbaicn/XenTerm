@@ -25,12 +25,14 @@
 
 ## What is XenTerm
 
-XenTerm is a native desktop terminal client that keeps the workflow people like about
-FinalShell — a resource-monitor sidebar, session management, tabbed terminals, an SFTP
-panel that follows your shell — while dropping the part they do not: several hundred
-megabytes of JVM. It is a single Rust binary with the interface built directly on
-[GPUI](https://gpui.rs), so there is no interpreter, no web runtime and no garbage
-collector in the process.
+XenTerm is a cross-platform SSH / SFTP / terminal client: a **Rust service core with a
+Flutter frontend**, targeting Windows / macOS / Linux desktops and iOS / Android mobile.
+
+> **Status (UI transition)**: the former GPUI frontend has been removed on schedule;
+> the complete feature inventory lives in [docs/features.md](docs/features.md) and the
+> reverse-engineered spec for the new Termius-style UI in [docs/termius/](docs/termius/).
+> The Flutter frontend is under development; the Rust core (sessions, terminal, SFTP,
+> monitoring, CLI, MCP) remains fully tested and usable in the meantime.
 
 It is a client, not a re-implementation of a shell: SSH, Telnet and serial sessions talk
 to whatever runs on the other end, and local shells run in a real PTY / ConPTY.
