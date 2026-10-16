@@ -1,11 +1,13 @@
-/// The custom titlebar: Termius's 51px tab strip — drag region, hamburger,
-/// the Vaults pill, the SFTP pill, the new-tab button, and the window
-/// controls on the right.
+/// The custom titlebar: Termius's 51px tab strip — the WHOLE bar is a drag
+/// surface (window_manager's DragToMoveArea; the previous hand-rolled
+/// onPanStart only covered two small widgets, which is why the window could
+/// not be dragged — a desktop-critical bug), with the pills and window
+/// controls as interactive children on top of it.
 ///
 /// Values extracted verbatim (RDe/Q4e styles): container height 51, padding
 /// 11px 10px 10px 9px, gap 5, background --dark-grey-1, border-bottom
-/// --dark-grey-4; each pill radius 10, padding 6px 10px, grid 20px icon +
-/// label with gap 10, weight 450.
+/// --dark-grey-4; each pill radius 10, padding 6px 10px, 20px icon + label
+/// with gap 10, weight 450.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -18,76 +20,54 @@ class TitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 51,
-      decoration: BoxDecoration(
-        color: const Color(0xFF141729), // --dark-grey-1
-        border: Border(
-            bottom: BorderSide(color: theme.colorScheme.secondary)), // dg-4
+    // DragToMoveArea wraps the entire bar: drag anywhere that is not an
+    // interactive child, double-click toggles maximize — the native
+    // titlebar's two gestures, re-provided.
+    return DragToMoveArea(
+      child: GestureDetector(
+        onDoubleTap: () async {
+          if (await windowManager.isMaximized()) {
+            await windowManager.unmaximize();
+          } else {
+            await windowManager.maximize();
+          }
+        },
+        child: Container(
+          height: 51,
+          color: const Color(0xFF141729), // --dark-grey-1
+          padding: const EdgeInsets.fromLTRB(9, 11, 0, 10),
+          child: Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6),
+                child: Icon(BootstrapIcons.list,
+                    size: 14, color: Color(0xFF8D91A5)),
+              ),
+              const SizedBox(width: 5),
+              const _TitlePill(
+                icon: Icon(BootstrapIcons.cloudFill,
+                    size: 13, color: Color(0xFF8D91A5)),
+                label: 'Vaults',
+                trailing: Icon(BootstrapIcons.caretDownFill,
+                    size: 9, color: Color(0xFF8D91A5)),
+              ),
+              const SizedBox(width: 5),
+              const _TitlePill(
+                icon: Icon(BootstrapIcons.folder2Open,
+                    size: 13, color: Color(0xFF8D91A5)),
+                label: 'SFTP',
+              ),
+              const SizedBox(width: 5),
+              _PillButton(
+                icon: BootstrapIcons.plus,
+                onPressed: () {},
+              ),
+              const Spacer(),
+              const _WindowControls(),
+            ],
+          ),
+        ),
       ),
-      padding: const EdgeInsets.fromLTRB(9, 11, 0, 10),
-      child: Row(
-        children: [
-          // The app mark, where Termius's hamburger sits.
-          const _DragArea(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(BootstrapIcons.list,
-                  size: 14, color: Color(0xFF8D91A5)), // dark-grey-7
-            ),
-          ),
-          const SizedBox(width: 5),
-          _TitlePill(
-            icon: const Icon(BootstrapIcons.cloudFill,
-                size: 13, color: Color(0xFF8D91A5)),
-            label: 'Vaults',
-            trailing: const Icon(BootstrapIcons.caretDownFill,
-                size: 9, color: Color(0xFF8D91A5)),
-          ),
-          const SizedBox(width: 5),
-          _TitlePill(
-            icon: const Icon(BootstrapIcons.folder2Open,
-                size: 13, color: Color(0xFF8D91A5)),
-            label: 'SFTP',
-          ),
-          const SizedBox(width: 5),
-          _DragArea(
-            child: GhostButton(
-              density: ButtonDensity.compact,
-              onPressed: () {},
-              child: const Icon(BootstrapIcons.plus,
-                  size: 14, color: Color(0xFF8D91A5)),
-            ),
-          ),
-          const Spacer(),
-          const _WindowControls(),
-        ],
-      ),
-    );
-  }
-}
-
-/// The drag region wrapper: a double-click maximizes, a drag moves — the
-/// two gestures a native titlebar carries and a hidden one must re-provide.
-class _DragArea extends StatelessWidget {
-  final Widget child;
-
-  const _DragArea({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onPanStart: (_) => windowManager.startDragging(),
-      onDoubleTap: () async {
-        if (await windowManager.isMaximized()) {
-          windowManager.unmaximize();
-        } else {
-          windowManager.maximize();
-        }
-      },
-      child: child,
     );
   }
 }
@@ -125,32 +105,73 @@ class _TitlePillState extends State<_TitlePill> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {},
-        child: _DragArea(
-          child: AnimatedContainer(
-            duration: TermiusMotion.micro,
-            curve: TermiusMotion.easeOut,
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color:
-                  _hovering ? theme.colorScheme.secondary : Colors.transparent,
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                widget.icon,
-                const SizedBox(width: 10),
-                Text(widget.label,
-                    style: theme.typography.normal
-                        .copyWith(fontSize: 13, color: fg)),
-                if (widget.trailing != null) ...[
-                  const SizedBox(width: 8),
-                  widget.trailing!,
-                ],
-              ],
-            ),
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color:
+                _hovering ? theme.colorScheme.secondary : Colors.transparent,
+            borderRadius: BorderRadius.circular(TermiusRadius.field),
           ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              widget.icon,
+              const SizedBox(width: 10),
+              Text(widget.label,
+                  style: theme.typography.normal
+                      .copyWith(fontSize: 13, color: fg)),
+              if (widget.trailing != null) ...[
+                const SizedBox(width: 8),
+                widget.trailing!,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A square icon-only pill (the new-tab +).
+class _PillButton extends StatefulWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _PillButton({required this.icon, required this.onPressed});
+
+  @override
+  State<_PillButton> createState() => _PillButtonState();
+}
+
+class _PillButtonState extends State<_PillButton> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 30,
+          width: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color:
+                _hovering ? theme.colorScheme.secondary : Colors.transparent,
+            borderRadius: BorderRadius.circular(TermiusRadius.field),
+          ),
+          child: Icon(widget.icon,
+              size: 14, color: theme.colorScheme.mutedForeground),
         ),
       ),
     );

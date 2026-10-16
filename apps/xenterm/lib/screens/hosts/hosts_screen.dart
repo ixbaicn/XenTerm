@@ -209,17 +209,45 @@ class _HostsScreenState extends State<HostsScreen> {
                     ? _cardGrid(hosts)
                     : _rowList(hosts),
               ),
+              // The details DRAWER: docked at the right edge, full height,
+              // sliding in from the right — the original's arrangement (the
+              // grid stays visible to its left; it is a docked panel, not a
+              // floating popup).
               if (_selected != null)
                 Positioned(
-                  left: 16,
-                  top: 8,
-                  bottom: 16,
-                  width: 460,
-                  child: HostDetailsPanel(
-                    host: _selected!,
-                    onClose: () => setState(() => _selected = null),
-                    onConnect: () => _connect(_selected),
-                    onEditAll: () {},
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 480,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 1, end: 0),
+                    duration: TermiusMotion.panel,
+                    curve: TermiusMotion.easeOut,
+                    builder: (context, offset, child) => Transform.translate(
+                      offset: Offset(offset * 480, 0),
+                      child: child,
+                    ),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.background,
+                        border: Border(
+                          left: BorderSide(color: theme.colorScheme.border),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.30),
+                            blurRadius: 18,
+                            offset: const Offset(-6, 0),
+                          ),
+                        ],
+                      ),
+                      child: HostDetailsPanel(
+                        host: _selected!,
+                        onClose: () => setState(() => _selected = null),
+                        onConnect: () => _connect(_selected),
+                        onEditAll: () {},
+                      ),
+                    ),
                   ),
                 ),
             ],

@@ -12,9 +12,10 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 
-class HostDetailsPanel extends StatelessWidget {
+class HostDetailsPanel extends StatefulWidget {
   final Host host;
   final VoidCallback onClose;
   final VoidCallback onConnect;
@@ -29,21 +30,23 @@ class HostDetailsPanel extends StatelessWidget {
   });
 
   @override
+  State<HostDetailsPanel> createState() => _HostDetailsPanelState();
+}
+
+class _HostDetailsPanelState extends State<HostDetailsPanel> {
+  /// The credentials section's advanced fields live behind Show more —
+  /// Termius's Collapse: 300ms open, 200ms close (MUI standard/leaving).
+  bool _showMore = false;
+
+  @override
   Widget build(BuildContext context) {
+    final host = widget.host;
+    final onClose = widget.onClose;
+    final onConnect = widget.onConnect;
+    final onEditAll = widget.onEditAll;
     final theme = Theme.of(context);
     return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.background,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-        border: Border.all(color: theme.colorScheme.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      color: theme.colorScheme.background,
       child: Column(
         children: [
           _Header(onClose: onClose),
@@ -79,11 +82,9 @@ class HostDetailsPanel extends StatelessWidget {
                               ),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: TextField(
+                                child: TermiusField(
                                   initialValue: host.address,
-                                  placeholder: const Text('IP 或主机名'),
-                                  style: theme.typography.normal
-                                      .copyWith(fontSize: 14),
+                                  placeholder: 'IP 或主机名',
                                 ),
                               ),
                             ],
@@ -96,8 +97,32 @@ class HostDetailsPanel extends StatelessWidget {
                         title: '凭据',
                         children: [
                           _field(context, '用户名'),
-                          _field(context, '密码', obscure: true),
-                          _field(context, 'SSH 密钥、证书…'),
+                          AnimatedSize(
+                            duration: _showMore
+                                ? TermiusMotion.panel
+                                : TermiusMotion.collapse,
+                            curve: TermiusMotion.easeInOut,
+                            alignment: Alignment.topCenter,
+                            child: _showMore
+                                ? Column(children: [
+                                    _field(context, '密码', obscure: true),
+                                    _field(context, 'SSH 密钥、证书…'),
+                                  ])
+                                : const SizedBox(width: double.infinity),
+                          ),
+                          // Show more / Show less: the ghost toggle the
+                          // original puts at the section's foot.
+                          GhostButton(
+                            density: ButtonDensity.compact,
+                            onPressed: () =>
+                                setState(() => _showMore = !_showMore),
+                            child: Text(
+                              _showMore ? '收起' : '显示更多',
+                              style: theme.typography.normal.copyWith(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.mutedForeground),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 15),
@@ -156,17 +181,9 @@ class HostDetailsPanel extends StatelessWidget {
   /// the placeholder is the label. Fill --main-form-bg (dark-grey-4).
   Widget _field(BuildContext context, String placeholder,
       {bool obscure = false}) {
-    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 10),
-      child: TextField(
-        initialValue: null,
-        placeholder: Text(placeholder,
-            style: TextStyle(
-                fontSize: 13, color: theme.colorScheme.mutedForeground)),
-        style: theme.typography.normal.copyWith(fontSize: 14),
-        obscureText: obscure,
-      ),
+      child: TermiusField(placeholder: placeholder, obscure: obscure),
     );
   }
 
