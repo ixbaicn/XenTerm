@@ -76,22 +76,34 @@ mod sftp_listing;
 
 // Only what consumers name. Types reachable through a method call on these
 // (`BaseZoom`, `SftpSortDir`, `TransferPhase`) stay unexported until one is.
+#[allow(unused_imports)]
 pub use event_sink::EventSink;
+#[allow(unused_imports)]
 pub use font_zoom::FontZoom;
+#[allow(unused_imports)]
 pub use session_draft::{PortForwardDraft, SessionDraft, SessionDraftError, TriggerDraft};
+#[allow(unused_imports)]
 pub use session_row::SessionRow;
+#[allow(unused_imports)]
 pub use sftp::{parent_path, SftpColumn};
 // Named by the SFTP panel, which draws one row per file. Listed explicitly rather
 // than left to `SftpListing`'s methods so the panel's row type is part of this module's
 // surface on purpose: the listing's accessors return it.
+#[allow(unused_imports)]
 pub use sftp::SftpFile;
+#[allow(unused_imports)]
 pub use sftp_listing::SftpListing;
+#[allow(unused_imports)]
 pub use tab::{TabKind, TabMeta};
+#[allow(unused_imports)]
 pub(crate) use tab_id::TabId;
 // Named by the transfer manager, which colours a row by what happened to it;
 // `Transfer` reports the same fact through its own methods.
+#[allow(unused_imports)]
 pub use transfer::Transfer;
+#[allow(unused_imports)]
 pub use transfer::TransferPhase;
+#[allow(unused_imports)]
 pub use transfer_store::TransferStore;
 
 use std::collections::HashMap;

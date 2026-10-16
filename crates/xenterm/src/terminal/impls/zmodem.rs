@@ -337,36 +337,14 @@ struct CurFile {
 
 /// Native yes/no dialog: the receive was auto-triggered by channel output, so
 /// the user decides before anything touches the disk (audit M-01).
-#[cfg(not(feature = "desktop"))]
+/// ui-bridge: interactive approval is the frontend's to give. Until the
+/// session protocol grows a ConfirmTransfer request, an unsolicited zmodem
+/// receive is declined rather than touching the disk unasked (audit M-01
+/// stands: no approval, no write).
 async fn confirm_receive(_name: &str, _size: u64) -> bool {
-    // An unsolicited terminal transfer cannot obtain interactive approval.
     false
 }
 
-#[cfg(feature = "desktop")]
-async fn confirm_receive(name: &str, size: u64) -> bool {
-    let size_text = match size {
-        0 => String::new(),
-        n => format!(" ({})", crate::ssh::format_size(n)),
-    };
-    let description = format!(
-        "{}: {name}{size_text}\n{}",
-        t("远端请求发送文件", "The remote host wants to send a file"),
-        t("接受并保存到下载目录?", "Accept and save it to your downloads folder?")
-    );
-    let title = t("ZMODEM 下载请求", "ZMODEM download request");
-    tokio::task::spawn_blocking(move || {
-        rfd::MessageDialog::new()
-            .set_title(title)
-            .set_description(&description)
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .set_level(rfd::MessageLevel::Warning)
-            .show()
-            == rfd::MessageDialogResult::Yes
-    })
-    .await
-    .unwrap_or(false)
-}
 
 /// First free `name`, `name (1)`, `name (2)`… under `dest`: an existing file
 /// is never overwritten or truncated by an incoming transfer.

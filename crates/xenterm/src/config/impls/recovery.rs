@@ -18,6 +18,7 @@ impl Scratch {
     fn new(parent: &Path) -> Result<Self> {
         private_directory(parent)?;
         let path = parent.join(format!(".xenterm-recovery-{}", Uuid::new_v4()));
+        #[allow(unused_mut)] // the `mut` serves the unix `recursive` call
         let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -38,7 +39,8 @@ impl Drop for Scratch {
 }
 
 fn private_directory(path: &Path) -> Result<()> {
-    let mut builder = fs::DirBuilder::new();
+    #[allow(unused_mut)] // the `mut` serves the unix `recursive` call
+        let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
     {

@@ -273,13 +273,13 @@ mod tests {
     /// default must be the face the binary registers under that very name.
     #[test]
     fn the_shipped_mono_reads_its_picker_name() {
-        let bytes = include_bytes!("../../../assets/fonts/MeatshellMono-Regular.ttf");
+        let bytes = include_bytes!("../../../../../assets/fonts/MeatshellMono-Regular.ttf");
         assert_eq!(family_name_of_bytes(bytes).as_deref(), Some(BUILT_IN_MONO));
     }
 
     #[test]
     fn a_truncated_font_is_rejected_not_panic() {
-        let bytes = include_bytes!("../../../assets/fonts/MeatshellMono-Regular.ttf");
+        let bytes = include_bytes!("../../../../../assets/fonts/MeatshellMono-Regular.ttf");
         assert_eq!(family_name_of_bytes(&bytes[..100]), None);
         assert_eq!(family_name_of_bytes(&[]), None);
     }

@@ -2002,19 +2002,13 @@ async fn run_session(
                                         .await
                                 }
                                 ZmodemDirection::Upload => {
-                                    #[cfg(feature = "desktop")]
-                                    let files = tokio::task::spawn_blocking(|| {
-                                        rfd::FileDialog::new()
-                                            .set_title(t(
-                                                "选择要通过 rz 上传的文件",
-                                                "Choose files to upload via rz",
-                                            ))
-                                            .pick_files()
-                                            .unwrap_or_default()
-                                    })
-                                    .await
-                                    .unwrap_or_default();
-                                    #[cfg(not(feature = "desktop"))]
+                                    // ui-bridge: the file pick is the
+                                    // frontend's to answer. Until the session
+                                    // protocol grows a PickFiles request, an
+                                    // rz upload from the core cancels with a
+                                    // clear reason rather than blocking on a
+                                    // dialog that is no longer here
+                                    // (docs/features.md §2).
                                     let files: Vec<std::path::PathBuf> = Vec::new();
                                     if files.is_empty() {
                                         let _ = channel.data(&ZMODEM_CANCEL[..]).await;

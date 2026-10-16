@@ -751,7 +751,7 @@ fn reserved_groups_match_editor_semantics_and_stay_idempotent() {
 }
 
 #[test]
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(feature = "secrets-native"))]
 fn headless_master_key_remains_file_backed_and_survives_restarts() {
     let dir = std::env::temp_dir().join(format!("xenterm-headless-key-{}", Uuid::new_v4()));
     fs::create_dir(&dir).unwrap();

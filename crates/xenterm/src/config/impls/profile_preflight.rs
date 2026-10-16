@@ -21,7 +21,8 @@ impl Drop for Snapshot {
 fn read_database(path: &Path, preview: bool) -> Result<Option<ConfigFile>> {
     let directory =
         std::env::temp_dir().join(format!("xenterm-profile-check-{}", uuid::Uuid::new_v4()));
-    let mut builder = fs::DirBuilder::new();
+    #[allow(unused_mut)] // the `mut` serves the unix `recursive` call
+        let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;

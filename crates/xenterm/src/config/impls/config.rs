@@ -589,7 +589,7 @@ impl ConfigStore {
     /// Portable dir: the key file travels beside `sessions.db` on purpose —
     /// see the module docs.
     fn resolve_master_key(config_dir: &Path, portable: bool) -> Result<[u8; 32]> {
-        if cfg!(feature = "desktop") && !portable {
+        if cfg!(feature = "secrets-native") && !portable {
             match Self::master_key_entry().and_then(|entry| entry.get_password()) {
                 Ok(stored) => {
                     if let Some(key) = Self::decode_master_key(&stored) {
@@ -872,7 +872,7 @@ impl ConfigStore {
             backup_dir,
             cache,
             key,
-            keyring_enabled: cfg!(feature = "desktop") && !has_explicit_data_dir(),
+            keyring_enabled: cfg!(feature = "secrets-native") && !has_explicit_data_dir(),
             saved_state: std::sync::Mutex::new(saved_state).into(),
         };
         // Persist the migrations so they run exactly once (and so a later
@@ -2413,7 +2413,7 @@ CREATE TABLE IF NOT EXISTS command_history (seq INTEGER PRIMARY KEY AUTOINCREMEN
             session.password = Secret::default();
         }
         if session.password.as_str() == Self::KEYRING_MARKER {
-            let credential = if !cfg!(feature = "desktop") || has_explicit_data_dir() {
+            let credential = if !cfg!(feature = "secrets-native") || has_explicit_data_dir() {
                 Err(keyring::Error::NoEntry)
             } else {
                 Self::keyring_entry(&session.id).and_then(|entry| entry.get_password())
@@ -4423,7 +4423,6 @@ mod log_path_tests {
 mod mcp_access_mode_tests;
 mod wallpaper_settings_tests {
     use super::*;
-    use crate::wallpaper::WallpaperSettings;
 
     fn fixture(path: PathBuf) -> ConfigStore {
         let cache = ConfigFile::default();
@@ -4450,7 +4449,7 @@ mod wallpaper_settings_tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = fixture(dir.path().join("sessions.db"));
         let legacy = store.wallpaper().to_owned();
-        let mut settings = WallpaperSettings::default();
+        let mut settings = crate::wallpaper::WallpaperSettings::default();
         settings.enabled = true; settings.rotation = 34.; settings.zoom = 1.25;
         settings.source = format!("{}.png", "a".repeat(64));
         settings.crop = [0.1, 0.2, 0.6, 0.5];

@@ -189,15 +189,16 @@ fn assert_no_ui_dependency_mention(module: &str) {
 
 /// The modules that must not name the toolkit that draws the window.
 ///
-/// `core` and `terminal` are the two layers a toolkit swap has to leave alone:
+/// `core` and `terminal` are the two layers a frontend swap has to leave alone:
 /// the first is the application's own state, the second is the screen model the
-/// renderer paints. `config`, `session`, `ssh`, `sftp`, `tunnel`, `resource`,
-/// `layout` and `logging` sit under both, and the CLI and the MCP server build
-/// against them with no window in existence — so a toolkit name in any of them
-/// is a build that needs a UI to compile.
+/// renderer paints. `config`, `session`, `ssh`, `sftp`, `tunnel`, `resource` and
+/// `logging` sit under both, and the CLI and the MCP server build against them
+/// with no window in existence — so a toolkit name in any of them is a build
+/// that needs a UI to compile. (The GPUI frontend's `layout` module died with
+/// the frontend; the Flutter bridge will be judged by the same list.)
 const TOOLKIT_FREE: &[&str] = &[
-    "config", "core", "layout", "logging", "resource", "session", "sftp", "ssh", "terminal",
-    "tunnel", "wallpaper",
+    "config", "core", "logging", "resource", "session", "sftp", "ssh", "terminal", "tunnel",
+    "wallpaper",
 ];
 
 /// No toolkit in the framework-agnostic layers.

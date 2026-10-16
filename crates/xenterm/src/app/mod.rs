@@ -2,8 +2,7 @@
 //! pumps.
 //!
 //! What lives here is what the UI shell and the non-UI layers still reach: the session
-//! models, the pump-side runtime and ingest pacing, WebDAV sync, and the Windows jump
-//! list. The pump delivery routes moved to `crate::session::protocol` with the rest of
+//! models, the pump-side runtime and ingest pacing, and WebDAV sync. The pump delivery routes moved to `crate::session::protocol` with the rest of
 //! the session vocabulary.
 //!
 //! `session_runtime`, `session_models` and `webdav` were written against
@@ -11,8 +10,6 @@
 //! in scope here.
 
 pub(crate) mod ingest;
-#[cfg(windows)]
-pub(crate) mod jump_list;
 pub(crate) mod session_models;
 pub(crate) mod session_runtime;
 pub(crate) mod webdav;
@@ -27,7 +24,7 @@ pub(crate) use ingest::{
 // old `app.rs` root imported for them; prune if a module stops needing one.
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 #[allow(unused_imports)]
 use anyhow::{Context, Result};

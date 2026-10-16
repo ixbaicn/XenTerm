@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use crate::session::protocol::SessionEvent;
-use crate::terminal::{TermBuffer, TermBufferHandle, TermBuffers};
+use crate::terminal::{TermBufferHandle, TermBuffers};
 use crate::terminal::RenderTicket;
 
 /// Above this, two adjacent `Output` events are left unmerged so one batch

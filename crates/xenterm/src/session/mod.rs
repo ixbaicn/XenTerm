@@ -13,6 +13,7 @@ pub(crate) use prompts::ConnectCtx;
 // two answers to "has this host been confirmed" would be two security policies.
 // `PromptOutcome` stays inside: callers ask it `should_show()` rather than matching,
 // so the enum is an implementation detail of the answer.
+#[allow(unused_imports)]
 pub(crate) use prompt_queue::{
     abort_window, credential_prompt, enqueue_credential, enqueue_host_key, enqueue_mfa,
     forget_credentials, host_key_prompt, mfa_prompt, resolve_credential, resolve_host_key,

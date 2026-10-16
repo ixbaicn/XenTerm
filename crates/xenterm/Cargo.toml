@@ -10,16 +10,23 @@ readme = "README.md"
 rust-version = "1.88"
 
 [features]
-# The default remains the complete GPUI application. Servers can exclude all
-# native window/dialog libraries with --no-default-features --features headless.
-default = ["desktop", "remote-mcp"]
-desktop = ["dep:gpui-kit", "dep:rfd", "dep:serialport", "keyring/apple-native", "keyring/windows-native", "keyring/sync-secret-service"]
+# The GPUI desktop frontend is gone (docs/features.md); this crate is the
+# service core. `headless` is kept as an alias because CI, scripts and muscle
+# memory all say `--features headless` — it means the same thing as the
+# default build now.
+default = ["remote-mcp", "secrets-native"]
 headless = ["remote-mcp"]
 remote-mcp = ["dep:rmcp", "dep:axum", "dep:jsonwebtoken", "dep:tokio-util", "dep:url"]
+# OS keychain backends for the credential store. Optional because the pure
+# service build (containers, CI) has no keychain to talk to.
+secrets-native = [
+    "keyring/apple-native",
+    "keyring/windows-native",
+    "keyring/sync-secret-service",
+]
 
 [dependencies]
 # The UI toolkit.
-gpui-kit = { version = "=0.7.1", optional = true, features = ["test-support"] }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -57,7 +64,6 @@ unicode-segmentation = "1.12"
 # Embedded 72px Twemoji PNGs keep emoji colored on every renderer (#269).
 twemoji-assets = { version = "1.5", default-features = false, features = ["png"] }
 russh-sftp = "2"
-rfd = { version = "0.15", optional = true }
 keyring = { version = "3", default-features = false }
 # Zeroes password buffers on drop so plaintext credentials don't linger in
 # freed heap memory (core dumps / debuggers / /proc/pid/mem).
@@ -83,7 +89,7 @@ fontdb = "0.16"
 # Cross-platform serial port access for the Serial session type (#14, #17).
 # Opens COM3 / /dev/ttyUSB0 etc.; on Linux the default `libudev` feature is
 # used for port enumeration (CI installs libudev-dev).
-serialport = { version = "4", optional = true }
+serialport = "4"
 # ChaCha20-Poly1305 AEAD for encrypting passwords at rest in sessions.json.
 # rand (OsRng) and base64 are already pulled in by other deps above.
 chacha20poly1305 = "0.10"

@@ -23,7 +23,6 @@ mod presentation;
 mod render;
 #[path = "impls/render_gate.rs"]
 mod render_gate;
-#[cfg(feature = "desktop")]
 #[path = "impls/serial.rs"]
 pub(crate) mod serial;
 #[path = "impls/telnet.rs"]
@@ -42,20 +41,28 @@ pub(crate) use term_buffer::OSC_CAP;
 pub(crate) use input::terminal_uses_bracketed_paste;
 pub(crate) use encoding::TerminalEncoding;
 #[cfg(test)]
+#[allow(unused_imports)]
 pub(crate) use input::normalize_pasted_newlines;
+#[allow(unused_imports)]
 pub(crate) use input::{
     encode_command_bar_input, encode_mouse_event,
     encode_pasted_text, key_to_pty_bytes, key_to_pty_bytes_with_shift, paste_requires_large_review,
 };
 // The review decision belongs to the view, which holds the setting and builds the
 // dialog; the terminal layer only encodes what it is handed.
+#[allow(unused_imports)]
 pub(crate) use input::paste_needs_review;
 // The IME event vocabulary, named only by the view that has an IME to talk to.
+#[allow(unused_imports)]
 pub(crate) use input::CompositionEvent;
+#[allow(unused_imports)]
 pub(crate) use json_output::format_json_output;
+#[allow(unused_imports)]
 pub(crate) use output_highlight::compile_output_rules;
+#[allow(unused_imports)]
 pub(crate) use presentation::{highlight_plain_output, render_term_span};
 // The terminal view paints its pane with this; the grid paints its own text over it.
+#[allow(unused_imports)]
 pub(crate) use presentation::{terminal_background, terminal_foreground};
 #[cfg(test)]
 pub(crate) use presentation::{log_level_marker, text_cell_width, vt_span_colors};
@@ -86,6 +93,7 @@ mod terminal_windows_tests;
 pub(crate) use render::{
     build_row, cell_prefix, char_after_cell_end, char_at_cell_start, MAX_HISTORY,
 };
+#[allow(unused_imports)]
 pub(crate) use state::{
     BuiltScreen, CompiledOutputRule, CsiState, EmojiImage, HistSpan, Line, OutputHighlightPreset,
     RenderGates, RenderTicket, Rgba, TabRenderGate, TermBuffer, TermBufferHandle, TermBuffers,

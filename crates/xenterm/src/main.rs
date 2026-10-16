@@ -1,50 +1,65 @@
-// Entry point. Wires the UI shell to the config store, system sampler and
-// SSH session manager.
-
-#![cfg_attr(
-    all(not(debug_assertions), feature = "desktop"),
-    windows_subsystem = "windows"
-)]
+// Entry point. The GPUI shell is gone (docs/features.md records what the UI
+// did); this binary is the service core — CLI and MCP — until the Flutter
+// frontend embeds it. The console subsystem stays on purpose: cli and mcp
+// serve both print to stdout.
 
 mod allocator;
 
 #[global_allocator]
 static GLOBAL: allocator::Allocator = allocator::Allocator;
-#[cfg(feature = "desktop")]
+
+// The GPUI frontend is gone; the Flutter frontend that replaces it
+// (docs/features.md) is not here yet. Everything these modules expose that the
+// old UI consumed — the terminal grid model, transfer lists, resource rows,
+// trigger engine, session drafts — is the *bridge surface* the new frontend
+// will bind to, so `dead_code` on them is capability waiting for its consumer,
+// not garbage. The allow is module-scoped on purpose: a new module without a
+// frontend still warns, so the signal survives. Remove the attribute module by
+// module as the bridge grows real callers.
+#[allow(dead_code)]
 mod app;
 // The layering rules, asserted rather than assumed. Test-only: the module is
 // nothing but `#[cfg(test)]` readers of this source tree.
 #[cfg(test)]
 mod arch_guards;
+#[allow(dead_code)]
 mod automation;
 mod cli;
+#[allow(dead_code)]
 mod config;
+#[allow(dead_code)]
 mod core;
+#[allow(dead_code)]
 mod i18n;
-#[cfg(feature = "desktop")]
-mod layout;
 mod logging;
 mod mcp;
+#[allow(dead_code)]
 mod resource;
+#[allow(dead_code)]
 mod session;
+#[allow(dead_code)]
 mod sftp;
+#[allow(dead_code)]
 mod ssh;
+#[allow(dead_code)]
 mod terminal;
+#[allow(dead_code)]
 mod tunnel;
-#[cfg(feature = "desktop")]
-mod ui;
+#[allow(dead_code)]
 mod version;
+#[allow(dead_code)]
 mod webdav;
+#[allow(dead_code)]
 mod wallpaper;
 
 enum StartMode {
     Mcp,
     Cli,
-    /// The UI shell, which is the whole UI. The explicit `gpui` argument from
-    /// the migration window is still accepted so existing shortcuts, jump-list
-    /// tasks and scripts keep working.
-    Ui,
     Version,
+    /// A bare launch, or the legacy `gpui` argument the old shortcuts and
+    /// jump-list tasks still send: nothing to open, so say so and point at
+    /// the two things this binary can do.
+    Help,
 }
 
 impl StartMode {
@@ -52,11 +67,23 @@ impl StartMode {
         match args.get(1).map(String::as_str) {
             Some("mcp") if args.get(2).is_some_and(|arg| arg == "serve") => Self::Mcp,
             Some("cli") => Self::Cli,
-            Some("gpui") => Self::Ui,
             _ if args.iter().any(|arg| arg == "--version" || arg == "-V") => Self::Version,
-            _ => Self::Ui,
+            _ => Self::Help,
         }
     }
+}
+
+fn print_help() {
+    println!(
+        "xenterm {} — service core (the graphical frontend is a separate app)",
+        version::VERSION
+    );
+    println!();
+    println!("Usage:");
+    println!("  xenterm cli <command> [...]    one-shot SSH commands, files, sessions");
+    println!("  xenterm mcp serve [--http-config <file>]   expose sessions over MCP");
+    println!("  xenterm --config-info          print profile/session inventory as JSON");
+    println!("  xenterm --version              print the version");
 }
 
 fn main() -> anyhow::Result<()> {
@@ -68,9 +95,12 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    #[cfg(not(feature = "desktop"))]
-    anyhow::ensure!(config::has_explicit_data_dir(),
-        "headless CLI/MCP requires --data-dir <independent-service-profile> or XENTERM_DATA_DIR; import an export into that profile instead of opening the default desktop profile");
+    // Service entry only: the default desktop profile belongs to the (future)
+    // GUI app, so CLI/MCP refuse to touch it without an explicit profile.
+    if matches!(mode, StartMode::Mcp | StartMode::Cli) {
+        anyhow::ensure!(config::has_explicit_data_dir(),
+            "CLI/MCP requires --data-dir <independent-service-profile> or XENTERM_DATA_DIR; import an export into that profile instead of opening the default profile");
+    }
 
     if args.get(1).is_some_and(|a| a == "--config-info") {
         anyhow::ensure!(
@@ -101,10 +131,10 @@ fn main() -> anyhow::Result<()> {
     match mode {
         StartMode::Mcp => mcp::run(&args),
         StartMode::Cli => cli::run(&args),
-        #[cfg(feature = "desktop")]
-        StartMode::Ui => ui::run(),
-        #[cfg(not(feature = "desktop"))]
-        StartMode::Ui => anyhow::bail!("headless build: use xenterm cli help or xenterm mcp serve"),
+        StartMode::Help => {
+            print_help();
+            Ok(())
+        }
         StartMode::Version => unreachable!("handled above"),
     }
 }
@@ -184,11 +214,11 @@ mod tests {
         let version = vec!["xenterm".to_string(), "--version".to_string()];
         assert!(matches!(StartMode::detect(&version), StartMode::Version));
 
-        // Both the bare launch and the migration-era `gpui` argument open the
-        // UI shell.
+        // Both the bare launch and the migration-era `gpui` argument land on
+        // the help text: the GUI is a separate app now.
         let app = vec!["xenterm".to_string()];
-        assert!(matches!(StartMode::detect(&app), StartMode::Ui));
+        assert!(matches!(StartMode::detect(&app), StartMode::Help));
         let gpui = vec!["xenterm".to_string(), "gpui".to_string()];
-        assert!(matches!(StartMode::detect(&gpui), StartMode::Ui));
+        assert!(matches!(StartMode::detect(&gpui), StartMode::Help));
     }
 }

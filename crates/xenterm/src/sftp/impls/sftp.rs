@@ -1686,49 +1686,13 @@ pub(crate) fn download_target_path(remote: &str, local_dir: &str) -> PathBuf {
 /// `None` means the user cancelled. A target that does not exist is not a question at
 /// all, and that is the whole of what can be tested here — the rest is a native dialog
 /// and blocks until it is answered.
-#[cfg(not(feature = "desktop"))]
+// ui-bridge: with the frontend gone, the only decision this core can make on
+// its own is "nothing to conflict with" — an existing target cancels instead
+// of silently replacing it. The Flutter frontend answers the real question
+// (replace / keep both / cancel) over the bridge (docs/features.md §3).
 pub(crate) fn choose_download_conflict(remote: &str, local_dir: &str) -> Option<DownloadConflict> {
     // No UI is available to authorize replacing an existing local file.
     (!download_target_path(remote, local_dir).exists()).then_some(DownloadConflict::Replace)
-}
-
-#[cfg(feature = "desktop")]
-pub(crate) fn choose_download_conflict(remote: &str, local_dir: &str) -> Option<DownloadConflict> {
-    let target = download_target_path(remote, local_dir);
-    if !target.is_file() {
-        return Some(DownloadConflict::Replace);
-    }
-    let replace = crate::i18n::t("替换", "Replace");
-    let keep_both = crate::i18n::t("共存", "Keep both");
-    let cancel = crate::i18n::t("取消", "Cancel");
-    let result = rfd::MessageDialog::new()
-        .set_title(crate::i18n::t("文件已存在", "File already exists"))
-        .set_description(format!(
-            "{}\n{}",
-            target.display(),
-            crate::i18n::t(
-                "请选择替换现有文件，或保留两份文件。",
-                "Choose whether to replace the existing file or keep both files."
-            )
-        ))
-        .set_level(rfd::MessageLevel::Warning)
-        .set_buttons(rfd::MessageButtons::YesNoCancelCustom(
-            replace.to_string(),
-            keep_both.to_string(),
-            cancel.to_string(),
-        ))
-        .show();
-    match result {
-        rfd::MessageDialogResult::Yes => Some(DownloadConflict::Replace),
-        rfd::MessageDialogResult::No => Some(DownloadConflict::KeepBoth),
-        rfd::MessageDialogResult::Custom(value) if value == replace => {
-            Some(DownloadConflict::Replace)
-        }
-        rfd::MessageDialogResult::Custom(value) if value == keep_both => {
-            Some(DownloadConflict::KeepBoth)
-        }
-        _ => None,
-    }
 }
 
 fn available_download_path(requested: &Path) -> PathBuf {
