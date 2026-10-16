@@ -30,8 +30,7 @@ class HostDetailsPanel extends StatelessWidget {
         color: theme.colorScheme.background,
         borderRadius: BorderRadius.circular(TermiusRadius.field),
         border: Border.all(color: theme.colorScheme.border),
-        // Termius's overlay card sits on a soft shadow; 25% black at y+8 is
-        // the read of the original rather than a lifted value.
+        // Termius's overlay card sits on a soft shadow.
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),
@@ -191,7 +190,7 @@ class _Section extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // b12wu from the typography scale: 12px/700, uppercase, 1px
-          // letter-spacing. Flutter spells the last one in logical pixels.
+          // letter-spacing (design-tokens.md §3).
           Text(
             title.toUpperCase(),
             style: theme.typography.bold.copyWith(

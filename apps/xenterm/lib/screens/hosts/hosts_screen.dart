@@ -1,12 +1,18 @@
-/// The Hosts screen: Termius's home, rebuilt to the spec in
-/// docs/termius/design-tokens.md §6 — toolbar, card grid (or row list), and
-/// the details panel floating over the grid's left side.
+/// The Hosts screen — Termius's home, structurally faithful:
+///
+///   [search + Connect]          ← content top, full width
+///   [New host ▾ | Terminal | Serial      …grid·tag·B·+]
+///   [card grid]                 ← three compact columns
+///
+/// There is no middle hosts column: the hosts live in the content area as
+/// cards; the sidebar holds only navigation (design-tokens.md §6).
 library;
 
 import 'package:flutter/foundation.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../theme/termius_theme.dart';
 import 'host_card.dart';
 import 'host_details_panel.dart';
 
@@ -20,56 +26,160 @@ class HostsScreen extends StatefulWidget {
 }
 
 class _HostsScreenState extends State<HostsScreen> {
+  final TextEditingController _search = TextEditingController();
   HostsLayout _layout = HostsLayout.cards;
   Host? _selected;
+  String _query = '';
 
-  List<Host> get _hosts => kSampleHosts;
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
-  void _onCardTap(Host host) {
-    // Termius two-step: the first click looks, the second connects. The
-    // connect itself is a stub until the bridge exposes session_runtime.
-    if (_selected?.id == host.id) {
-      if (kDebugMode) {
-        debugPrint('connect → ${host.id} (bridge pending, docs/flutter-bridge.md)');
-      }
-    } else {
-      setState(() => _selected = host);
+  List<Host> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return kSampleHosts;
+    return kSampleHosts
+        .where((h) =>
+            h.label.toLowerCase().contains(q) ||
+            h.address.toLowerCase().contains(q) ||
+            h.username.toLowerCase().contains(q))
+        .toList();
+  }
+
+  void _connect(Host? host) {
+    if (host != null && kDebugMode) {
+      debugPrint('connect → ${host.id} (bridge pending, docs/flutter-bridge.md)');
     }
   }
 
-  void _connectSelected() {
-    if (_selected case final host?) {
-      if (kDebugMode) debugPrint('connect → ${host.id}');
+  void _onCardTap(Host host) {
+    // Termius two-step: first click selects (Connect lights, card rings),
+    // second connects.
+    if (_selected?.id == host.id) {
+      _connect(host);
+    } else {
+      setState(() => _selected = host);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hosts = _hosts;
-    final groups = hosts.map((h) => h.group).where((g) => g.isNotEmpty).toSet();
+    final hosts = _filtered;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Toolbar(
-          hostCount: hosts.length,
-          groupCount: groups.length,
-          layout: _layout,
-          canConnect: _selected != null,
-          onToggleLayout: () => setState(() => _layout =
-              _layout == HostsLayout.cards ? HostsLayout.rows : HostsLayout.cards),
-          onNewHost: () {},
-          onConnect: _connectSelected,
+        // ── Search + Connect ────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  placeholder: const Text('查找主机或 ssh user@hostname…'),
+                  onChanged: (v) => setState(() => _query = v),
+                  style: theme.typography.normal.copyWith(fontSize: 14),
+                ),
+              ),
+              const SizedBox(width: 12),
+              PrimaryButton(
+                density: ButtonDensity.compact,
+                onPressed: _selected == null ? null : () => _connect(_selected),
+                child: const Text('连接'),
+              ),
+            ],
+          ),
         ),
-        Divider(height: 1, thickness: 1, color: theme.colorScheme.border),
+        // ── Toolbar row ─────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              GhostButton(
+                density: ButtonDensity.compact,
+                size: ButtonSize.small,
+                onPressed: () {},
+                leading: const Icon(BootstrapIcons.plus, size: 14),
+                trailing: const Icon(BootstrapIcons.caretDownFill, size: 10),
+                child: const Text('新建主机', style: TextStyle(fontSize: 13)),
+              ),
+              const SizedBox(width: 16),
+              GhostButton(
+                density: ButtonDensity.compact,
+                size: ButtonSize.small,
+                onPressed: () {},
+                leading: const Icon(BootstrapIcons.terminal, size: 14),
+                child: const Text('终端', style: TextStyle(fontSize: 13)),
+              ),
+              const SizedBox(width: 16),
+              GhostButton(
+                density: ButtonDensity.compact,
+                size: ButtonSize.small,
+                onPressed: () {},
+                leading: const Icon(BootstrapIcons.usbPlug, size: 14),
+                child: const Text('串口', style: TextStyle(fontSize: 13)),
+              ),
+              const Spacer(),
+              GhostButton(
+                density: ButtonDensity.compact,
+                onPressed: () => setState(() => _layout =
+                    _layout == HostsLayout.cards
+                        ? HostsLayout.rows
+                        : HostsLayout.cards),
+                child: Icon(
+                  _layout == HostsLayout.cards
+                      ? BootstrapIcons.grid
+                      : BootstrapIcons.list,
+                  size: 15,
+                ),
+              ),
+              const SizedBox(width: 4),
+              GhostButton(
+                density: ButtonDensity.compact,
+                onPressed: () {},
+                child: const Icon(BootstrapIcons.tag, size: 15),
+              ),
+              const SizedBox(width: 4),
+              // The account chip: a 24px green circle with the initial.
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF21B568),
+                  shape: BoxShape.circle,
+                ),
+                child: const Text('B',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white)),
+              ),
+              const SizedBox(width: 4),
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF21B568),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(BootstrapIcons.plus,
+                    size: 13, color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+        // ── Cards ───────────────────────────────────────────────────────
         Expanded(
           child: Stack(
             children: [
-              // The grid stays in place under the details panel, the way the
-              // hosts screen's detail card covers rather than pushes.
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 child: _layout == HostsLayout.cards
                     ? _cardGrid(hosts)
                     : _rowList(hosts),
@@ -77,13 +187,13 @@ class _HostsScreenState extends State<HostsScreen> {
               if (_selected != null)
                 Positioned(
                   left: 16,
-                  top: 16,
+                  top: 8,
                   bottom: 16,
                   width: 460,
                   child: HostDetailsPanel(
                     host: _selected!,
                     onClose: () => setState(() => _selected = null),
-                    onConnect: _connectSelected,
+                    onConnect: () => _connect(_selected),
                     onEditAll: () {},
                   ),
                 ),
@@ -97,10 +207,10 @@ class _HostsScreenState extends State<HostsScreen> {
   Widget _cardGrid(List<Host> hosts) {
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 284,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 272 / 76,
+        maxCrossAxisExtent: 440,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 430 / 60,
       ),
       itemCount: hosts.length + 1,
       itemBuilder: (context, index) {
@@ -121,13 +231,13 @@ class _HostsScreenState extends State<HostsScreen> {
       itemBuilder: (context, index) {
         if (index == hosts.length) {
           return const Padding(
-            padding: EdgeInsets.only(top: 12),
+            padding: EdgeInsets.only(top: 10),
             child: _NewHostCard(),
           );
         }
         final host = hosts[index];
         return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.only(bottom: 6),
           child: HostCard.row(
             host: host,
             selected: _selected?.id == host.id,
@@ -139,82 +249,7 @@ class _HostsScreenState extends State<HostsScreen> {
   }
 }
 
-/// The content header: page title with inventory, layout toggle, New host,
-/// and Connect enabled by the selection — Termius's toolbar verbatim.
-class _Toolbar extends StatelessWidget {
-  final int hostCount;
-  final int groupCount;
-  final HostsLayout layout;
-  final bool canConnect;
-  final VoidCallback onToggleLayout;
-  final VoidCallback onNewHost;
-  final VoidCallback onConnect;
-
-  const _Toolbar({
-    required this.hostCount,
-    required this.groupCount,
-    required this.layout,
-    required this.canConnect,
-    required this.onToggleLayout,
-    required this.onNewHost,
-    required this.onConnect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('主机',
-                    style: theme.typography.semiBold.copyWith(fontSize: 22, height: 1.3)),
-                const SizedBox(height: 4),
-                Text(
-                  '$hostCount 个主机 · $groupCount 个分组',
-                  style: theme.typography.normal.copyWith(
-                      fontSize: 14, color: theme.colorScheme.mutedForeground),
-                ),
-              ],
-            ),
-          ),
-          GhostButton(
-            density: ButtonDensity.compact,
-            onPressed: onToggleLayout,
-            child: Icon(
-              layout == HostsLayout.cards ? BootstrapIcons.list : BootstrapIcons.grid,
-              size: 16,
-            ),
-          ),
-          const SizedBox(width: 8),
-          if (canConnect) ...[
-            PrimaryButton(
-              density: ButtonDensity.compact,
-              onPressed: onConnect,
-              child: const Text('连接'),
-            ),
-            const SizedBox(width: 8),
-          ],
-          PrimaryButton(
-            density: ButtonDensity.compact,
-            onPressed: onNewHost,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [Icon(BootstrapIcons.plus, size: 16), SizedBox(width: 6), Text('新建主机')],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The grid's last cell: a quiet card that adds rather than connects. Muted
-/// fill carries the "not a host" reading (dashed borders are not native).
+/// The grid's last cell: a quiet card that adds rather than connects.
 class _NewHostCard extends StatelessWidget {
   const _NewHostCard();
 
@@ -225,9 +260,9 @@ class _NewHostCard extends StatelessWidget {
       density: ButtonDensity.compact,
       onPressed: () {},
       child: Container(
-        height: 76,
+        height: 60,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(TermiusRadius.card),
           border: Border.all(color: theme.colorScheme.border),
           color: theme.colorScheme.card,
         ),
@@ -236,11 +271,11 @@ class _NewHostCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(BootstrapIcons.plus,
-                  size: 16, color: theme.colorScheme.mutedForeground),
+                  size: 14, color: theme.colorScheme.mutedForeground),
               const SizedBox(width: 8),
               Text('新建主机',
-                  style: theme.typography.normal
-                      .copyWith(fontSize: 14, color: theme.colorScheme.mutedForeground)),
+                  style: theme.typography.normal.copyWith(
+                      fontSize: 13, color: theme.colorScheme.mutedForeground)),
             ],
           ),
         ),

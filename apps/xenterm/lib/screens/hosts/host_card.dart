@@ -1,5 +1,6 @@
 /// One host, as the hosts screen shows it: the entity card (grid) or the
-/// full-width row (list), per design-tokens.md §6.
+/// full-width row (list). Compact — 60px tall, icon chip left, name over
+/// user@host, no pill (design-tokens.md §6).
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -30,13 +31,11 @@ class HostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Termius's entity card: surface-high fill, the 36px rounded icon chip on
-    // dark-grey-4, name over user@host, group pill on the right, blue ring on
-    // selection. Hover names the border; the fill animates with the MUI
-    // micro cadence (200ms easeOut).
+    // Termius's entity card: surface fill on surface-high, selection is the
+    // blue ring; the icon chip is dark-grey-4 with light glyphs.
     final border = selected
         ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-        : Border.all(color: theme.colorScheme.border);
+        : Border.all(color: theme.colorScheme.card);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -45,7 +44,8 @@ class HostCard extends StatelessWidget {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          padding: const EdgeInsets.all(12),
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: theme.colorScheme.card,
             borderRadius: BorderRadius.circular(TermiusRadius.card),
@@ -79,7 +79,7 @@ class HostCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.medium.copyWith(fontSize: 14),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       host.detail,
                       maxLines: 1,
@@ -90,23 +90,6 @@ class HostCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (host.group.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  constraints: const BoxConstraints(maxWidth: 120),
-                  decoration: BoxDecoration(
-                    borderRadius:
-                        BorderRadius.circular(TermiusRadius.pill),
-                    border: Border.all(color: theme.colorScheme.border),
-                  ),
-                  child: Text(
-                    host.group,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.typography.normal.copyWith(
-                        fontSize: 11, color: theme.colorScheme.mutedForeground),
-                  ),
-                ),
             ],
           ),
         ),
