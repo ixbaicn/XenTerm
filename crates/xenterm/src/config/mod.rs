@@ -12,5 +12,5 @@ mod structs;
 #[path = "validation.rs"]
 pub(crate) mod validation;
 
-pub(crate) use config::*;
-pub(crate) use structs::*;
+pub use config::*;
+pub use structs::*;

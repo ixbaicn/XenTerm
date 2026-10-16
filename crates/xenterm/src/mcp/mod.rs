@@ -10,7 +10,7 @@ mod server;
 #[path = "impls/tools.rs"]
 mod tools;
 
-pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
+pub fn run(args: &[String]) -> anyhow::Result<()> {
     let mut allow_config_import = false;
     let mut http_config = None;
     let mut arguments = args.iter().skip(3);

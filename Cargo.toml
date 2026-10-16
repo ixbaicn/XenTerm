@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/xenterm"]
+members = ["crates/xenterm", "apps/xenterm/native"]
 
 # The workspace is the repository: everything Rust lives under crates/, so the
 # root stays a manifest and nothing else. The lockfile is shared — one `cargo

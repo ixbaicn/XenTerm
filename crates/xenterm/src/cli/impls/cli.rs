@@ -8,7 +8,7 @@ async fn call_cli(name: &str, arguments: &Value) -> Result<Value> {
     crate::automation::call(name, arguments, crate::automation::Frontend::Cli).await
 }
 
-pub(crate) fn run(args: &[String]) -> Result<()> {
+pub fn run(args: &[String]) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

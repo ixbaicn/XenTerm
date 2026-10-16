@@ -4892,6 +4892,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xenterm-bridge"
+version = "0.1.0"
+dependencies = [
+ "xenterm",
+]
+
+[[package]]
 name = "yoke"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

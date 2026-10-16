@@ -1,0 +1,14 @@
+[package]
+name = "xenterm-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "The Flutter frontend's FFI bridge onto the xenterm service core (docs/flutter-bridge.md)"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+# The service core, and nothing else. This crate is a translation layer: it
+# maps the core's models onto FRB-friendly DTOs and Streams, and the core
+# keeps zero knowledge of any frontend (arch_guards enforces that boundary).
+xenterm = { path = "../../../crates/xenterm" }

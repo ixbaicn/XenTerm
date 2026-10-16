@@ -3,54 +3,12 @@
 // frontend embeds it. The console subsystem stays on purpose: cli and mcp
 // serve both print to stdout.
 
+
 mod allocator;
 
 #[global_allocator]
 static GLOBAL: allocator::Allocator = allocator::Allocator;
 
-// The GPUI frontend is gone; the Flutter frontend that replaces it
-// (docs/features.md) is not here yet. Everything these modules expose that the
-// old UI consumed — the terminal grid model, transfer lists, resource rows,
-// trigger engine, session drafts — is the *bridge surface* the new frontend
-// will bind to, so `dead_code` on them is capability waiting for its consumer,
-// not garbage. The allow is module-scoped on purpose: a new module without a
-// frontend still warns, so the signal survives. Remove the attribute module by
-// module as the bridge grows real callers.
-#[allow(dead_code)]
-mod app;
-// The layering rules, asserted rather than assumed. Test-only: the module is
-// nothing but `#[cfg(test)]` readers of this source tree.
-#[cfg(test)]
-mod arch_guards;
-#[allow(dead_code)]
-mod automation;
-mod cli;
-#[allow(dead_code)]
-mod config;
-#[allow(dead_code)]
-mod core;
-#[allow(dead_code)]
-mod i18n;
-mod logging;
-mod mcp;
-#[allow(dead_code)]
-mod resource;
-#[allow(dead_code)]
-mod session;
-#[allow(dead_code)]
-mod sftp;
-#[allow(dead_code)]
-mod ssh;
-#[allow(dead_code)]
-mod terminal;
-#[allow(dead_code)]
-mod tunnel;
-#[allow(dead_code)]
-mod version;
-#[allow(dead_code)]
-mod webdav;
-#[allow(dead_code)]
-mod wallpaper;
 
 enum StartMode {
     Mcp,
@@ -85,6 +43,9 @@ fn print_help() {
     println!("  xenterm --config-info          print profile/session inventory as JSON");
     println!("  xenterm --version              print the version");
 }
+
+use xenterm::config;
+use xenterm::{cli, logging, mcp, version};
 
 fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().collect();
