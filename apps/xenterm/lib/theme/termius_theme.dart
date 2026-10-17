@@ -25,7 +25,7 @@ ColorScheme termiusDarkScheme() {
     brightness: Brightness.dark,
     background: d2,
     foreground: Colors.white, // --text-primary
-    card: d3,
+    card: d4, // grid cards are LIGHTER than the base bg (原版对比)
     cardForeground: Colors.white,
     popover: d3,
     popoverForeground: Colors.white,

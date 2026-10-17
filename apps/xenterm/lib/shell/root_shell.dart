@@ -8,8 +8,13 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../theme/termius_theme.dart';
 import 'title_bar.dart';
 import '../screens/hosts/hosts_screen.dart';
+import '../screens/keychain/keychain_screen.dart';
+import '../screens/logs/logs_screen.dart';
 
 enum NavDestination { hosts, keys, forwards, snippets, knownHosts, logs }
+
+// Keychain 与 Logs 已按原版截图实现（screens/keychain, screens/logs）；
+// forwards/snippets/knownHosts 仍为占位，等桥接数据。
 
 class RootShell extends StatefulWidget {
   const RootShell({super.key});
@@ -60,15 +65,16 @@ class _RootShellState extends State<RootShell> {
   Widget _screenFor(NavDestination destination) {
     return switch (destination) {
       NavDestination.hosts => const HostsScreen(),
+      NavDestination.keys => const KeychainScreen(),
+      NavDestination.logs => const LogsScreen(),
       // Placeholder until the bridge exposes each area's data; the rail is
       // honest about what exists, so these name their screen and wait.
       _ => _PlaceholderScreen(
           title: switch (destination) {
-            NavDestination.keys => '密钥',
             NavDestination.forwards => '端口转发',
             NavDestination.snippets => '快捷命令',
             NavDestination.knownHosts => '已知主机',
-            _ => '日志',
+            _ => '?',
           },
         ),
     };
@@ -92,8 +98,8 @@ class _NavRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      width: 180,
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      width: 200,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -169,23 +175,24 @@ class _RailItemState extends State<_RailItem> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          height: 44,
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(TermiusRadius.menu),
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 15, color: foreground),
-              const SizedBox(width: 10),
+              Icon(widget.icon, size: 16, color: foreground),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   widget.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.normal.copyWith(
-                    fontSize: 14,
+                    fontSize: 15,
                     color: foreground,
                   ),
                 ),

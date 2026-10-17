@@ -1,16 +1,30 @@
-/// One host, as the hosts screen shows it.
-///
-/// Values are Termius's own, extracted verbatim from its bundles:
-/// grid card = width 430, padding 10/15, radius 15 (--corner-radius-large),
-/// bg --card-a (dark-grey-3), shadow 0 1px 1px rgba(0,0,0,.25), no border;
-/// list row = EntityItem: bg dark-grey-4, radius 14, padding 10, same shadow;
-/// icon chip = 36x36, radius 8 (--corner-radius-small-medium), svg ≤20px.
+/// One host card — the original shows a colored OS logo chip (Debian swirl
+/// pink / Ubuntu orange alternate), name over "ssh, user, tag" detail, and
+/// an edit-pencil button that appears on hover. No visible border: the
+/// lighter fill separates the card from the darker page.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
 import '../../theme/termius_theme.dart';
+
+/// The OS chip palette cycles per card, echoing the original's colored OS
+/// logos (Debian pink-red, Ubuntu orange, Arch blue…).
+class OsChip {
+  final Color fill;
+  final IconData icon;
+
+  const OsChip(this.fill, this.icon);
+}
+
+const _osChips = <OsChip>[
+  OsChip(Color(0xFFD70A53), BootstrapIcons.lightningChargeFill), // Debian pink
+  OsChip(Color(0xFFE95420), BootstrapIcons.circleFill), // Ubuntu orange
+  OsChip(Color(0xFF1793D1), BootstrapIcons.diamondHalf), // Arch blue
+];
+
+OsChip osChipFor(int index) => _osChips[index % _osChips.length];
 
 class HostCard extends StatefulWidget {
   final Host host;
@@ -44,69 +58,46 @@ class _HostCardState extends State<HostCard> {
     final theme = Theme.of(context);
     final host = widget.host;
     final selected = widget.selected;
-    final grid = widget.grid;
-    final onTap = widget.onTap;
-    // Selection: Termius rings the card with the accent (the details panel's
-    // open state); idle cards carry no border — the shadow separates them.
+    final chip = osChipFor(host.id.hashCode.abs());
+    // Selection rings the card with the accent; hover lightens the fill one
+    // step and reveals the edit pencil.
     final border = selected
         ? Border.all(color: theme.colorScheme.primary, width: 1.5)
         : Border.all(color: Colors.transparent);
+    final fill = _hovering
+        ? theme.colorScheme.secondary.withValues(alpha: 0.9)
+        : theme.colorScheme.secondary;
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: onTap,
+        onTap: widget.onTap,
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 15),
+          height: 76,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            // grid card: --card-a (dark-grey-3); list row: dark-grey-4.
-            // Hover brightens one step (--list-hover, dark-grey-5), matching
-            // the original's entity hover.
-            color: _hovering
-                ? const Color(0xFF3E4257)
-                : (grid
-                    ? theme.colorScheme.card
-                    : theme.colorScheme.secondary),
-            borderRadius:
-                BorderRadius.circular(grid ? TermiusRadius.cardLarge : 14),
+            color: fill,
+            borderRadius: BorderRadius.circular(10),
             border: border,
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x40000000), // rgba(0,0,0,.25)
-                offset: Offset(0, 1),
-                blurRadius: 1,
-              ),
-            ],
           ),
           child: Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment(-1, -1), // 135deg
-                    end: Alignment(1, 1),
-                    colors: [
-                      Color(0x26415E71), // dark-grey-4-a15
-                      Color(0x26FFFFFF), // white-a15
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(TermiusRadius.card),
+                  color: chip.fill,
+                  shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  BootstrapIcons.hddRack,
-                  size: 20,
-                  color: theme.colorScheme.secondaryForeground,
-                ),
+                child: Icon(chip.icon, size: 18, color: Colors.white),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -116,16 +107,42 @@ class _HostCardState extends State<HostCard> {
                       host.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.typography.medium.copyWith(fontSize: 14),
+                      style: theme.typography.medium.copyWith(fontSize: 15),
                     ),
+                    const SizedBox(height: 2),
                     Text(
-                      host.detail,
+                      'ssh, ${host.username}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.normal.copyWith(
-                          fontSize: 12, color: theme.colorScheme.mutedForeground),
+                          fontSize: 13, color: theme.colorScheme.mutedForeground),
                     ),
                   ],
+                ),
+              ),
+              // The edit pencil: hidden until hover (200ms fade), the
+              // original's per-card quick action.
+              AnimatedOpacity(
+                duration: TermiusMotion.micro,
+                curve: TermiusMotion.easeOut,
+                opacity: _hovering ? 1 : 0,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {},
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.card,
+                        borderRadius: BorderRadius.circular(TermiusRadius.card),
+                      ),
+                      child: const Icon(BootstrapIcons.pencil,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
                 ),
               ),
             ],

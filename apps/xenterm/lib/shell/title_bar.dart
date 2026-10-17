@@ -108,12 +108,16 @@ class _TitlePillState extends State<_TitlePill> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
-            color:
-                _hovering ? theme.colorScheme.secondary : Colors.transparent,
+            color: const Color(0xFF1D2033),
             borderRadius: BorderRadius.circular(TermiusRadius.field),
+            border: Border.all(
+              color: _hovering
+                  ? theme.colorScheme.secondary
+                  : theme.colorScheme.secondary.withValues(alpha: 0.6),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -239,7 +243,7 @@ class _ControlButtonState extends State<_ControlButton> {
         onTap: widget.onTap,
         child: SizedBox(
           width: 46,
-          height: 51,
+          height: 56,
           child: Icon(
             widget.icon,
             size: 14,
