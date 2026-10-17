@@ -5,6 +5,7 @@ library;
 
 import 'dart:math' as math;
 
+import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../theme/termius_theme.dart';
@@ -15,6 +16,7 @@ import '../screens/logs/logs_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/terminal/terminal_screen.dart';
 import '../data/hosts.dart';
+import '../theme/app_fonts.dart';
 
 enum NavDestination {
   hosts,
@@ -32,11 +34,13 @@ enum NavDestination {
 class RootShell extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
+  final AppFonts fonts;
 
   const RootShell({
     super.key,
     required this.lightTheme,
     required this.onThemeChanged,
+    required this.fonts,
   });
 
   @override
@@ -58,7 +62,7 @@ class _RootShellState extends State<RootShell> {
     (NavDestination.snippets, '快捷命令', BootstrapIcons.lightning),
     (NavDestination.knownHosts, '已知主机', BootstrapIcons.shieldCheck),
     (NavDestination.logs, '日志', BootstrapIcons.clockHistory),
-    (NavDestination.settings, '设置', BootstrapIcons.gear),
+    (NavDestination.settings, '设置', material.Icons.settings_outlined),
   ];
 
   @override
@@ -75,6 +79,7 @@ class _RootShellState extends State<RootShell> {
                 ? TerminalScreen(
                     host: _terminalHost!,
                     onClose: () => setState(() => _terminalHost = null),
+                    fonts: widget.fonts,
                   )
                 : LayoutBuilder(
                     builder: (context, constraints) {
@@ -143,6 +148,7 @@ class _RootShellState extends State<RootShell> {
       NavDestination.settings => SettingsScreen(
         lightTheme: widget.lightTheme,
         onThemeChanged: widget.onThemeChanged,
+        fonts: widget.fonts,
       ),
       // Placeholder until the bridge exposes each area's data; the rail is
       // honest about what exists, so these name their screen and wait.

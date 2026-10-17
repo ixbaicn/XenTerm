@@ -1,18 +1,20 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../theme/termius_theme.dart';
+import '../../theme/app_fonts.dart';
 import 'settings_catalog.dart';
 
-/// Settings preview. Only the appearance switch changes the running app;
-/// all other values live in memory and are deliberately not wired to the core.
+/// Appearance and fonts affect the Flutter preview. Other settings remain UI-only.
 class SettingsScreen extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
+  final AppFonts fonts;
 
   const SettingsScreen({
     super.key,
     required this.lightTheme,
     required this.onThemeChanged,
+    required this.fonts,
   });
 
   @override
@@ -49,7 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          '界面预览 · 除主题外，选项暂未连接实际功能',
+          '界面预览 · 主题与字体可调节，其他选项暂未连接实际功能',
           style: theme.typography.normal.copyWith(
             fontSize: 13,
             color: theme.colorScheme.mutedForeground,
@@ -84,6 +86,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ]),
+        const SizedBox(height: 16),
+        _section(context, '字体', [
+          _fontControls(
+            context,
+            '界面字体',
+            widget.fonts.uiFamily,
+            widget.fonts.uiSize,
+            widget.fonts.setUiFamily,
+            widget.fonts.setUiSize,
+          ),
+          _fontControls(
+            context,
+            'SSH 界面字体',
+            widget.fonts.terminalFamily,
+            widget.fonts.terminalSize,
+            widget.fonts.setTerminalFamily,
+            widget.fonts.setTerminalSize,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+            child: Row(
+              children: [
+                _themeButton(context, '导入字体（TTF/OTF）', false, () async {
+                  await widget.fonts.importFont();
+                  if (mounted) setState(() {});
+                }),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '导入的字体保存在本机应用数据目录',
+                    style: theme.typography.normal.copyWith(
+                      fontSize: 12,
+                      color: theme.colorScheme.mutedForeground,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (widget.fonts.error != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+              child: Text(
+                widget.fonts.error!,
+                style: TextStyle(color: theme.colorScheme.destructive),
+              ),
+            ),
+        ]),
         for (final section in settingsSections) ...[
           const SizedBox(height: 16),
           _section(context, section.title, [
@@ -94,6 +144,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ],
       ],
+    );
+  }
+
+  Widget _fontControls(
+    BuildContext context,
+    String title,
+    String family,
+    double size,
+    ValueChanged<String> setFamily,
+    ValueChanged<double> setSize,
+  ) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: theme.typography.medium.copyWith(fontSize: 15)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _themeButton(
+                      context,
+                      '默认',
+                      family.isEmpty,
+                      () => setFamily(''),
+                    ),
+                    for (final font in widget.fonts.imported)
+                      _themeButton(
+                        context,
+                        font.name,
+                        family == font.family,
+                        () => setFamily(font.family),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _themeButton(context, '−', false, () => setSize(size - 1)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  '${size.round()}',
+                  style: theme.typography.normal.copyWith(fontSize: 14),
+                ),
+              ),
+              _themeButton(context, '+', false, () => setSize(size + 1)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

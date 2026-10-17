@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../theme/termius_theme.dart';
+import '../../theme/app_fonts.dart';
 
 enum _ToolsTab { keys, snippets, history, appearance }
 
@@ -8,7 +10,8 @@ enum _ToolsTab { keys, snippets, history, appearance }
 /// keys to PTY input, snippets/history to stored session data, and appearance
 /// to terminal rendering preferences. These controls preview layout only.
 class TerminalToolsPanel extends StatefulWidget {
-  const TerminalToolsPanel({super.key});
+  final AppFonts fonts;
+  const TerminalToolsPanel({super.key, required this.fonts});
 
   @override
   State<TerminalToolsPanel> createState() => _TerminalToolsPanelState();
@@ -17,7 +20,6 @@ class TerminalToolsPanel extends StatefulWidget {
 class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
   _ToolsTab _active = _ToolsTab.keys;
   String _search = '';
-  int _fontSize = 10;
   String _terminalTheme = 'Termius Dark';
 
   static const _snippets = [
@@ -69,18 +71,18 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
                   '命令片段',
                 ),
                 _tab(
-                  const Icon(BootstrapIcons.clockFill, size: 19),
+                  const Icon(material.Icons.history, size: 19),
                   _ToolsTab.history,
                   '历史',
                 ),
                 _tab(
-                  const Icon(BootstrapIcons.paletteFill, size: 19),
+                  const Icon(material.Icons.palette_outlined, size: 19),
                   _ToolsTab.appearance,
                   '外观',
                 ),
                 Container(height: 24, width: 1, color: scheme.border),
                 const Icon(
-                  BootstrapIcons.keyboard,
+                  material.Icons.keyboard_outlined,
                   size: 19,
                   color: Color(0xFF8D91A5),
                 ),
@@ -176,10 +178,10 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
   Widget _shortcutActions() {
     final scheme = Theme.of(context).colorScheme;
     const icons = [
-      BootstrapIcons.magic,
-      BootstrapIcons.keyFill,
-      BootstrapIcons.arrowsMove,
-      BootstrapIcons.paperclip,
+      material.Icons.auto_fix_high,
+      material.Icons.key_outlined,
+      material.Icons.open_with,
+      material.Icons.attach_file,
     ];
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -285,8 +287,8 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
                         ),
                         child: Icon(
                           snippets
-                              ? BootstrapIcons.braces
-                              : BootstrapIcons.clockHistory,
+                              ? material.Icons.code
+                              : material.Icons.history,
                           size: 17,
                           color: scheme.mutedForeground,
                         ),
@@ -350,18 +352,18 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
             ),
             _sizeButton(
               '−',
-              () => setState(() => _fontSize = (_fontSize - 1).clamp(6, 32)),
+              () => widget.fonts.setTerminalSize(widget.fonts.terminalSize - 1),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                '$_fontSize',
+                '${widget.fonts.terminalSize.round()}',
                 style: TextStyle(color: scheme.foreground),
               ),
             ),
             _sizeButton(
               '+',
-              () => setState(() => _fontSize = (_fontSize + 1).clamp(6, 32)),
+              () => widget.fonts.setTerminalSize(widget.fonts.terminalSize + 1),
             ),
           ],
         ),
@@ -373,7 +375,7 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
             borderRadius: BorderRadius.circular(TermiusRadius.field),
           ),
           child: Text(
-            'Source Code Pro Medium  ▾',
+            '${widget.fonts.labelFor(widget.fonts.terminalFamily)}  ▾',
             style: TextStyle(color: scheme.mutedForeground),
           ),
         ),
