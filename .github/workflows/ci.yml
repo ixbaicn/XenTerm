@@ -10,9 +10,9 @@ name: CI
 
 on:
   push:
-    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "crates/xenterm/**", "scripts/version.sh", "crates/xenterm/tests/*_e2e.py", "crates/xenterm/tests/tls_proxy_fixture.py", "assets/install-linux.sh", "crates/xenterm/tests/install_linux_test.py", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["Cargo.toml", "Cargo.lock", "build.rs", "src/**", "tests/*_e2e.py", "tests/tls_proxy_fixture.py", "assets/install-linux.sh", "tests/install_linux_test.py", ".github/workflows/ci.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "crates/xenterm/**", "scripts/version.sh", "crates/xenterm/tests/*_e2e.py", "crates/xenterm/tests/tls_proxy_fixture.py", "assets/install-linux.sh", "crates/xenterm/tests/install_linux_test.py", ".github/workflows/ci.yml"]
   workflow_dispatch:
 
 permissions:
@@ -35,6 +35,18 @@ jobs:
           - { os: macos-14, target: aarch64-apple-darwin, name: macOS desktop }
     steps:
       - uses: actions/checkout@v4
+      # 版本号规范 v1 §4/§7: resolve the version through the single entry
+      # point, re-check the §1 format here, and pin it for the cargo steps so
+      # the built test binaries embed exactly this string.
+      - name: Resolve app version
+        shell: bash
+        run: |
+          set -eu
+          V="$(bash scripts/version.sh)"
+          printf '%s' "$V" | grep -Eq \
+            '^xt-(v[0-9]+\.[0-9]+\.[0-9]+|(beta|alpha|dev)-[0-9a-f]{7}-T[0-9]{10})$' \
+            || { echo "scripts/version.sh produced an invalid version: $V"; exit 1; }
+          echo "XT_VERSION=$V" >> "$GITHUB_ENV"
       - name: Install Linux desktop development libraries
         if: runner.os == 'Linux'
         run: |
