@@ -36,6 +36,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   shadcn_flutter: ^0.0.55
   window_manager: ^0.5.2
+  file_selector: ^1.0.3
+  path_provider: ^2.1.5
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:
