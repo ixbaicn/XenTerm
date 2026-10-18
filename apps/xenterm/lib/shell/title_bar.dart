@@ -24,6 +24,8 @@ class TitleBar extends StatelessWidget {
   final ValueChanged<String>? onSelectHost;
   final ValueChanged<String>? onCloseHost;
   final VoidCallback? onNewTab;
+  final bool showSftp;
+  final VoidCallback? onToggleSftp;
 
   const TitleBar({
     super.key,
@@ -32,6 +34,8 @@ class TitleBar extends StatelessWidget {
     this.onSelectHost,
     this.onCloseHost,
     this.onNewTab,
+    this.showSftp = false,
+    this.onToggleSftp,
   });
 
   @override
@@ -71,6 +75,19 @@ class TitleBar extends StatelessWidget {
                   child: Icon(LucideIcons.list,
                       size: 14, color: Color(0xFF8D91A5)),
                 ),
+                const SizedBox(width: 5),
+                _SftpPill(
+                  active: showSftp,
+                  onTap: openHosts.isEmpty ? null : onToggleSftp,
+                ),
+                if (openHosts.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 1,
+                    height: 22,
+                    color: const Color(0xFF32364A),
+                  ),
+                ],
                 for (final host in openHosts) ...[
                   const SizedBox(width: 5),
                   _SessionTab(
@@ -145,9 +162,9 @@ class _SessionTabState extends State<_SessionTab> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 30,
-          constraints: const BoxConstraints(maxWidth: 190),
-          padding: const EdgeInsets.only(left: 5, right: 6),
+          height: 36,
+          constraints: const BoxConstraints(maxWidth: 240),
+          padding: const EdgeInsets.only(left: 10, right: 10),
           decoration: BoxDecoration(
             color: widget.active
                 ? _activeFill
@@ -157,26 +174,27 @@ class _SessionTabState extends State<_SessionTab> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(LucideIcons.terminal, size: 14, color: fg),
-              const SizedBox(width: 5),
+              if (widget.active)
+                GestureDetector(
+                  key: ValueKey('tab-close-${widget.host.id}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onClose,
+                  child: Icon(LucideIcons.x, size: 14, color: fg),
+                )
+              else
+                Icon(LucideIcons.x, size: 14, color: fg),
+              const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   widget.host.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.normal
-                      .copyWith(fontSize: 13, color: fg),
+                      .copyWith(fontSize: 14, color: fg),
                 ),
               ),
-              if (widget.active) ...[
-                const SizedBox(width: 6),
-                GestureDetector(
-                  key: ValueKey('tab-close-${widget.host.id}'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: widget.onClose,
-                  child: Icon(LucideIcons.x, size: 12, color: fg),
-                ),
-              ],
+              const SizedBox(width: 8),
+              Icon(LucideIcons.squareTerminal, size: 15, color: fg),
             ],
           ),
         ),
@@ -186,6 +204,64 @@ class _SessionTabState extends State<_SessionTab> {
 }
 
 const _muted = Color(0xFF8D91A5);
+
+/// The SFTP tab from the original: a filled --dark-grey-3 chip with the
+/// folder icon and label; it toggles the active terminal's SFTP view.
+class _SftpPill extends StatefulWidget {
+  final bool active;
+  final VoidCallback? onTap;
+
+  const _SftpPill({required this.active, this.onTap});
+
+  @override
+  State<_SftpPill> createState() => _SftpPillState();
+}
+
+class _SftpPillState extends State<_SftpPill> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fg = widget.active
+        ? theme.colorScheme.foreground
+        : (widget.onTap == null
+            ? const Color(0xFF5A5E73)
+            : (_hovering ? theme.colorScheme.foreground : _muted));
+    return MouseRegion(
+      cursor: widget.onTap == null
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        key: const ValueKey('sftp-tab'),
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF202436),
+            borderRadius: BorderRadius.circular(TermiusRadius.field),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(LucideIcons.folderOpen, size: 15, color: fg),
+              const SizedBox(width: 8),
+              Text('SFTP',
+                  style: theme.typography.normal
+                      .copyWith(fontSize: 14, color: fg)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// A square icon-only pill (the new-tab +).
 class _PillButton extends StatefulWidget {

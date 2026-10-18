@@ -69,14 +69,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('terminal-tab')));
+      await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('terminal-tab')));
+      await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
       // The session tab's × in the title bar ends the whole workspace.

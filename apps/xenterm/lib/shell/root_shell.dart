@@ -54,6 +54,7 @@ class _RootShellState extends State<RootShell> {
   NavDestination _active = NavDestination.hosts;
   final List<Host> _openHosts = <Host>[];
   String? _activeHostId;
+  bool _terminalSftp = false;
 
   Host? get _activeHost {
     for (final host in _openHosts) {
@@ -72,7 +73,10 @@ class _RootShellState extends State<RootShell> {
   void _closeHost(String id) {
     setState(() {
       _openHosts.removeWhere((h) => h.id == id);
-      if (_activeHostId == id) _activeHostId = null;
+      if (_activeHostId == id) {
+        _activeHostId = null;
+        _terminalSftp = false;
+      }
     });
   }
 
@@ -98,9 +102,14 @@ class _RootShellState extends State<RootShell> {
           TitleBar(
             openHosts: _openHosts,
             activeHostId: _activeHostId,
-            onSelectHost: (id) => setState(() => _activeHostId = id),
+            onSelectHost: (id) => setState(() {
+              _activeHostId = id;
+              _terminalSftp = false;
+            }),
             onCloseHost: _closeHost,
             onNewTab: () => setState(() => _activeHostId = null),
+            showSftp: _terminalSftp,
+            onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
           ),
           Expanded(
             child: Row(
@@ -114,14 +123,15 @@ class _RootShellState extends State<RootShell> {
                     // Choosing a screen in the rail parks the session tabs;
                     // clicking a tab in the title bar brings them back.
                     _activeHostId = null;
+                    _terminalSftp = false;
                   }),
                 ),
                 Expanded(
                   child: _activeHost != null
                       ? TerminalScreen(
                           host: _activeHost!,
-                          onClose: () => _closeHost(_activeHost!.id),
                           fonts: widget.fonts,
+                          showSftp: _terminalSftp,
                         )
                       : _screenFor(_active),
                 ),

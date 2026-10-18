@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
@@ -12,14 +11,15 @@ import 'terminal_tools_panel.dart';
 /// drive tab status from the SSH session lifecycle. No network call occurs here.
 class TerminalScreen extends StatefulWidget {
   final Host host;
-  final VoidCallback onClose;
   final AppFonts fonts;
+  /// SFTP view is toggled from the title bar's SFTP tab.
+  final bool showSftp;
 
   const TerminalScreen({
     super.key,
     required this.host,
-    required this.onClose,
     required this.fonts,
+    this.showSftp = false,
   });
 
   @override
@@ -27,9 +27,6 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
-  bool _showTools = true;
-  bool _sftpActive = false;
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -37,41 +34,6 @@ class _TerminalScreenState extends State<TerminalScreen> {
       color: scheme.background,
       child: Column(
         children: [
-          // In-pane controls only: Terminal/SFTP view switch + tools panel.
-          // Session tabs live in the title bar (the original's single strip).
-          Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
-              children: [
-                const Spacer(),
-                _viewChip(
-                  context,
-                  material.Icons.terminal,
-                  'Terminal',
-                  !_sftpActive,
-                  const ValueKey('terminal-tab'),
-                  () => setState(() => _sftpActive = false),
-                ),
-                const SizedBox(width: 6),
-                _viewChip(
-                  context,
-                  material.Icons.folder_open,
-                  'SFTP',
-                  _sftpActive,
-                  const ValueKey('sftp-tab'),
-                  () => setState(() => _sftpActive = true),
-                ),
-                const SizedBox(width: 8),
-                _toolIcon(
-                  context,
-                  material.Icons.view_sidebar_outlined,
-                  _showTools,
-                  () => setState(() => _showTools = !_showTools),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -79,7 +41,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 return Row(
                   children: [
                     Expanded(
-                      child: _sftpActive
+                      child: widget.showSftp
                           ? SftpPreview(host: widget.host)
                           : Container(
                               color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
@@ -119,11 +81,10 @@ class _TerminalScreenState extends State<TerminalScreen> {
                               ),
                             ),
                     ),
-                    if (_showTools)
-                      SizedBox(
-                        width: toolsWidth,
-                        child: TerminalToolsPanel(fonts: widget.fonts),
-                      ),
+                    SizedBox(
+                      width: toolsWidth,
+                      child: TerminalToolsPanel(fonts: widget.fonts),
+                    ),
                   ],
                 );
               },
@@ -134,71 +95,4 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  Widget _viewChip(
-    BuildContext context,
-    IconData icon,
-    String label,
-    bool selected,
-    Key key,
-    VoidCallback onTap,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    final fg = selected ? scheme.foreground : scheme.mutedForeground;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        key: key,
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          height: 28,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFF3E4257) : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: fg),
-              const SizedBox(width: 6),
-              Text(label,
-                  style: TextStyle(fontSize: 12, color: fg)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _toolIcon(
-    BuildContext context,
-    IconData icon,
-    bool selected,
-    VoidCallback onTap,
-  ) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFF153A37) : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: selected
-                ? const Color(0xFF21B568)
-                : Theme.of(context).colorScheme.mutedForeground,
-          ),
-        ),
-      ),
-    );
-  }
 }
