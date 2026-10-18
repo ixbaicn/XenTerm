@@ -28,12 +28,14 @@ typedef ForwardDeleter = Future<CoreWriteResult> Function({
   required int index,
 });
 typedef ForwardHostLoader = Future<List<Host>> Function();
+typedef JumpChainLoader = Future<List<JumpChain>> Function();
 
 class ForwardsScreen extends StatefulWidget {
   final ForwardLoader? loadForwards;
   final ForwardSaver? saveForward;
   final ForwardDeleter? deleteForward;
   final ForwardHostLoader? loadHosts;
+  final JumpChainLoader? loadJumps;
 
   const ForwardsScreen({
     super.key,
@@ -41,6 +43,7 @@ class ForwardsScreen extends StatefulWidget {
     this.saveForward,
     this.deleteForward,
     this.loadHosts,
+    this.loadJumps,
   });
 
   @override
@@ -49,6 +52,7 @@ class ForwardsScreen extends StatefulWidget {
 
 class _ForwardsScreenState extends State<ForwardsScreen> {
   List<ForwardRule> _rules = const [];
+  List<JumpChain> _jumps = const [];
   List<Host> _sshHosts = const [];
   bool _loading = true;
   String? _error;
@@ -81,9 +85,15 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     try {
       final rules = await (widget.loadForwards ?? loadForwardsFromCore)();
       final hosts = await (widget.loadHosts ?? loadHostsFromCore)();
+      final jumps = widget.loadJumps != null
+          ? await widget.loadJumps!()
+          : widget.loadHosts != null
+          ? const <JumpChain>[]
+          : await loadJumpChainsFromCore();
       if (!mounted) return;
       setState(() {
         _rules = rules;
+        _jumps = jumps;
         _sshHosts = hosts.where((h) => h.protocol == 'ssh').toList();
         _loading = false;
         _error = null;
@@ -195,30 +205,56 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
                 child: Row(
                   children: [
-                    SplitButton(
-                      label: 'New rule',
-                      icon: LucideIcons.plus,
-                      onPressed: _openNew,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tunnels & Jumps',
+                            style: theme.typography.bold.copyWith(
+                              fontSize: 18,
+                              color: theme.colorScheme.foreground,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Port forwards and the jump hosts their sessions use.',
+                            style: theme.typography.normal.copyWith(
+                              fontSize: 12,
+                              color: theme.colorScheme.mutedForeground,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        IconToggleButton(
-                          icon: LucideIcons.search,
-                          onPressed: () => setState(() {
-                            _searching = !_searching;
-                            if (!_searching) {
-                              _search.clear();
-                              _query = '';
-                            }
-                          }),
-                        ),
-                        const SizedBox(width: 6),
-                        IconToggleButton(
-                          icon: LucideIcons.refreshCw,
-                          onPressed: () => _reload(),
-                        ),
-                      ],
+                    Button(
+                      key: const ValueKey('forward-new'),
+                      style: const ButtonStyle.primary(),
+                      onPressed: _openNew,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.plus, size: 14),
+                          SizedBox(width: 6),
+                          Text('New rule'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconToggleButton(
+                      icon: LucideIcons.search,
+                      onPressed: () => setState(() {
+                        _searching = !_searching;
+                        if (!_searching) {
+                          _search.clear();
+                          _query = '';
+                        }
+                      }),
+                    ),
+                    const SizedBox(width: 6),
+                    IconToggleButton(
+                      icon: LucideIcons.refreshCw,
+                      onPressed: () => _reload(),
                     ),
                   ],
                 ),
@@ -255,12 +291,13 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                     ),
                   ),
                 ),
-              const SectionTitle(text: 'Port Forwarding'),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: _body(theme),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 860),
+                    child: _body(theme),
+                  ),
                 ),
               ),
             ],
@@ -327,50 +364,85 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
       );
     }
     final rules = _filtered;
-    if (rules.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
+    final showJumps = _query.trim().isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
           children: [
-            Icon(
-              LucideIcons.arrowLeftRight,
-              size: 30,
-              color: theme.colorScheme.mutedForeground,
-            ),
-            const SizedBox(height: 10),
             Text(
-              _rules.isEmpty ? 'No forwarding rules' : 'No matches',
+              'Port forwarding',
               style: theme.typography.semiBold.copyWith(
                 fontSize: 15,
                 color: theme.colorScheme.foreground,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(width: 8),
             Text(
-              _rules.isEmpty
-                  ? 'Rules open their tunnels when the owning host connects.'
-                  : 'Try a different search.',
-              textAlign: TextAlign.center,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
+              '${_rules.length}',
+              style: TextStyle(
+                fontSize: 12,
                 color: theme.colorScheme.mutedForeground,
               ),
             ),
           ],
         ),
-      );
-    }
-    return Column(
-      children: [
-        for (final rule in rules)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _RuleCard(
-              rule: rule,
-              onEdit: () => _openEdit(rule),
-              onDelete: () => _delete(rule),
+        const SizedBox(height: 8),
+        if (rules.isEmpty)
+          _EmptyBlock(
+            icon: LucideIcons.arrowLeftRight,
+            title: _rules.isEmpty ? 'No forwarding rules' : 'No matches',
+            message: _rules.isEmpty
+                ? 'Rules open their tunnels when the owning host connects.'
+                : 'Try a different search.',
+          )
+        else
+          for (final rule in rules)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _RuleCard(
+                rule: rule,
+                onEdit: () => _openEdit(rule),
+                onDelete: () => _delete(rule),
+              ),
             ),
+        if (showJumps) ...[
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Text(
+                'Jump chains',
+                style: theme.typography.semiBold.copyWith(
+                  fontSize: 15,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${_jumps.length}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.mutedForeground,
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
+          if (_jumps.isEmpty)
+            const _EmptyBlock(
+              icon: LucideIcons.route,
+              title: 'No jump hosts configured',
+              message:
+                  'Pick a jump host under a host\'s SSH details to route it '
+                  'through another server.',
+            )
+          else
+            for (final jump in _jumps)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _JumpCard(chain: jump),
+              ),
+        ],
       ],
     );
   }
@@ -386,6 +458,129 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     'remote' => 'Remote',
     _ => 'Dynamic',
   };
+}
+
+class _EmptyBlock extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _EmptyBlock({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF282B3D),
+        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: theme.colorScheme.mutedForeground),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.typography.semiBold.copyWith(
+                    fontSize: 14,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: theme.typography.normal.copyWith(
+                    fontSize: 12,
+                    color: theme.colorScheme.mutedForeground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JumpCard extends StatelessWidget {
+  final JumpChain chain;
+
+  const _JumpCard({required this.chain});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: ValueKey('jump-${chain.sessionId}'),
+      height: 66,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF282B3D),
+        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF2091F6).withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(TermiusRadius.menu),
+            ),
+            child: const Icon(
+              LucideIcons.route,
+              size: 18,
+              color: Color(0xFF2091F6),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  chain.sessionName,
+                  style: theme.typography.semiBold.copyWith(
+                    fontSize: 14,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  chain.path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.mutedForeground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            'via ${chain.jumps.length} jump${chain.jumps.length == 1 ? '' : 's'}',
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.colorScheme.mutedForeground,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _RuleCard extends StatefulWidget {

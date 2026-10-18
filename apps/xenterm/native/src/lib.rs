@@ -117,6 +117,7 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
                     "last_used": s.last_used,
                     "auth": s.auth.as_str(),
                     "private_key_path": s.private_key_path,
+                    "jump_session_id": s.jump_session_id,
                     "serial": !s.serial_port.is_empty(),
                     // Serial settings for the connection dialog. The password
                     // itself never crosses the bridge — only whether one is
@@ -190,6 +191,7 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
             .map(|v| v.clamp(1, 2) as u8);
         let parity = value.get("parity").and_then(|v| v.as_str());
         let flow_control = value.get("flow_control").and_then(|v| v.as_str());
+        let jump_session_id = value.get("jump_session_id").and_then(|v| v.as_str());
 
         let store = store()?;
         let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
@@ -234,6 +236,10 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
             session.password = xenterm::config::Secret::default();
         } else if !password.is_empty() {
             session.password = xenterm::config::Secret::new(password);
+        }
+        if let Some(jump) = jump_session_id {
+            session.jump_session_id = jump.trim().to_string();
+            session.jump_session_ids.clear();
         }
         if session.kind == xenterm::config::SessionKind::Serial {
             session.serial_port = address.to_string();
@@ -475,6 +481,99 @@ pub extern "C" fn xenterm_session_start(
             &id,
             cols.clamp(1, 1000) as u16,
             rows.clamp(1, 1000) as u16,
+            4000,
+        )?;
+        let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut map) = sessions().lock() {
+            map.insert(handle, terminal);
+        }
+        Ok(handle)
+    })();
+    match result {
+        Ok(handle) => to_c(serde_json::json!({"ok": true, "handle": handle}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Starts a temporary session from JSON (local terminal / serial quick
+/// connect) without writing it to the config store.
+#[no_mangle]
+pub extern "C" fn xenterm_session_start_adhoc(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<u64, String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let text = |key: &str| {
+            value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        let cols = value
+            .get("cols")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(80)
+            .clamp(1, 1000) as u16;
+        let rows = value
+            .get("rows")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(24)
+            .clamp(1, 1000) as u16;
+        let mut session = xenterm::config::Session::new_empty();
+        let label = text("label");
+        let address = text("address");
+        session.name = if label.is_empty() {
+            address.clone()
+        } else {
+            label
+        };
+        session.host = address.clone();
+        session.port = value
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(22)
+            .clamp(1, 65535) as u16;
+        session.user = text("username");
+        session.kind = xenterm::config::SessionKind::from_str(&text("kind"));
+        let password = text("password");
+        if !password.is_empty() {
+            session.password = xenterm::config::Secret::new(password);
+        }
+        session.serial_port = text("serial_port");
+        if session.kind == xenterm::config::SessionKind::Serial && session.serial_port.is_empty()
+        {
+            session.serial_port = address;
+        }
+        if let Some(baud) = value.get("baud_rate").and_then(|v| v.as_u64()) {
+            session.baud_rate = baud.clamp(50, 4_000_000) as u32;
+        }
+        if let Some(bits) = value.get("data_bits").and_then(|v| v.as_u64()) {
+            session.data_bits = bits.clamp(5, 8) as u8;
+        }
+        if let Some(bits) = value.get("stop_bits").and_then(|v| v.as_u64()) {
+            session.stop_bits = bits.clamp(1, 2) as u8;
+        }
+        let parity = text("parity");
+        if !parity.is_empty() {
+            session.parity = parity;
+        }
+        let flow = text("flow_control");
+        if !flow.is_empty() {
+            session.flow_control = flow;
+        }
+        let log_enabled = {
+            let store = store()?;
+            let store = store.lock().unwrap_or_else(|p| p.into_inner());
+            store.session_logs()
+        };
+        let runtime = runtime()?;
+        let terminal = TerminalSession::start_adhoc(
+            runtime.handle(),
+            session,
+            log_enabled,
+            cols,
+            rows,
             4000,
         )?;
         let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
@@ -813,6 +912,31 @@ pub extern "C" fn xenterm_forwards_json() -> *mut c_char {
     }
 }
 
+/// Saved SSH sessions that reach a host through jump hosts.
+#[no_mangle]
+pub extern "C" fn xenterm_jump_chains_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let rows: Vec<serde_json::Value> = xenterm::frontend::jump_chains(&store)
+            .into_iter()
+            .map(|chain| {
+                serde_json::json!({
+                    "session_id": chain.session_id,
+                    "session_name": chain.session_name,
+                    "host": chain.host,
+                    "jumps": chain.jumps,
+                })
+            })
+            .collect();
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(error) => to_c(serde_json::json!({"__error": error}).to_string()),
+    }
+}
+
 fn json_port(value: &serde_json::Value, key: &str) -> String {
     match value.get(key) {
         Some(serde_json::Value::Number(number)) => number.to_string(),
@@ -950,6 +1074,7 @@ pub extern "C" fn xenterm_keys_json() -> *mut c_char {
                     "user": key.user,
                     "source": key.source,
                     "path": key.path,
+                    "full_path": key.full_path,
                     "key_type": key.key_type,
                     "fingerprint": key.fingerprint,
                     "status": key.status,
@@ -961,6 +1086,51 @@ pub extern "C" fn xenterm_keys_json() -> *mut c_char {
     match result {
         Ok(json) => to_c(json),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Repoints every session that uses a key path to a new one.
+/// Payload: `{"old_path":"…","new_path":"…"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_key_update(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<usize, String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let old = value
+            .get("old_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let new = value
+            .get("new_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        xenterm::frontend::update_key_path(&mut store, old, new)
+    })();
+    match result {
+        Ok(changed) => to_c(
+            serde_json::json!({"ok": true, "changed": changed}).to_string(),
+        ),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Drops a key reference from every session (the file is left on disk).
+#[no_mangle]
+pub extern "C" fn xenterm_key_delete(path: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<usize, String> {
+        let path = unsafe { take_c(path) };
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        xenterm::frontend::remove_key(&mut store, &path)
+    })();
+    match result {
+        Ok(changed) => to_c(
+            serde_json::json!({"ok": true, "changed": changed}).to_string(),
+        ),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
     }
 }
 

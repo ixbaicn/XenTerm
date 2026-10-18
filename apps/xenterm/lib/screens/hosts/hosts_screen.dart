@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
@@ -34,6 +35,7 @@ typedef HostSaver = Future<CoreWriteResult> Function({
   String? flowControl,
   String? password,
   bool? clearPassword,
+  String? jumpHostId,
 });
 typedef HostDeleter = Future<CoreWriteResult> Function(String id);
 typedef GroupLoader = Future<List<HostGroup>> Function();
@@ -129,7 +131,12 @@ class _HostsScreenState extends State<HostsScreen> {
   void initState() {
     super.initState();
     widget.newHostRequest?.addListener(_onNewHostRequest);
+    hostOsRegistry.addListener(_onOsDetected);
     _reload();
+  }
+
+  void _onOsDetected() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -179,6 +186,7 @@ class _HostsScreenState extends State<HostsScreen> {
   @override
   void dispose() {
     widget.newHostRequest?.removeListener(_onNewHostRequest);
+    hostOsRegistry.removeListener(_onOsDetected);
     _search.dispose();
     _groupName.dispose();
     super.dispose();
@@ -219,6 +227,7 @@ class _HostsScreenState extends State<HostsScreen> {
         parity: host.parity,
         flowControl: host.flowControl,
         password: password,
+        jumpHostId: host.jumpHostId,
       );
       if (!result.ok) return result.error ?? 'Save failed';
       await _reload(silent: true);
@@ -310,18 +319,19 @@ class _HostsScreenState extends State<HostsScreen> {
 
   /// The toolbar's Terminal action: a real local PTY session, opened directly.
   /// An existing "Local terminal" is reused instead of piling up duplicates.
-  Future<void> _quickLocal() async {
-    for (final host in _hosts) {
-      if (host.protocol == 'local' && host.label == 'Local terminal') {
-        _connect(host);
-        return;
-      }
-    }
-    final host = await _createSessionFor(
-      kind: 'local',
-      label: 'Local terminal',
+  void _quickLocal() {
+    // A local shell is a temporary tab: the toolbar is its dedicated entry, so
+    // there is nothing to persist and nothing to clutter Home with.
+    _connect(
+      Host(
+        id: 'adhoc-local-${DateTime.now().microsecondsSinceEpoch}',
+        label: 'Local terminal',
+        address: '',
+        username: '',
+        protocol: 'local',
+        ephemeral: true,
+      ),
     );
-    if (host != null) _connect(host);
   }
 
   /// The toolbar's Serial action: Termius's serial connection modal, where the
@@ -340,18 +350,23 @@ class _HostsScreenState extends State<HostsScreen> {
     Host? target;
     final editing = _serialHost;
     if (editing == null) {
-      target = await _createSessionFor(
-        kind: 'serial',
+      // Connecting from the toolbar is temporary; only editing an existing
+      // serial host writes to the store.
+      target = Host(
+        id: 'adhoc-serial-${DateTime.now().microsecondsSinceEpoch}',
         label: draft.label,
         address: draft.port,
+        port: 22,
         username: draft.username,
         group: draft.group,
+        protocol: 'serial',
         baudRate: draft.baudRate,
         dataBits: draft.dataBits,
         stopBits: draft.stopBits,
         parity: draft.parity,
         flowControl: draft.flowControl,
-        password: draft.password,
+        ephemeral: true,
+        adhocPassword: draft.password,
       );
     } else {
       final updated = Host(
@@ -388,10 +403,6 @@ class _HostsScreenState extends State<HostsScreen> {
       target ??= updated;
     }
     if (!mounted) return;
-    if (target == null) {
-      setState(() => _serialError = 'Could not save the serial connection');
-      return;
-    }
     setState(() {
       _serialPanelOpen = false;
       _drawerOpen = false;
@@ -751,6 +762,7 @@ class _HostsScreenState extends State<HostsScreen> {
               ? const SizedBox.shrink()
               : HostDetailsPanel(
                   host: _drawerHost!,
+                  hosts: _hosts,
                   onClose: _closeDrawer,
                   onConnect: () {
                     final host = _drawerHost;
@@ -1022,28 +1034,41 @@ class _HostsScreenState extends State<HostsScreen> {
     );
   }
 
+  /// Applies the OS detected on the last connection without touching the
+  /// stored session.
+  Host _displayed(Host host) => host.copyWith(os: hostOsRegistry.of(host.id));
+
   Widget _cardGrid(List<Host> hosts, {bool shrinkWrap = false}) {
-    return GridView.builder(
-      shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        // Original: 3 columns at a 1280-wide window, cards ≈347×60 logical,
-        // 10px gaps — measured from the reference screenshot (520×90 physical
-        // at 1.5 DPR). The delegate rounds up, so 350 yields three columns.
-        maxCrossAxisExtent: 350,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 347 / 60,
-      ),
-      itemCount: hosts.length,
-      itemBuilder: (context, index) {
-        final host = hosts[index];
-        return HostCard.grid(
-          host: host,
-          selected: _drawerOpen && _drawerHost?.id == host.id,
-          onTap: () => _onCardTap(host),
-          onEdit: () => _onEditHost(host),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 10.0;
+        // Keep cards wide enough to read when the window shrinks; the original
+        // squeezes columns down to an unusable width instead.
+        const minCardWidth = 260.0;
+        final available = constraints.maxWidth;
+        final columns = available.isFinite
+            ? ((available + gap) / (minCardWidth + gap)).floor().clamp(1, 6)
+            : 3;
+        return GridView.builder(
+          shrinkWrap: shrinkWrap,
+          physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: gap,
+            crossAxisSpacing: gap,
+            mainAxisExtent: 60,
+          ),
+          itemCount: hosts.length,
+          itemBuilder: (context, index) {
+            final host = _displayed(hosts[index]);
+            return HostCard.grid(
+              host: host,
+              selected: _drawerOpen && _drawerHost?.id == host.id,
+              onTap: () => _onCardTap(hosts[index]),
+              onEdit: () => _onEditHost(hosts[index]),
+            );
+          },
         );
       },
     );
@@ -1056,14 +1081,14 @@ class _HostsScreenState extends State<HostsScreen> {
       padding: EdgeInsets.zero,
       itemCount: hosts.length,
       itemBuilder: (context, index) {
-        final host = hosts[index];
+        final host = _displayed(hosts[index]);
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: HostCard.row(
             host: host,
             selected: _drawerOpen && _drawerHost?.id == host.id,
-            onTap: () => _onCardTap(host),
-            onEdit: () => _onEditHost(host),
+            onTap: () => _onCardTap(hosts[index]),
+            onEdit: () => _onEditHost(hosts[index]),
           ),
         );
       },

@@ -130,3 +130,25 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   3 次）；未配置时完全不干预。
 - 输入框：所有页面的文本框统一走 `TermiusField`（36px、#32364A 填充、
   10px 圆角、同一字号/占位色），移除了各页面自己拼的 TextField 样式。
+- 临时连接：工具栏的 Terminal 与 Serial（新建时）走
+  `xenterm_session_start_adhoc`，直接在内存中启动会话，不写入
+  `sessions.db`、不出现在 Home；编辑已保存的串口主机仍然持久化。
+- 系统图标：SSH 资源通道额外执行 `__OS__` 探测（`/etc/os-release` 的 ID
+  或 `uname -s`），核心发出 `RemoteOs`，快照增加 `remoteOs`；Hosts 屏
+  通过内存注册表在连接后把卡片图标换成 Debian/Ubuntu/Arch/Linux/
+  macOS/Windows。每次连接重新探测，不落库。
+- 卡片布局：网格按最小 300px 宽度计算列数并使用固定 60px 行高，窗口
+  变窄时减少列数而不是把卡片压扁。
+- Keychain：每张卡 hover 提供编辑/移除；`xenterm_key_update/delete`
+  修改所有引用该路径的会话（移除以路径为空并回退密码认证，磁盘文件
+  不动）。`KeyInfo` 同时给出显示名与完整路径。
+- Tunnels & Jumps：原 Port Forwarding 页面更名并重做头部；上半部分是
+  真实转发规则，下半部分是 `xenterm_jump_chains_json` 解析出的跳板链。
+  主机详情新增 Jump host 选择器，`xenterm_session_upsert` 持久化
+  `jump_session_id`。
+- Logs：行 hover 直接删除，工具栏可一键清空（内联确认）；详情面板补齐
+  日期/用户/大小元信息，转录放进带边框的等宽区域。
+- Snippets 管理页只做增删改，不再有 Run；终端右侧工具面板新增
+  SNIPPETS 区，点击即向活动 PTY 发送命令。
+- 设置开关统一为 48×28 轨道 + 固定 20px 滑块，不再随选中态变形；下拉
+  菜单按窗口剩余高度截断并可滚动，避免串口波特率列表溢出窗口。

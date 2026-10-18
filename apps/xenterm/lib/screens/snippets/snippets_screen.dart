@@ -27,14 +27,12 @@ class SnippetsScreen extends StatefulWidget {
   final SnippetDeleter? deleteSnippet;
 
   /// Sends the snippet to the active terminal (RootShell wires this).
-  final void Function(QuickCommand snippet)? onRun;
 
   const SnippetsScreen({
     super.key,
     this.loadSnippets,
     this.saveSnippet,
     this.deleteSnippet,
-    this.onRun,
   });
 
   @override
@@ -158,16 +156,6 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
       _drawerOpen = false;
       _editing = null;
     });
-  }
-
-  void _run(QuickCommand snippet) {
-    final run = widget.onRun;
-    if (run == null) {
-      setState(() => _notice = 'Open a terminal first to run snippets.');
-      return;
-    }
-    setState(() => _notice = null);
-    run(snippet);
   }
 
   @override
@@ -334,7 +322,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
             const SizedBox(height: 4),
             Text(
               _snippets.isEmpty
-                  ? 'Save a command here to run it in one click.'
+                  ? 'Save commands here; the connected terminal sidebar runs them.'
                   : 'Try a different search.',
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
@@ -352,7 +340,6 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
             padding: const EdgeInsets.only(bottom: 8),
             child: _SnippetCard(
               snippet: snippet,
-              onRun: () => _run(snippet),
               onEdit: () => _openEdit(snippet),
               onDelete: () => _delete(snippet),
             ),
@@ -364,13 +351,11 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
 
 class _SnippetCard extends StatefulWidget {
   final QuickCommand snippet;
-  final VoidCallback onRun;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _SnippetCard({
     required this.snippet,
-    required this.onRun,
     required this.onEdit,
     required this.onDelete,
   });
@@ -390,7 +375,7 @@ class _SnippetCardState extends State<_SnippetCard> {
       onExit: (_) => setState(() => _hover = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: widget.onRun,
+        onTap: widget.onEdit,
         child: Container(
           key: ValueKey('snippet-${widget.snippet.index}'),
           height: 76,
@@ -474,7 +459,7 @@ class _SnippetCardState extends State<_SnippetCard> {
                 _CardAction(
                   icon: LucideIcons.play,
                   tooltip: 'Run',
-                  onTap: widget.onRun,
+                  onTap: widget.onEdit,
                 ),
                 _CardAction(
                   icon: LucideIcons.pencil,

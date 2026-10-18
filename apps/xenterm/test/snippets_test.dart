@@ -17,25 +17,23 @@ void main() {
     group: 'ops',
   );
 
-  testWidgets('snippets load from the injected store and run on tap', (
+  testWidgets('snippets load from the injected store and open on tap', (
     tester,
   ) async {
-    QuickCommand? ran;
     await tester.pumpWidget(
       _app(
-        SnippetsScreen(
-          loadSnippets: () async => [nginx],
-          onRun: (snippet) => ran = snippet,
-        ),
+        SnippetsScreen(loadSnippets: () async => [nginx]),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.text('Reload nginx'), findsOneWidget);
     expect(find.text('sudo nginx -s reload'), findsOneWidget);
+
+    // This screen is the manager; running happens in the terminal sidebar.
     await tester.tap(find.byKey(const ValueKey('snippet-0')));
     await tester.pumpAndSettle();
-    expect(ran?.command, 'sudo nginx -s reload');
-    expect(ran?.sendEnter, isTrue);
+    expect(find.byKey(const ValueKey('snippet-command')), findsOneWidget);
+    expect(find.byKey(const ValueKey('snippet-run')), findsNothing);
   });
 
   testWidgets('a new snippet is written through the injected saver', (

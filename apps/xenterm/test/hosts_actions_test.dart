@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
+import 'package:xenterm_app/screens/hosts/host_card.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
 import 'package:xenterm_app/theme/termius_field.dart';
 import 'package:xenterm_app/theme/termius_theme.dart';
@@ -40,6 +41,7 @@ void main() {
                 String? flowControl,
                 String? password,
                 bool? clearPassword,
+                String? jumpHostId,
               }) async {
                 saved = {
                   'label': label,
@@ -109,6 +111,7 @@ void main() {
                 String? flowControl,
                 String? password,
                 bool? clearPassword,
+                String? jumpHostId,
               }) async {
                 savedLabel = label;
                 hosts = [
@@ -165,6 +168,7 @@ void main() {
                 String? flowControl,
                 String? password,
                 bool? clearPassword,
+                String? jumpHostId,
               }) async {
                 saved = {
                   'label': label,
@@ -211,11 +215,38 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('serial-connect')));
     await tester.pumpAndSettle();
 
-    expect(saved?['kind'], 'serial');
-    expect(saved?['address'], 'COM3');
-    expect(saved?['baud'], 115200);
+    // The toolbar entry is a temporary tab: nothing is written to Home.
+    expect(saved, isNull);
+    expect(connected?.ephemeral, isTrue);
     expect(connected?.protocol, 'serial');
     expect(connected?.address, 'COM3');
+    expect(connected?.baudRate, 115200);
+  });
+
+  testWidgets('cards keep a readable width when the window is narrow', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(700, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ShadcnApp(
+        theme: ThemeData(colorScheme: termiusDarkScheme()),
+        home: Scaffold(
+          child: SizedBox(
+            width: 700,
+            height: 600,
+            child: HostsScreen(
+              loadHosts: () async => const [
+                Host(id: 'a', label: 'alpha', address: '10.0.0.1'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final size = tester.getSize(find.byType(HostCard).first);
+    expect(size.width, greaterThanOrEqualTo(290));
   });
 
   testWidgets('the Terminal action opens a real local session', (tester) async {
@@ -243,6 +274,7 @@ void main() {
                 String? flowControl,
                 String? password,
                 bool? clearPassword,
+                String? jumpHostId,
               }) async {
                 hosts = [
                   Host(

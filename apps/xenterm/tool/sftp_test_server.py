@@ -161,6 +161,9 @@ def monitor_block(tick):
         "/dev/sda1        1000000  400000    600000      40% /\n"
         "__GPU__\n"
         "__GPU_NOSMI__\n"
+        "__OS__\n"
+        "ID=ubuntu\n"
+        "Linux\n"
         "__MSTICK__\n"
     )
 

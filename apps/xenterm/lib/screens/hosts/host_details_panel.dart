@@ -23,6 +23,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../data/hosts.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
+import '../../widgets/termius_choice.dart';
 import 'host_card.dart';
 
 const _cardSurface = Color(0xFF282B3D); // --dark-grey-3 / --card-a
@@ -35,6 +36,9 @@ class HostDetailsPanel extends StatefulWidget {
   final Host host;
   final VoidCallback onClose;
   final VoidCallback onConnect;
+
+  /// Every saved host, for the jump-host selector.
+  final List<Host> hosts;
 
   /// Persists the edited fields to the core; returns an error text or null.
   final Future<String?> Function(Host) onSave;
@@ -49,6 +53,7 @@ class HostDetailsPanel extends StatefulWidget {
     required this.onConnect,
     required this.onSave,
     required this.onDelete,
+    this.hosts = const [],
   });
 
   @override
@@ -74,6 +79,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
   late final TextEditingController _keyPath = TextEditingController(
     text: widget.host.keyPath,
   );
+  late String _jumpId = widget.host.jumpHostId;
   bool _saving = false;
   String? _saveError;
 
@@ -87,6 +93,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
       _port.text = '${widget.host.port}';
       _username.text = widget.host.username;
       _keyPath.text = widget.host.keyPath;
+      _jumpId = widget.host.jumpHostId;
       _saveError = null;
     }
   }
@@ -115,6 +122,13 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
     lastUsed: widget.host.lastUsed,
     keyPath: _keyPath.text.trim(),
     auth: _keyPath.text.trim().isEmpty ? 'password' : 'key',
+    baudRate: widget.host.baudRate,
+    dataBits: widget.host.dataBits,
+    stopBits: widget.host.stopBits,
+    parity: widget.host.parity,
+    flowControl: widget.host.flowControl,
+    hasPassword: widget.host.hasPassword,
+    jumpHostId: _jumpId,
   );
 
   Future<void> _delete() async {
@@ -225,6 +239,37 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             placeholder: 'Private key path (optional)',
                             leading: LucideIcons.keyRound,
                           ),
+                          if (widget.host.protocol == 'ssh' &&
+                              widget.hosts.any(
+                                (h) =>
+                                    h.protocol == 'ssh' &&
+                                    h.id != widget.host.id &&
+                                    !h.ephemeral,
+                              )) ...[
+                            const SizedBox(height: 14),
+                            Text(
+                              'Jump host',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.mutedForeground,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TermiusChoice<String>(
+                              key: const ValueKey('host-jump'),
+                              value: _jumpId,
+                              options: {
+                                '': 'None',
+                                for (final candidate in widget.hosts)
+                                  if (candidate.protocol == 'ssh' &&
+                                      candidate.id != widget.host.id &&
+                                      !candidate.ephemeral)
+                                    candidate.id: candidate.label,
+                              },
+                              onChanged: (value) =>
+                                  setState(() => _jumpId = value),
+                            ),
+                          ],
                         ],
                       ),
                     ],

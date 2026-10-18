@@ -47,8 +47,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('2026-10-18 12:00'), findsOneWidget);
-    expect(find.text('root'), findsOneWidget);
-    expect(find.text('gateway'), findsOneWidget);
+    expect(find.textContaining('gateway'), findsOneWidget);
+    expect(find.textContaining('root'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('log-a.jsonl')));
     await tester.pumpAndSettle();

@@ -124,6 +124,18 @@ pub struct TerminalSession {
     /// Latest remote resource sample (SSH monitor channel) and its lifecycle.
     resource: Mutex<Option<Value>>,
     resource_state: Mutex<String>,
+    /// Detected operating system for the host card (`debian`, `windows`, …).
+    remote_os: Mutex<String>,
+}
+
+fn local_os_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
 }
 
 fn resource_state_name(state: ResourceMonitorState) -> &'static str {
@@ -220,7 +232,39 @@ impl TerminalSession {
         } else {
             None
         };
+        Self::launch(runtime, session, jump, cols, rows, scrollback, log)
+    }
+
+    /// Starts an in-memory session that is not in the config store. Used by
+    /// the local-terminal and serial quick-connect entries, which are meant
+    /// to be temporary tabs rather than saved hosts.
+    pub fn start_adhoc(
+        runtime: &tokio::runtime::Handle,
+        session: crate::config::Session,
+        log_enabled: bool,
+        cols: u16,
+        rows: u16,
+        scrollback: usize,
+    ) -> Result<Arc<TerminalSession>, String> {
+        let log = if log_enabled {
+            SessionLog::start(&session)
+        } else {
+            None
+        };
+        Self::launch(runtime, session, Vec::new(), cols, rows, scrollback, log)
+    }
+
+    fn launch(
+        runtime: &tokio::runtime::Handle,
+        session: crate::config::Session,
+        jump: Vec<crate::config::Session>,
+        cols: u16,
+        rows: u16,
+        scrollback: usize,
+        log: Option<SessionLog>,
+    ) -> Result<Arc<TerminalSession>, String> {
         let tab_id = session.id.clone();
+        let is_local = session.kind == SessionKind::Local;
         let (handle, mut events) = match session.kind {
             SessionKind::Ssh => crate::ssh::spawn_session(
                 runtime,
@@ -262,6 +306,11 @@ impl TerminalSession {
             log: Mutex::new(log),
             resource: Mutex::new(None),
             resource_state: Mutex::new("waiting".into()),
+            remote_os: Mutex::new(if is_local {
+                local_os_name().to_string()
+            } else {
+                String::new()
+            }),
         });
 
         let pump = session.clone();
@@ -409,6 +458,12 @@ impl TerminalSession {
                             }
                             pump.version.fetch_add(1, Ordering::SeqCst);
                         }
+                        SessionEvent::RemoteOs(os) => {
+                            if let Ok(mut slot) = pump.remote_os.lock() {
+                                *slot = os;
+                            }
+                            pump.version.fetch_add(1, Ordering::SeqCst);
+                        }
                         _ => {}
                     }
                 }
@@ -498,6 +553,11 @@ impl TerminalSession {
             .lock()
             .map(|slot| slot.clone())
             .unwrap_or_else(|_| "waiting".into());
+        let remote_os = self
+            .remote_os
+            .lock()
+            .map(|slot| slot.clone())
+            .unwrap_or_default();
         json!({
             "rows": out_rows,
             "cols": cols,
@@ -511,6 +571,7 @@ impl TerminalSession {
             "prompt": prompt,
             "resource": resource,
             "resourceState": resource_state,
+            "remoteOs": remote_os,
         })
         .to_string()
     }
@@ -693,12 +754,133 @@ pub struct KeyInfo {
     pub user: String,
     /// "file" / "inline"
     pub source: String,
-    /// File path for file-backed keys; empty for pasted keys.
+    /// Display file name for file-backed keys; empty for pasted keys.
     pub path: String,
+    /// The session's configured path, used by edit/remove actions.
+    pub full_path: String,
     pub key_type: String,
     pub fingerprint: String,
     /// "available" (parsed), "locked" (encrypted/unreadable), "missing".
     pub status: String,
+}
+
+/// One saved SSH session reached through one or more jump hosts.
+pub struct JumpChainInfo {
+    pub session_id: String,
+    pub session_name: String,
+    pub host: String,
+    /// Jump host display names, outermost first.
+    pub jumps: Vec<String>,
+}
+
+/// Sessions with a configured jump chain, resolved to display names.
+pub fn jump_chains(store: &ConfigStore) -> Vec<JumpChainInfo> {
+    let display = |id: &str| {
+        store
+            .sessions()
+            .iter()
+            .find(|session| session.id == id)
+            .map(|session| {
+                if session.name.is_empty() {
+                    session.host.clone()
+                } else {
+                    session.name.clone()
+                }
+            })
+            .unwrap_or_default()
+    };
+    store
+        .sessions()
+        .iter()
+        .filter(|session| {
+            session.kind == SessionKind::Ssh
+                && (!session.jump_session_id.trim().is_empty()
+                    || !session.jump_session_ids.is_empty())
+        })
+        .map(|session| {
+            let ids: Vec<String> = if session.jump_session_ids.is_empty() {
+                vec![session.jump_session_id.clone()]
+            } else {
+                session.jump_session_ids.clone()
+            };
+            JumpChainInfo {
+                session_id: session.id.clone(),
+                session_name: if session.name.is_empty() {
+                    session.host.clone()
+                } else {
+                    session.name.clone()
+                },
+                host: session.host.clone(),
+                jumps: ids
+                    .iter()
+                    .filter(|id| !id.trim().is_empty())
+                    .map(|id| display(id))
+                    .filter(|name| !name.is_empty())
+                    .collect(),
+            }
+        })
+        .filter(|chain| !chain.jumps.is_empty())
+        .collect()
+}
+
+/// Repoints every session that uses `old_path` to `new_path`.
+pub fn update_key_path(
+    store: &mut ConfigStore,
+    old_path: &str,
+    new_path: &str,
+) -> Result<usize, String> {
+    let old = old_path.trim();
+    let new = new_path.trim();
+    if old.is_empty() || new.is_empty() {
+        return Err("the key path cannot be empty".into());
+    }
+    let mut changed = 0usize;
+    let mut sessions: Vec<crate::config::Session> = store
+        .sessions()
+        .iter()
+        .filter(|session| session.private_key_path.trim() == old)
+        .cloned()
+        .collect();
+    for session in &mut sessions {
+        session.private_key_path = new.to_string();
+        session.auth = crate::config::AuthMethod::Key;
+        changed += 1;
+    }
+    if changed > 0 {
+        for session in sessions {
+            store.upsert(session);
+        }
+        store.save().map_err(|error| error.to_string())?;
+    }
+    Ok(changed)
+}
+
+/// Drops the key reference from every session that uses `path` (the key file
+/// itself is untouched): those sessions fall back to password auth.
+pub fn remove_key(store: &mut ConfigStore, path: &str) -> Result<usize, String> {
+    let target = path.trim();
+    if target.is_empty() {
+        return Err("this key has no file path".into());
+    }
+    let mut changed = 0usize;
+    let mut sessions: Vec<crate::config::Session> = store
+        .sessions()
+        .iter()
+        .filter(|session| session.private_key_path.trim() == target)
+        .cloned()
+        .collect();
+    for session in &mut sessions {
+        session.private_key_path.clear();
+        session.auth = crate::config::AuthMethod::Password;
+        changed += 1;
+    }
+    if changed > 0 {
+        for session in sessions {
+            store.upsert(session);
+        }
+        store.save().map_err(|error| error.to_string())?;
+    }
+    Ok(changed)
 }
 
 /// Inventory of key credentials across saved sessions. Parsing only happens for
@@ -766,6 +948,7 @@ pub fn key_inventory(store: &ConfigStore) -> Vec<KeyInfo> {
                 user: session.user.clone(),
                 source: source.into(),
                 path: file_name,
+                full_path: key_name,
                 key_type,
                 fingerprint,
                 status,

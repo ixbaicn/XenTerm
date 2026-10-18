@@ -11,11 +11,17 @@ Widget _app(Widget child) => ShadcnApp(
   home: Scaffold(child: SizedBox(width: 360, height: 900, child: child)),
 );
 
+Future<void> _surface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(800, 1200));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
 void main() {
   testWidgets('the serial panel collects port, line settings and login', (
     tester,
   ) async {
     SerialDraft? submitted;
+    await _surface(tester);
     await tester.pumpWidget(
       _app(
         SerialDetailsPanel(
@@ -89,6 +95,7 @@ void main() {
     tester,
   ) async {
     SerialDraft? submitted;
+    await _surface(tester);
     await tester.pumpWidget(
       _app(
         SerialDetailsPanel(
@@ -134,6 +141,7 @@ void main() {
     tester,
   ) async {
     SerialDraft? submitted;
+    await _surface(tester);
     await tester.pumpWidget(
       _app(
         SerialDetailsPanel(

@@ -172,6 +172,11 @@ pub enum SessionEvent {
         state: ResourceMonitorState,
     },
 
+    /// The remote operating system, probed by the resource channel
+    /// (`/etc/os-release` ID, or `uname -s` on non-Linux hosts). Sent when the
+    /// detected value changes so the host card can show the right logo.
+    RemoteOs(String),
+
     /// Effective user and top-process snapshot from the dedicated lightweight
     /// process channel. Keeping this separate prevents a slow `df`, `lspci`, or
     /// other system-information probe from freezing the process window.

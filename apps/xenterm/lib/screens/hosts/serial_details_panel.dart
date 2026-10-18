@@ -10,6 +10,7 @@ import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
+import '../../widgets/termius_choice.dart';
 
 /// The values the panel hands back; the screen owns persistence.
 class SerialDraft {
@@ -271,7 +272,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                         const SizedBox(height: 14),
                         _labelText('BAUD RATE', theme),
                         const SizedBox(height: 6),
-                        _ChoiceField<int>(
+                        TermiusChoice<int>(
                           key: const ValueKey('serial-baud'),
                           value: _baud,
                           options: {
@@ -318,7 +319,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           const SizedBox(height: 14),
                           _labelText('DATA BITS', theme),
                           const SizedBox(height: 6),
-                          _ChoiceField<int>(
+                          TermiusChoice<int>(
                             key: const ValueKey('serial-data-bits'),
                             value: _dataBits,
                             options: const {5: '5', 6: '6', 7: '7', 8: '8'},
@@ -328,7 +329,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           const SizedBox(height: 12),
                           _labelText('STOP BITS', theme),
                           const SizedBox(height: 6),
-                          _ChoiceField<int>(
+                          TermiusChoice<int>(
                             key: const ValueKey('serial-stop-bits'),
                             value: _stopBits,
                             options: const {1: '1', 2: '2'},
@@ -338,7 +339,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           const SizedBox(height: 12),
                           _labelText('PARITY', theme),
                           const SizedBox(height: 6),
-                          _ChoiceField<String>(
+                          TermiusChoice<String>(
                             key: const ValueKey('serial-parity'),
                             value: _parity,
                             options: const {
@@ -352,7 +353,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           const SizedBox(height: 12),
                           _labelText('FLOW CONTROL', theme),
                           const SizedBox(height: 6),
-                          _ChoiceField<String>(
+                          TermiusChoice<String>(
                             key: const ValueKey('serial-flow'),
                             value: _flow,
                             options: const {
@@ -478,6 +479,7 @@ class _PortComboField extends StatefulWidget {
 class _PortComboFieldState extends State<_PortComboField> {
   final OverlayPortalController _menu = OverlayPortalController();
   final LayerLink _link = LayerLink();
+  BuildContext? _anchorContext;
   double _width = 0;
 
   void _toggle() {
@@ -505,6 +507,7 @@ class _PortComboFieldState extends State<_PortComboField> {
         link: _link,
         child: LayoutBuilder(
           builder: (context, constraints) {
+            _anchorContext = context;
             if (constraints.maxWidth.isFinite) {
               _width = constraints.maxWidth;
             }
@@ -552,6 +555,14 @@ class _PortComboFieldState extends State<_PortComboField> {
 
   Widget _overlay(BuildContext context) {
     final theme = Theme.of(context);
+    final screen = MediaQuery.sizeOf(context);
+    final box = _anchorContext?.findRenderObject() as RenderBox?;
+    var maxHeight = 260.0;
+    if (box != null && box.hasSize) {
+      final origin = box.localToGlobal(Offset.zero);
+      final below = screen.height - (origin.dy + box.size.height + 6);
+      maxHeight = (below - 10).clamp(100.0, 260.0);
+    }
     return Stack(
       children: [
         Positioned.fill(
@@ -571,7 +582,7 @@ class _PortComboFieldState extends State<_PortComboField> {
             alignment: Alignment.topLeft,
             child: Container(
               width: _width > 0 ? _width : 320,
-              constraints: const BoxConstraints(maxHeight: 260),
+              constraints: BoxConstraints(maxHeight: maxHeight),
               padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
                 color: const Color(0xFF282B3D),
@@ -682,156 +693,6 @@ class _PortComboFieldState extends State<_PortComboField> {
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A 36px filled select with a dropdown, matching the Termius field metrics.
-class _ChoiceField<T> extends StatefulWidget {
-  final T value;
-  final Map<T, String> options;
-  final ValueChanged<T> onChanged;
-
-  const _ChoiceField({
-    super.key,
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-
-  @override
-  State<_ChoiceField<T>> createState() => _ChoiceFieldState<T>();
-}
-
-class _ChoiceFieldState<T> extends State<_ChoiceField<T>> {
-  final OverlayPortalController _menu = OverlayPortalController();
-  final LayerLink _link = LayerLink();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final label = widget.options[widget.value] ?? '${widget.value}';
-    return OverlayPortal(
-      controller: _menu,
-      overlayChildBuilder: _overlay,
-      child: CompositedTransformTarget(
-        link: _link,
-        child: GestureDetector(
-          onTap: () => _menu.isShowing ? _menu.hide() : _menu.show(),
-          child: Container(
-            height: 36,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.secondary,
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      color: theme.colorScheme.foreground,
-                    ),
-                  ),
-                ),
-                Icon(
-                  LucideIcons.chevronDown,
-                  size: 14,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _overlay(BuildContext context) {
-    final theme = Theme.of(context);
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _menu.hide,
-            child: const ColoredBox(color: Colors.transparent),
-          ),
-        ),
-        CompositedTransformFollower(
-          link: _link,
-          targetAnchor: Alignment.bottomLeft,
-          followerAnchor: Alignment.topLeft,
-          offset: const Offset(0, 6),
-          showWhenUnlinked: false,
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 160, maxHeight: 260),
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: const Color(0xFF282B3D),
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final entry in widget.options.entries)
-                      GestureDetector(
-                        onTap: () {
-                          _menu.hide();
-                          widget.onChanged(entry.key);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 9,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: entry.key == widget.value
-                                ? theme.colorScheme.muted
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  entry.value,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: theme.colorScheme.foreground,
-                                  ),
-                                ),
-                              ),
-                              if (entry.key == widget.value)
-                                Icon(
-                                  LucideIcons.check,
-                                  size: 14,
-                                  color: theme.colorScheme.primary,
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),

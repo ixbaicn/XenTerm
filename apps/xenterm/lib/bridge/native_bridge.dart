@@ -139,6 +139,9 @@ class NativeBridge {
   late final _Start _start = _lib.lookupFunction<_StartC, _Start>(
     'xenterm_session_start',
   );
+  late final _StrFn _startAdhoc = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_session_start_adhoc',
+  );
   late final _Version _terminalVersion = _lib
       .lookupFunction<_VersionC, _Version>('xenterm_session_version');
   late final _Snap _snapshot = _lib.lookupFunction<_SnapC, _Snap>(
@@ -171,6 +174,9 @@ class NativeBridge {
   late final _PtrFn _forwards = _lib.lookupFunction<_PtrFnC, _PtrFn>(
     'xenterm_forwards_json',
   );
+  late final _PtrFn _jumpChains = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_jump_chains_json',
+  );
   late final _StrFn _forwardUpsert = _lib.lookupFunction<_StrFnC, _StrFn>(
     'xenterm_forward_upsert',
   );
@@ -182,6 +188,12 @@ class NativeBridge {
   );
   late final _PtrFn _keys = _lib.lookupFunction<_PtrFnC, _PtrFn>(
     'xenterm_keys_json',
+  );
+  late final _StrFn _keyUpdate = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_key_update',
+  );
+  late final _StrFn _keyDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_key_delete',
   );
   late final _PtrFn _logs = _lib.lookupFunction<_PtrFnC, _PtrFn>(
     'xenterm_logs_json',
@@ -468,6 +480,18 @@ class NativeBridge {
     return _take(pointer);
   }
 
+  /// Starts a temporary session that is not written to the store.
+  int startAdhocSession(Map<String, dynamic> payload) {
+    final raw = _callWith(_startAdhoc, jsonEncode(payload));
+    final result = jsonDecode(raw) as Map<String, dynamic>;
+    if (result['ok'] != true) {
+      throw NativeBridgeError(
+        (result['error'] as String?) ?? 'Could not start the session',
+      );
+    }
+    return (result['handle'] as num).toInt();
+  }
+
   Map<String, dynamic> readLog(String name) =>
       jsonDecode(_callWith(_logRead, name)) as Map<String, dynamic>;
 
@@ -500,10 +524,26 @@ class NativeBridge {
     return _take(pointer);
   }
 
+  Map<String, dynamic> updateKey(String oldPath, String newPath) => jsonDecode(
+    _callWith(
+      _keyUpdate,
+      jsonEncode({'old_path': oldPath, 'new_path': newPath}),
+    ),
+  ) as Map<String, dynamic>;
+
+  Map<String, dynamic> deleteKey(String path) =>
+      jsonDecode(_callWith(_keyDelete, path)) as Map<String, dynamic>;
+
   // ── Port forwarding ───────────────────────────────────────────────────
 
   String? forwardsJson() {
     final pointer = _forwards();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  String? jumpChainsJson() {
+    final pointer = _jumpChains();
     if (pointer == nullptr) return null;
     return _take(pointer);
   }
@@ -1011,6 +1051,7 @@ class KeyInfo {
   final String user;
   final String source; // file | inline
   final String path; // file name only
+  final String fullPath; // configured private_key_path
   final String keyType;
   final String fingerprint;
   final String status; // available | locked | missing
@@ -1022,6 +1063,7 @@ class KeyInfo {
     required this.user,
     required this.source,
     required this.path,
+    required this.fullPath,
     required this.keyType,
     required this.fingerprint,
     required this.status,
@@ -1034,6 +1076,7 @@ class KeyInfo {
     user: (json['user'] as String?) ?? '',
     source: (json['source'] as String?) ?? 'file',
     path: (json['path'] as String?) ?? '',
+    fullPath: (json['full_path'] as String?) ?? '',
     keyType: (json['key_type'] as String?) ?? '',
     fingerprint: (json['fingerprint'] as String?) ?? '',
     status: (json['status'] as String?) ?? 'available',
@@ -1061,6 +1104,41 @@ Future<List<KeyInfo>> loadKeysFromCore() {
         .cast<Map<String, dynamic>>()
         .map(KeyInfo.fromCoreJson)
         .toList();
+  });
+}
+
+Future<CoreWriteResult> updateKeyInCore({
+  required String oldPath,
+  required String newPath,
+}) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.updateKey(oldPath, newPath);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> deleteKeyFromCore(String path) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteKey(path);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
   });
 }
 
@@ -1130,6 +1208,55 @@ Future<List<ForwardRule>> loadForwardsFromCore() {
     return (decoded as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(ForwardRule.fromCoreJson)
+        .toList();
+  });
+}
+
+/// One saved session reached through jump hosts.
+class JumpChain {
+  final String sessionId;
+  final String sessionName;
+  final String host;
+  final List<String> jumps;
+
+  const JumpChain({
+    required this.sessionId,
+    required this.sessionName,
+    required this.host,
+    required this.jumps,
+  });
+
+  factory JumpChain.fromCoreJson(Map<String, dynamic> json) => JumpChain(
+    sessionId: (json['session_id'] as String?) ?? '',
+    sessionName: (json['session_name'] as String?) ?? '',
+    host: (json['host'] as String?) ?? '',
+    jumps: ((json['jumps'] as List?) ?? const [])
+        .map((value) => '$value')
+        .toList(),
+  );
+
+  String get path => [...jumps, sessionName].join('  →  ');
+}
+
+Future<List<JumpChain>> loadJumpChainsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.jumpChainsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load jump chains');
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is Map && decoded['__error'] != null) {
+      throw NativeBridgeError('${decoded['__error']}');
+    }
+    return (decoded as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(JumpChain.fromCoreJson)
         .toList();
   });
 }
@@ -1344,6 +1471,7 @@ Future<CoreWriteResult> saveSessionToCore({
   String flowControl = 'none',
   String password = '',
   bool clearPassword = false,
+  String jumpHostId = '',
 }) {
   return Isolate.run(() {
     final bridge = NativeBridge.tryLoad();
@@ -1368,6 +1496,7 @@ Future<CoreWriteResult> saveSessionToCore({
       'flow_control': flowControl,
       'password': password,
       'clear_password': clearPassword,
+      'jump_session_id': jumpHostId,
     });
     return CoreWriteResult(
       ok: result['ok'] == true,

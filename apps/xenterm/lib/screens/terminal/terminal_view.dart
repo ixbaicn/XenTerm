@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
 import '../../theme/app_fonts.dart';
 import '../../terminal/core_settings.dart';
@@ -69,6 +70,7 @@ class _TerminalViewState extends State<TerminalView> {
   int _cols = 0;
   int _rows = 0;
   String _search = '';
+  List<QuickCommand> _snippets = const [];
   int _lastCommand = 0;
   final FocusNode _focus = FocusNode(debugLabel: 'terminal');
   final FocusNode _searchFocus = FocusNode(debugLabel: 'terminal-search');
@@ -80,6 +82,16 @@ class _TerminalViewState extends State<TerminalView> {
     widget.commandBus?.addListener(_onCommand);
     widget.settings?.addListener(_onSettings);
     _start();
+    _loadSnippets();
+  }
+
+  Future<void> _loadSnippets() async {
+    try {
+      final snippets = await loadQuickCommandsFromCore();
+      if (mounted) setState(() => _snippets = snippets);
+    } catch (_) {
+      // The sidebar simply stays empty; terminal input is unaffected.
+    }
   }
 
   Future<void> _start() async {
@@ -93,7 +105,13 @@ class _TerminalViewState extends State<TerminalView> {
     }
     _bridge = bridge;
     try {
-      final handle = bridge.startSession(widget.host.id, 80, 24);
+      final handle = widget.host.ephemeral
+          ? bridge.startAdhocSession({
+              ...widget.host.toAdhocPayload(),
+              'cols': 80,
+              'rows': 24,
+            })
+          : bridge.startSession(widget.host.id, 80, 24);
       if (!mounted) {
         bridge.closeSession(handle);
         return;
@@ -131,6 +149,7 @@ class _TerminalViewState extends State<TerminalView> {
       _screen = parsed;
       _closed = parsed['closed'] != null;
     });
+    hostOsRegistry.record(widget.host.id, parsed['remoteOs'] as String?);
   }
 
   void _reconnect() {
@@ -378,6 +397,14 @@ class _TerminalViewState extends State<TerminalView> {
               _focus.requestFocus();
             },
             onReconnect: _reconnect,
+            snippets: _snippets,
+            onRunSnippet: (snippet) {
+              _send([
+                ...utf8.encode(snippet.command),
+                if (snippet.sendEnter) 13,
+              ]);
+              _focus.requestFocus();
+            },
           ),
         ),
       ],

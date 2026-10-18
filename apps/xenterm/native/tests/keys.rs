@@ -52,5 +52,39 @@ fn key_inventory_lists_key_sessions_only() {
     assert_eq!(rows[0]["path"], "id_ed25519");
     assert_eq!(rows[0]["status"], "missing");
 
+    // Edit: every session using the path is repointed.
+    let update = CString::new(
+        r#"{"old_path":"C:/definitely/missing/id_ed25519","new_path":"C:/keys/new_ed25519"}"#,
+    )
+    .unwrap();
+    let updated = json(xenterm_bridge::xenterm_key_update(update.as_ptr()));
+    assert_eq!(updated["ok"], true, "{updated}");
+    assert_eq!(updated["changed"], 1);
+    let sessions = json(xenterm_bridge::xenterm_sessions_json());
+    let keyhost = sessions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["label"] == "keyhost")
+        .unwrap();
+    assert_eq!(keyhost["private_key_path"], "C:/keys/new_ed25519");
+    assert_eq!(keyhost["auth"], "key");
+
+    // Remove: the reference is dropped and the host falls back to password.
+    let path = CString::new("C:/keys/new_ed25519").unwrap();
+    let removed = json(xenterm_bridge::xenterm_key_delete(path.as_ptr()));
+    assert_eq!(removed["ok"], true, "{removed}");
+    assert_eq!(removed["changed"], 1);
+    let sessions = json(xenterm_bridge::xenterm_sessions_json());
+    let keyhost = sessions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["label"] == "keyhost")
+        .unwrap();
+    assert_eq!(keyhost["private_key_path"], "");
+    assert_eq!(keyhost["auth"], "password");
+    assert_eq!(json(xenterm_bridge::xenterm_keys_json()).as_array().unwrap().len(), 0);
+
     let _ = std::fs::remove_dir_all(dir);
 }

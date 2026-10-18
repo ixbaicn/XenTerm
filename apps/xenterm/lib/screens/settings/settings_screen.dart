@@ -688,7 +688,9 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
-/// MUI switch from the original: 52×32 track, 16px thumb (24px checked).
+/// One switch size for every row: 48×28 track with a constant 20px thumb.
+/// (The old thumb grew from 16 to 24 when checked, which read as two
+/// different controls side by side.)
 class _TermiusSwitch extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -706,20 +708,18 @@ class _TermiusSwitch extends StatelessWidget {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          width: 52,
-          height: 32,
-          padding: EdgeInsets.all(value ? 4 : 8),
+          width: 48,
+          height: 28,
+          padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
             color: value ? theme.colorScheme.primary : _selected,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
           ),
           child: Align(
             alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-            child: AnimatedContainer(
-              duration: TermiusMotion.micro,
-              curve: TermiusMotion.easeOut,
-              width: value ? 24 : 16,
-              height: value ? 24 : 16,
+            child: Container(
+              width: 20,
+              height: 20,
               decoration: const BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,

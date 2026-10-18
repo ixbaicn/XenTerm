@@ -18,7 +18,6 @@ import '../screens/logs/logs_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/terminal/terminal_screen.dart';
 import '../data/hosts.dart';
-import '../bridge/native_bridge.dart';
 import '../terminal/core_settings.dart';
 import '../terminal/terminal_command_bus.dart';
 import '../theme/app_fonts.dart';
@@ -65,13 +64,6 @@ class _RootShellState extends State<RootShell> {
   final TerminalCommandBus _commands = TerminalCommandBus();
   final ValueNotifier<int> _newHostRequest = ValueNotifier<int>(0);
 
-  Host? get _activeHost {
-    for (final host in _openHosts) {
-      if (host.id == _activeHostId) return host;
-    }
-    return null;
-  }
-
   void _openHost(Host host) {
     setState(() {
       if (!_openHosts.any((h) => h.id == host.id)) _openHosts.add(host);
@@ -79,21 +71,6 @@ class _RootShellState extends State<RootShell> {
       // The terminal gets the full width; the hamburger brings the rail back
       // (the original's terminal window opens with the side menu collapsed).
       _railOpen = false;
-    });
-  }
-
-  /// Runs a saved snippet in the active terminal (or the most recent one when
-  /// the rail screen is showing) and brings that session back to the front.
-  void _runSnippet(QuickCommand snippet) {
-    final target = _activeHost ?? (_openHosts.isEmpty ? null : _openHosts.last);
-    if (target == null) return;
-    setState(() {
-      _activeHostId = target.id;
-      _terminalSftp = false;
-    });
-    // Send after the offstage switch so the terminal can take focus too.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _commands.send(target.id, snippet.command, sendEnter: snippet.sendEnter);
     });
   }
 
@@ -133,7 +110,7 @@ class _RootShellState extends State<RootShell> {
   static const List<(NavDestination, String, IconData)> _destinations = [
     (NavDestination.hosts, 'Home', LucideIcons.server),
     (NavDestination.keys, 'Keychain', LucideIcons.keyRound),
-    (NavDestination.forwards, 'Port Forwarding', LucideIcons.arrowLeftRight),
+    (NavDestination.forwards, 'Tunnels', LucideIcons.arrowLeftRight),
     (NavDestination.snippets, 'Snippets', LucideIcons.braces),
     (NavDestination.knownHosts, 'Known Hosts', LucideIcons.shieldCheck),
     (NavDestination.logs, 'Logs', LucideIcons.circleAlert),
@@ -240,9 +217,7 @@ class _RootShellState extends State<RootShell> {
         settings: widget.settings,
       ),
       NavDestination.forwards => const ForwardsScreen(),
-      NavDestination.snippets => SnippetsScreen(
-        onRun: _openHosts.isEmpty ? null : _runSnippet,
-      ),
+      NavDestination.snippets => const SnippetsScreen(),
       NavDestination.knownHosts => const KnownHostsScreen(),
     };
   }

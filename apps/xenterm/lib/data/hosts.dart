@@ -40,6 +40,16 @@ class Host {
   /// Whether the core has a stored login password for this serial session.
   final bool hasPassword;
 
+  /// Another saved SSH host used as this session's jump host (empty = none).
+  final String jumpHostId;
+
+  /// Temporary session (local/serial quick connect) that must not be stored.
+  final bool ephemeral;
+
+  /// One-shot credential for a temporary serial console login. Lives only in
+  /// memory; saved hosts pass the secret through the core store instead.
+  final String adhocPassword;
+
   const Host({
     required this.id,
     required this.label,
@@ -59,6 +69,9 @@ class Host {
     this.parity = 'none',
     this.flowControl = 'none',
     this.hasPassword = false,
+    this.jumpHostId = '',
+    this.ephemeral = false,
+    this.adhocPassword = '',
   });
 
   /// Maps one `xenterm_sessions_json` row (native bridge) onto the UI model.
@@ -84,8 +97,49 @@ class Host {
       parity: (json['parity'] as String?) ?? 'none',
       flowControl: (json['flow_control'] as String?) ?? 'none',
       hasPassword: json['has_password'] == true,
+      jumpHostId: (json['jump_session_id'] as String?) ?? '',
     );
   }
+
+  /// Payload for the core's ad-hoc starter (temporary tabs).
+  Map<String, dynamic> toAdhocPayload() => {
+    'label': label,
+    'address': address,
+    'port': port,
+    'username': username,
+    'kind': protocol,
+    'password': adhocPassword,
+    'serial_port': isSerial ? address : '',
+    'baud_rate': baudRate,
+    'data_bits': dataBits,
+    'stop_bits': stopBits,
+    'parity': parity,
+    'flow_control': flowControl,
+  };
+
+  Host copyWith({HostOs? os, bool? hasPassword}) => Host(
+    id: id,
+    label: label,
+    address: address,
+    port: port,
+    username: username,
+    group: group,
+    tags: tags,
+    os: os ?? this.os,
+    lastUsed: lastUsed,
+    protocol: protocol,
+    auth: auth,
+    keyPath: keyPath,
+    baudRate: baudRate,
+    dataBits: dataBits,
+    stopBits: stopBits,
+    parity: parity,
+    flowControl: flowControl,
+    hasPassword: hasPassword ?? this.hasPassword,
+    jumpHostId: jumpHostId,
+    ephemeral: ephemeral,
+    adhocPassword: adhocPassword,
+  );
 
   bool get isSerial => protocol == 'serial';
 

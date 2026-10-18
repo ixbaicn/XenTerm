@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../bridge/native_bridge.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
@@ -18,6 +19,8 @@ class TerminalToolsPanel extends StatelessWidget {
   final VoidCallback onClear;
   final VoidCallback onCopy;
   final VoidCallback onReconnect;
+  final List<QuickCommand> snippets;
+  final ValueChanged<QuickCommand>? onRunSnippet;
 
   const TerminalToolsPanel({
     super.key,
@@ -30,6 +33,8 @@ class TerminalToolsPanel extends StatelessWidget {
     required this.onClear,
     required this.onCopy,
     required this.onReconnect,
+    this.snippets = const [],
+    this.onRunSnippet,
   });
 
   @override
@@ -92,6 +97,60 @@ class TerminalToolsPanel extends StatelessWidget {
             state: screen?['resourceState'] as String?,
             sample: screen?['resource'] as Map<String, dynamic>?,
           ),
+          const SizedBox(height: 18),
+          const _PanelLabel('SNIPPETS'),
+          const SizedBox(height: 8),
+          if (snippets.isEmpty)
+            Text(
+              'No saved snippets',
+              style: TextStyle(
+                fontSize: 12,
+                color: scheme.mutedForeground,
+              ),
+            )
+          else
+            for (final snippet in snippets.take(6))
+              GestureDetector(
+                key: ValueKey('terminal-snippet-${snippet.index}'),
+                onTap: () => onRunSnippet?.call(snippet),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282B3D),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        snippet.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.foreground,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        snippet.command,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Consolas',
+                          fontFamilyFallback: const ['Menlo', 'Courier New'],
+                          fontSize: 11,
+                          color: scheme.mutedForeground,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           const SizedBox(height: 18),
           const _PanelLabel('TERMINAL'),
           const SizedBox(height: 8),
