@@ -197,6 +197,9 @@ class NativeBridge {
   late final _Close _sftpClose = _lib.lookupFunction<_CloseC, _Close>(
     'xenterm_sftp_close',
   );
+  late final _Answer _sftpAnswer = _lib.lookupFunction<_AnswerC, _Answer>(
+    'xenterm_sftp_answer_prompt',
+  );
   late final _StrFn _settingsSet = _lib.lookupFunction<_StrFnC, _StrFn>(
     'xenterm_settings_set',
   );
@@ -335,6 +338,34 @@ class NativeBridge {
       _withPath(_sftpDelete, handle, path);
 
   bool sftpClose(int handle) => _sftpClose(handle) == 1;
+
+  bool answerSftpPrompt(
+    int handle,
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  }) {
+    final userPtr = username?.toNativeUtf8() ?? nullptr;
+    final passPtr = password?.toNativeUtf8() ?? nullptr;
+    final textPtr = text?.toNativeUtf8() ?? nullptr;
+    try {
+      return _sftpAnswer(
+            handle,
+            promptId,
+            accept ? 1 : 0,
+            userPtr,
+            passPtr,
+            textPtr,
+          ) ==
+          1;
+    } finally {
+      if (userPtr != nullptr) malloc.free(userPtr);
+      if (passPtr != nullptr) malloc.free(passPtr);
+      if (textPtr != nullptr) malloc.free(textPtr);
+    }
+  }
 
   bool _withPath(_HandlePath fn, int handle, String value) {
     final pointer = value.toNativeUtf8();
@@ -636,6 +667,7 @@ class SftpSnapshot {
   final String status;
   final String? closed;
   final List<SftpTransfer> transfers;
+  final Map<String, dynamic>? prompt;
 
   const SftpSnapshot({
     this.path = '.',
@@ -645,6 +677,7 @@ class SftpSnapshot {
     this.status = '',
     this.closed,
     this.transfers = const [],
+    this.prompt,
   });
 
   factory SftpSnapshot.fromCoreJson(Map<String, dynamic> json) => SftpSnapshot(
@@ -661,6 +694,7 @@ class SftpSnapshot {
         .cast<Map<String, dynamic>>()
         .map(SftpTransfer.fromCoreJson)
         .toList(),
+    prompt: (json['prompt'] as Map?)?.cast<String, dynamic>(),
   );
 }
 

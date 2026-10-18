@@ -140,6 +140,47 @@ fn style_json(cell: &TerminalCell) -> Value {
     })
 }
 
+fn pending_prompt_json(entry: &PromptEntry) -> Value {
+    match &entry.prompt {
+        PendingPrompt::HostKey {
+            host,
+            port,
+            key_type,
+            fingerprint,
+            changed,
+            ..
+        } => json!({
+            "id": entry.id,
+            "kind": "host_key",
+            "host": host,
+            "port": port,
+            "key_type": key_type,
+            "fingerprint": fingerprint,
+            "changed": changed,
+        }),
+        PendingPrompt::Credential {
+            host,
+            user,
+            need_user,
+            need_password,
+            ..
+        } => json!({
+            "id": entry.id,
+            "kind": "credential",
+            "host": host,
+            "user": user,
+            "need_user": need_user,
+            "need_password": need_password,
+        }),
+        PendingPrompt::Mfa { prompt, echo, .. } => json!({
+            "id": entry.id,
+            "kind": "mfa",
+            "prompt": prompt,
+            "echo": echo,
+        }),
+    }
+}
+
 impl TerminalSession {
     /// Looks the session up in the store, spawns its transport and starts the
     /// pump thread that feeds rio-vt. `scrollback` is in lines.
@@ -365,46 +406,11 @@ impl TerminalSession {
             }
             out_rows.push(json!({ "text": text, "runs": runs }));
         }
-        let prompt = self.prompt.lock().ok().and_then(|slot| {
-            slot.as_ref().map(|entry| match &entry.prompt {
-                PendingPrompt::HostKey {
-                    host,
-                    port,
-                    key_type,
-                    fingerprint,
-                    changed,
-                    ..
-                } => json!({
-                    "id": entry.id,
-                    "kind": "host_key",
-                    "host": host,
-                    "port": port,
-                    "key_type": key_type,
-                    "fingerprint": fingerprint,
-                    "changed": changed,
-                }),
-                PendingPrompt::Credential {
-                    host,
-                    user,
-                    need_user,
-                    need_password,
-                    ..
-                } => json!({
-                    "id": entry.id,
-                    "kind": "credential",
-                    "host": host,
-                    "user": user,
-                    "need_user": need_user,
-                    "need_password": need_password,
-                }),
-                PendingPrompt::Mfa { prompt, echo, .. } => json!({
-                    "id": entry.id,
-                    "kind": "mfa",
-                    "prompt": prompt,
-                    "echo": echo,
-                }),
-            })
-        });
+        let prompt = self
+            .prompt
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(pending_prompt_json));
         let status = self
             .status
             .lock()
@@ -784,6 +790,8 @@ pub struct SftpSession {
     handle: crate::sftp::SftpHandle,
     state: Mutex<SftpState>,
     version: AtomicU64,
+    prompt: Mutex<Option<PromptEntry>>,
+    prompt_seq: AtomicU64,
 }
 
 struct SftpState {
@@ -836,6 +844,8 @@ impl SftpSession {
                 transfers: Vec::new(),
             }),
             version: AtomicU64::new(1),
+            prompt: Mutex::new(None),
+            prompt_seq: AtomicU64::new(1),
         });
         session.handle.list_dir(".".into());
 
@@ -889,6 +899,54 @@ impl SftpSession {
                                     }
                                 }
                             }
+                            SessionEvent::HostKeyPrompt {
+                                host,
+                                port,
+                                key_type,
+                                fingerprint,
+                                changed,
+                                responder,
+                            } => {
+                                drop(state);
+                                pump.set_prompt(PendingPrompt::HostKey {
+                                    host,
+                                    port,
+                                    key_type,
+                                    fingerprint,
+                                    changed,
+                                    responder,
+                                });
+                            }
+                            SessionEvent::CredentialPrompt {
+                                host,
+                                user,
+                                need_user,
+                                need_password,
+                                responder,
+                                ..
+                            } => {
+                                drop(state);
+                                pump.set_prompt(PendingPrompt::Credential {
+                                    host,
+                                    user,
+                                    need_user,
+                                    need_password,
+                                    responder,
+                                });
+                            }
+                            SessionEvent::MfaPrompt {
+                                prompt,
+                                echo,
+                                responder,
+                                ..
+                            } => {
+                                drop(state);
+                                pump.set_prompt(PendingPrompt::Mfa {
+                                    prompt,
+                                    echo,
+                                    responder,
+                                });
+                            }
                             SessionEvent::Connected => {
                                 state.status = "Connected".into();
                             }
@@ -908,6 +966,55 @@ impl SftpSession {
             })
             .map_err(|error| error.to_string())?;
         Ok(session)
+    }
+
+    fn set_prompt(&self, prompt: PendingPrompt) {
+        let id = self.prompt_seq.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut slot) = self.prompt.lock() {
+            *slot = Some(PromptEntry { id, prompt });
+        }
+        self.version.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Answers the current SFTP auth prompt (host key / credentials / MFA).
+    pub fn answer_prompt(
+        &self,
+        id: u64,
+        accept: bool,
+        username: Option<String>,
+        password: Option<String>,
+        text: Option<String>,
+    ) {
+        let entry = self
+            .prompt
+            .lock()
+            .ok()
+            .and_then(|mut slot| match slot.as_ref() {
+                Some(entry) if entry.id == id => slot.take(),
+                _ => None,
+            });
+        let Some(entry) = entry else { return };
+        match entry.prompt {
+            PendingPrompt::HostKey { responder, .. } => responder.respond(accept),
+            PendingPrompt::Credential {
+                responder, user, ..
+            } => {
+                if accept {
+                    let user = username.filter(|u| !u.is_empty()).unwrap_or(user);
+                    responder.respond(Some((user, password.unwrap_or_default(), false)));
+                } else {
+                    responder.respond(None);
+                }
+            }
+            PendingPrompt::Mfa { responder, .. } => {
+                if accept {
+                    responder.respond(text);
+                } else {
+                    responder.respond(None);
+                }
+            }
+        }
+        self.version.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn version(&self) -> u64 {
@@ -948,6 +1055,11 @@ impl SftpSession {
                 })
             })
             .collect();
+        let prompt = self
+            .prompt
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(pending_prompt_json));
         json!({
             "path": state.path,
             "entries": entries,
@@ -956,6 +1068,7 @@ impl SftpSession {
             "status": state.status,
             "closed": state.closed,
             "transfers": transfers,
+            "prompt": prompt,
         })
         .to_string()
     }

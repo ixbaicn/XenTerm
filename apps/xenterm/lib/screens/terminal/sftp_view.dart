@@ -16,6 +16,7 @@ import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../terminal/core_settings.dart';
 import '../../theme/termius_theme.dart';
+import 'connection_prompt.dart';
 
 class SftpView extends StatefulWidget {
   final Host host;
@@ -180,43 +181,72 @@ class _SftpViewState extends State<SftpView> {
             ),
           ),
           Expanded(
-            child: _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'SFTP unavailable\n$_error',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF8D91A5),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _error != null
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'SFTP unavailable\n$_error',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF8D91A5),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Button(
+                                  style: const ButtonStyle.outline(),
+                                  onPressed: _retry,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          Button(
-                            style: const ButtonStyle.outline(),
-                            onPressed: _retry,
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
+                        )
+                      : SftpBrowser(
+                          snapshot: _snapshot,
+                          onOpenDirectory: (path) =>
+                              _bridge?.sftpList(_handle!, path),
+                          onRefresh: () => _bridge?.sftpRefresh(_handle!),
+                          onDownload: _download,
+                          onUpload: _upload,
+                          onCreateFolder: (name) =>
+                              _bridge?.sftpMkdir(_handle!, name),
+                          onDelete: (entry) =>
+                              _bridge?.sftpDelete(_handle!, entry.path),
+                        ),
+                ),
+                if (_snapshot.prompt != null && _error == null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    top: 12,
+                    child: ConnectionPromptBanner(
+                      prompt: _snapshot.prompt!,
+                      onAnswer: (accept, {username, password, text}) {
+                        final handle = _handle;
+                        if (handle == null) return;
+                        final promptId =
+                            (_snapshot.prompt?['id'] as num?)?.toInt() ?? 0;
+                        _bridge?.answerSftpPrompt(
+                          handle,
+                          promptId,
+                          accept: accept,
+                          username: username,
+                          password: password,
+                          text: text,
+                        );
+                      },
                     ),
-                  )
-                : SftpBrowser(
-                    snapshot: _snapshot,
-                    onOpenDirectory: (path) =>
-                        _bridge?.sftpList(_handle!, path),
-                    onRefresh: () => _bridge?.sftpRefresh(_handle!),
-                    onDownload: _download,
-                    onUpload: _upload,
-                    onCreateFolder: (name) =>
-                        _bridge?.sftpMkdir(_handle!, name),
-                    onDelete: (entry) =>
-                        _bridge?.sftpDelete(_handle!, entry.path),
                   ),
+              ],
+            ),
           ),
         ],
       ),

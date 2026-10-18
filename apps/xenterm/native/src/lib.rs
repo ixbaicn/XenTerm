@@ -903,6 +903,32 @@ pub extern "C" fn xenterm_sftp_delete(handle: u64, path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn xenterm_sftp_answer_prompt(
+    handle: u64,
+    prompt_id: u64,
+    accept: i32,
+    username: *const c_char,
+    password: *const c_char,
+    text: *const c_char,
+) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            let username = unsafe { take_c(username) };
+            let username = if username.is_empty() {
+                None
+            } else {
+                Some(username)
+            };
+            let password = Some(unsafe { take_c(password) });
+            let text = Some(unsafe { take_c(text) });
+            session.answer_prompt(prompt_id, accept == 1, username, password, text);
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn xenterm_sftp_close(handle: u64) -> i32 {
     match sftp_sessions().lock() {
         Ok(mut map) => match map.remove(&handle) {

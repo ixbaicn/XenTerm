@@ -84,11 +84,14 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   - Settings：`xenterm_settings_json/set` 持久化光标样式、行距、内边距、
     粗体、日志开关与 SFTP 下载目录；终端渲染实时读取。
 - SFTP（第四步）：`xenterm_sftp_start/version/snapshot/list/refresh/
-  download/upload/mkdir/delete/close`；`SftpView` 轮询快照，真实目录导航、
-  选择、上传、下载（冲突时保留两份）、新建目录与删除，传输进度显示在底部。
-  连接失败会停止 loading 并给出错误与 Retry。
+  download/upload/mkdir/delete/close/answer_prompt`；`SftpView` 轮询快照，
+  真实目录导航、选择、上传、下载（冲突时保留两份）、新建目录与删除，传输
+  进度显示在底部。连接失败会停止 loading 并给出错误与 Retry。SFTP 自己的
+  主机密钥/密码/MFA 提示同样进入快照并通过 `answer_prompt` 回答（与终端
+  共用同一个提示横幅）。
 - 测试：`cargo test -p xenterm-bridge`（quick commands/known hosts/forwards/
-  keys/logs/sftp 失败路径）、`flutter test`（终端/侧栏/SFTP/设置/logs 的
-  widget 契约）。SFTP 的成功列表需要真实 SSH 服务器，当前以失败路径与
-  呈现层契约测试覆盖。
+  keys/logs/sftp 失败路径）、`flutter test`（终端/侧栏/SFTP/设置/logs/提示
+  横幅的 widget 契约）。SFTP 成功路径用 `apps/xenterm/tool/sftp_test_server.py`
+  （paramiko 手工验收工具）实测：主机密钥提示 → 密码提示 → 目录列表 →
+  进入子目录 → 新建目录，均在 UI 与服务端磁盘上核对。
 - 未实现：资源采样/系统信息面板、分组管理与导入、远端目录树（左树）。
