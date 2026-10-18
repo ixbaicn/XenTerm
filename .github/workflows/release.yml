@@ -178,7 +178,7 @@ jobs:
             libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libgl1-mesa-dev libegl1-mesa-dev libgtk-3-dev \
-            libudev-dev
+            libudev-dev libdbus-1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -481,7 +481,8 @@ jobs:
             fontconfig-devel freetype-devel \
             libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel \
             wayland-devel mesa-libGL-devel mesa-libEGL-devel \
-            gtk3-devel systemd-devel
+            gtk3-devel systemd-devel \
+            dbus-devel
 
       - uses: actions/checkout@v4
 

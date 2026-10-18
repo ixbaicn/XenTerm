@@ -1,6 +1,6 @@
 """Ordinary CLI/MCP SSH operations on the Windows-sized 1 MiB main stack.
 
-Run: python tests/ssh_stack_e2e.py --exe /path/to/xenterm
+Run: python crates/xenterm/tests/ssh_stack_e2e.py --exe /path/to/xenterm
 Windows uses its native default stack; POSIX subprocesses inherit a 1 MiB
 soft stack limit. Only generated credentials, loopback SSH and temporary
 profiles are used. Requires the same dependencies as ssh_jump_chain_e2e.py.

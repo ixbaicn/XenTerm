@@ -1,6 +1,6 @@
 """CLI/stdio MCP regression checks against isolated, synthetic SQLite profiles.
 
-Run: python tests/config_import_e2e.py --exe target/debug/xenterm
+Run: python crates/xenterm/tests/config_import_e2e.py --exe target/debug/xenterm
 No external server, user profile or real credential is used.
 """
 import argparse
