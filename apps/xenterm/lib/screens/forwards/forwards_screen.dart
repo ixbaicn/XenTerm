@@ -8,6 +8,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 import '../../widgets/toolbar.dart';
 
@@ -225,23 +226,12 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
               if (_searching)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: TextField(
+                  child: TermiusField(
                     key: const ValueKey('forward-search'),
                     controller: _search,
                     autofocus: true,
                     onChanged: (value) => setState(() => _query = value),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 9,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF282B3D),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
-                    ),
-                    placeholder: const Text(
-                      'Search rules',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF8D91A5)),
-                    ),
+                    placeholder: 'Search rules',
                   ),
                 ),
               if (_notice != null)
@@ -824,18 +814,10 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    return TermiusField(
       controller: controller,
       keyboardType: number ? TextInputType.number : TextInputType.text,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: const Color(0xFF202436),
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
-      placeholder: Text(
-        placeholder,
-        style: const TextStyle(fontSize: 13, color: Color(0xFF6E7388)),
-      ),
+      placeholder: placeholder,
     );
   }
 }

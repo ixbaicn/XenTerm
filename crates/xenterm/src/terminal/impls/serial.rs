@@ -154,16 +154,65 @@ async fn run_serial(
     let running = Arc::new(AtomicBool::new(true));
     let reader_running = running.clone();
     let reader_events = events.clone();
+    // Console servers behind a serial line often ask for a login before the
+    // shell; when the session carries credentials, answer those prompts the
+    // way the SSH path answers auth. Nothing is sent when either is empty, and
+    // the window is bounded so a late "password:" in normal output is never
+    // mistaken for a login request.
+    let login_user = session.user.trim().to_string();
+    let login_password = session.password.as_str().to_string();
+    let reader_writer = writer.clone();
     let reader_handle = std::thread::spawn(move || {
         let mut port = port;
         let mut buf = [0u8; 4096];
+        let mut recent = String::new();
+        let mut user_sent = false;
+        let mut password_attempts = 0u8;
+        let login_started = std::time::Instant::now();
         while reader_running.load(Ordering::Relaxed) {
             match port.read(&mut buf) {
                 Ok(0) => {}
                 Ok(n) => {
                     let text = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    if reader_events.send(SessionEvent::Output(text)).is_err() {
+                    if reader_events
+                        .send(SessionEvent::Output(text.clone()))
+                        .is_err()
+                    {
                         break;
+                    }
+                    if login_user.is_empty()
+                        || login_started.elapsed() > Duration::from_secs(20)
+                    {
+                        continue;
+                    }
+                    recent.push_str(&text);
+                    if recent.len() > 400 {
+                        let keep = recent.len() - 400;
+                        recent.drain(..keep);
+                    }
+                    let lower = recent.to_ascii_lowercase();
+                    let trimmed = last_line(&lower);
+                    let send = |bytes: &str| {
+                        let mut guard = match reader_writer.lock() {
+                            Ok(guard) => guard,
+                            Err(poisoned) => poisoned.into_inner(),
+                        };
+                        let _ = guard.write_all(bytes.as_bytes());
+                        let _ = guard.flush();
+                    };
+                    if is_user_prompt(trimmed) && !user_sent {
+                        send(&format!("{}\r", login_user));
+                        user_sent = true;
+                        recent.clear();
+                        continue;
+                    }
+                    if is_password_prompt(trimmed) && password_attempts < 3 {
+                        if login_password.is_empty() {
+                            continue;
+                        }
+                        send(&format!("{}\r", login_password));
+                        password_attempts = password_attempts.saturating_add(1);
+                        recent.clear();
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
@@ -246,6 +295,55 @@ async fn run_serial(
         t("串口已关闭", "serial port closed").into(),
     ));
     Ok(())
+}
+
+/// The last non-blank line of a lowercased output tail — the prompt the
+/// console is currently waiting on.
+fn last_line(lower: &str) -> &str {
+    lower
+        .rsplit(['\n', '\r'])
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+        .trim_end()
+}
+
+/// Console servers spell the account prompt a few ways; all end with a colon.
+fn is_user_prompt(line: &str) -> bool {
+    line.ends_with("login:")
+        || line.ends_with("username:")
+        || line.ends_with("user name:")
+        || line.ends_with("user:")
+}
+
+fn is_password_prompt(line: &str) -> bool {
+    line.ends_with("password:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_password_prompt, is_user_prompt, last_line};
+
+    #[test]
+    fn login_prompts_are_recognised_from_the_last_line() {
+        let tail = "booting...\r\nswitch login:".to_ascii_lowercase();
+        let line = last_line(&tail);
+        assert!(is_user_prompt(line));
+        assert!(!is_password_prompt(line));
+
+        assert!(is_user_prompt(&last_line("username:")));
+        assert!(is_user_prompt(&last_line("user name:")));
+        assert!(is_user_prompt(&last_line("user:")));
+        assert!(!is_user_prompt(&last_line("user: ops")));
+    }
+
+    #[test]
+    fn password_prompt_is_recognised_and_other_traffic_is_not() {
+        assert!(is_password_prompt(&last_line("password:")));
+        assert!(is_password_prompt(&last_line("password: ")));
+        assert!(!is_password_prompt(&last_line("password: failed")));
+        assert!(!is_password_prompt(&last_line("login:")));
+        assert!(!is_user_prompt(&last_line("Copyright 2026")));
+    }
 }
 
 /// Single-letter parity tag for the status line (8N1 style).

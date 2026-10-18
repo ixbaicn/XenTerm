@@ -117,3 +117,14 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   同时应答资源/进程 exec 通道，提供固定样本供端到端验收。
 - 测试补充：`cargo test -p xenterm-bridge` 覆盖分组往返与 SSH 配置导入；
   `flutter test` 覆盖分组折叠/新建/重命名/删除、导入横幅与资源面板渲染。
+- 串口连接：`xenterm_serial_ports_json` 枚举本机串口（名称 + USB/PCI/
+  Bluetooth 标签）。Serial 按钮打开模态连接面板：端口（探测列表 + 手工
+  输入）、波特率，Advanced 展开数据位/停止位/校验/流控，以及可选的
+  console 登录用户名/密码；编辑串口主机时铅笔按钮同样打开该面板。会话
+  的串口参数通过 `xenterm_session_upsert` 持久化（baud_rate/data_bits/
+  stop_bits/parity/flow_control），仅返回 `has_password` 而不回传密码。
+- 串口登录：当会话配置了用户名/密码时，核心串口读取线程在连接后 20 秒
+  内识别 `login:` / `username:` / `Password:` 提示并自动应答（密码最多
+  3 次）；未配置时完全不干预。
+- 输入框：所有页面的文本框统一走 `TermiusField`（36px、#32364A 填充、
+  10px 圆角、同一字号/占位色），移除了各页面自己拼的 TextField 样式。

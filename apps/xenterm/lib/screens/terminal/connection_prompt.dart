@@ -5,6 +5,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 
 class ConnectionPromptBanner extends StatefulWidget {
@@ -138,15 +139,10 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: TextField(
+      child: TermiusField(
         controller: controller,
-        obscureText: obscure,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1D2033),
-          borderRadius: BorderRadius.circular(TermiusRadius.field),
-        ),
-        placeholder: Text(hint, style: const TextStyle(fontSize: 13)),
+        obscure: obscure,
+        placeholder: hint,
       ),
     );
   }

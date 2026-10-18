@@ -9,10 +9,12 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 import '../../widgets/toolbar.dart';
 import 'host_card.dart';
 import 'host_details_panel.dart';
+import 'serial_connect_dialog.dart';
 
 enum HostsLayout { cards, rows }
 
@@ -25,14 +27,26 @@ typedef HostSaver = Future<CoreWriteResult> Function({
   required String group,
   required String kind,
   String keyPath,
+  int? baudRate,
+  int? dataBits,
+  int? stopBits,
+  String? parity,
+  String? flowControl,
+  String? password,
+  bool? clearPassword,
 });
 typedef HostDeleter = Future<CoreWriteResult> Function(String id);
 typedef GroupLoader = Future<List<HostGroup>> Function();
 typedef GroupCreator = Future<CoreWriteResult> Function(String name);
-typedef GroupRenamer = Future<CoreWriteResult> Function(String old, String next);
+typedef GroupRenamer = Future<CoreWriteResult> Function(
+  String old,
+  String next,
+);
 typedef GroupDeleter = Future<CoreWriteResult> Function(String name);
-typedef GroupCollapser =
-    Future<CoreWriteResult> Function(String name, bool collapsed);
+typedef GroupCollapser = Future<CoreWriteResult> Function(
+  String name,
+  bool collapsed,
+);
 typedef HostImporter = Future<ImportResult> Function();
 
 class HostsScreen extends StatefulWidget {
@@ -58,6 +72,9 @@ class HostsScreen extends StatefulWidget {
   /// OpenSSH config importer; production reads `~/.ssh/config` through the core.
   final HostImporter? importHosts;
 
+  /// Serial device enumeration for the serial modal (test seam).
+  final SerialPortLoader? loadSerialPorts;
+
   const HostsScreen({
     super.key,
     this.onConnect,
@@ -71,6 +88,7 @@ class HostsScreen extends StatefulWidget {
     this.deleteGroup,
     this.collapseGroup,
     this.importHosts,
+    this.loadSerialPorts,
   });
 
   @override
@@ -96,6 +114,11 @@ class _HostsScreenState extends State<HostsScreen> {
 
   /// Group awaiting delete confirmation.
   String? _deletingGroup;
+
+  /// Serial modal: null host creates, non-null edits that session.
+  bool _serialOpen = false;
+  Host? _serialHost;
+  String? _serialError;
 
   /// Result banner for the OpenSSH config import.
   String? _importNotice;
@@ -179,7 +202,7 @@ class _HostsScreenState extends State<HostsScreen> {
   }
 
   /// Persists the drawer's edits into the core store, then refreshes the list.
-  Future<String?> _saveHostToCore(Host host) async {
+  Future<String?> _saveHostToCore(Host host, {String password = ''}) async {
     try {
       final result = await (widget.saveSession ?? saveSessionToCore)(
         id: host.id,
@@ -190,6 +213,12 @@ class _HostsScreenState extends State<HostsScreen> {
         group: host.group,
         kind: host.protocol,
         keyPath: host.keyPath,
+        baudRate: host.baudRate,
+        dataBits: host.dataBits,
+        stopBits: host.stopBits,
+        parity: host.parity,
+        flowControl: host.flowControl,
+        password: password,
       );
       if (!result.ok) return result.error ?? 'Save failed';
       await _reload(silent: true);
@@ -229,6 +258,12 @@ class _HostsScreenState extends State<HostsScreen> {
     int port = 22,
     String username = '',
     String group = '',
+    int baudRate = 115200,
+    int dataBits = 8,
+    int stopBits = 1,
+    String parity = 'none',
+    String flowControl = 'none',
+    String password = '',
   }) async {
     try {
       final result = await (widget.saveSession ?? saveSessionToCore)(
@@ -239,6 +274,12 @@ class _HostsScreenState extends State<HostsScreen> {
         username: username,
         group: group,
         kind: kind,
+        baudRate: baudRate,
+        dataBits: dataBits,
+        stopBits: stopBits,
+        parity: parity,
+        flowControl: flowControl,
+        password: password,
       );
       if (!result.ok) {
         if (mounted) {
@@ -283,20 +324,74 @@ class _HostsScreenState extends State<HostsScreen> {
     if (host != null) _connect(host);
   }
 
-  /// The toolbar's Serial action: a serial session, opened in the editor so the
-  /// port can be filled in.
-  Future<void> _quickSerial() async {
-    final host = await _createSessionFor(
-      kind: 'serial',
-      label: 'Serial',
-      // The serial device goes in Address; the SSH port field stays unused.
-      port: 22,
-    );
-    if (host == null || !mounted) return;
+  /// The toolbar's Serial action: Termius's serial connection modal, where the
+  /// port and line parameters are chosen before the session exists.
+  void _quickSerial() {
     setState(() {
-      _drawerHost = host;
-      _drawerOpen = true;
+      _serialHost = null;
+      _serialError = null;
+      _serialOpen = true;
     });
+  }
+
+  Future<void> _submitSerial(SerialDraft draft) async {
+    Host? target;
+    final editing = _serialHost;
+    if (editing == null) {
+      target = await _createSessionFor(
+        kind: 'serial',
+        label: draft.label,
+        address: draft.port,
+        username: draft.username,
+        group: draft.group,
+        baudRate: draft.baudRate,
+        dataBits: draft.dataBits,
+        stopBits: draft.stopBits,
+        parity: draft.parity,
+        flowControl: draft.flowControl,
+        password: draft.password,
+      );
+    } else {
+      final updated = Host(
+        id: editing.id,
+        label: draft.label,
+        address: draft.port,
+        port: editing.port,
+        username: draft.username,
+        group: draft.group,
+        tags: editing.tags,
+        os: editing.os,
+        lastUsed: editing.lastUsed,
+        protocol: 'serial',
+        auth: editing.auth,
+        keyPath: editing.keyPath,
+        baudRate: draft.baudRate,
+        dataBits: draft.dataBits,
+        stopBits: draft.stopBits,
+        parity: draft.parity,
+        flowControl: draft.flowControl,
+        hasPassword: editing.hasPassword || draft.password.isNotEmpty,
+      );
+      final error = await _saveHostToCore(updated, password: draft.password);
+      if (error != null) {
+        if (mounted) setState(() => _serialError = error);
+        return;
+      }
+      for (final host in _hosts) {
+        if (host.id == editing.id) {
+          target = host;
+          break;
+        }
+      }
+      target ??= updated;
+    }
+    if (!mounted) return;
+    if (target == null) {
+      setState(() => _serialError = 'Could not save the serial connection');
+      return;
+    }
+    setState(() => _serialOpen = false);
+    _connect(target);
   }
 
   /// Quick connect from the search field: an existing host wins; otherwise a
@@ -370,7 +465,9 @@ class _HostsScreenState extends State<HostsScreen> {
           ? await (widget.createGroup ?? createGroupInCore)(name)
           : await (widget.renameGroup ?? renameGroupInCore)(renaming, name);
       if (!result.ok) {
-        setState(() => _groupError = result.error ?? 'Could not save the group');
+        setState(
+          () => _groupError = result.error ?? 'Could not save the group',
+        );
         return;
       }
       if (!mounted) return;
@@ -471,18 +568,29 @@ class _HostsScreenState extends State<HostsScreen> {
   /// A plain card click connects immediately — the desktop fast path.
   void _onCardTap(Host host) => _connect(host);
 
-  /// The hover pencil opens the details drawer (edit path).
-  void _onEditHost(Host host) => setState(() {
-    _drawerHost = host;
-    _drawerOpen = true;
-  });
+  /// The hover pencil opens the matching editor: serial hosts use the serial
+  /// modal (line parameters), everything else the SSH details drawer.
+  void _onEditHost(Host host) {
+    if (host.isSerial) {
+      setState(() {
+        _serialHost = host;
+        _serialError = null;
+        _serialOpen = true;
+      });
+      return;
+    }
+    setState(() {
+      _drawerHost = host;
+      _drawerOpen = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hosts = _filtered;
 
-    return Row(
+    final content = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // The hosts content: search row, toolbar, section title, grid. The
@@ -504,65 +612,29 @@ class _HostsScreenState extends State<HostsScreen> {
                     // Search + Connect (inside the field).
                     Padding(
                       padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                      child: Container(
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: TermiusMetrics.searchFieldFill,
-                          borderRadius: BorderRadius.circular(
-                            TermiusRadius.field,
+                      child: TermiusField(
+                        key: const ValueKey('host-search'),
+                        controller: _search,
+                        placeholder: 'Find a host or ssh user@hostname...',
+                        onChanged: (v) => setState(() => _query = v),
+                        // Connect lives INSIDE the field; the original keeps it
+                        // a muted text button in every state (the blue Connect
+                        // is the drawer's).
+                        trailing: GhostButton(
+                          key: const ValueKey('quick-connect'),
+                          density: ButtonDensity.compact,
+                          onPressed: _query.trim().isEmpty
+                              ? null
+                              : _quickConnect,
+                          child: Text(
+                            'Connect',
+                            style: theme.typography.normal.copyWith(
+                              fontSize: 13,
+                              color: _query.trim().isEmpty
+                                  ? theme.colorScheme.mutedForeground
+                                  : theme.colorScheme.foreground,
+                            ),
                           ),
-                        ),
-                        padding: const EdgeInsets.only(left: 12, right: 8),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                key: const ValueKey('host-search'),
-                                controller: _search,
-                                border: Border.all(color: Colors.transparent),
-                                borderRadius: BorderRadius.circular(
-                                  TermiusRadius.field,
-                                ),
-                                decoration: const BoxDecoration(
-                                  color: Colors.transparent,
-                                  borderRadius: BorderRadius.all(
-                                    Radius.circular(TermiusRadius.field),
-                                  ),
-                                ),
-                                placeholder: Text(
-                                  'Find a host or ssh user@hostname...',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: theme.colorScheme.mutedForeground,
-                                  ),
-                                ),
-                                onChanged: (v) => setState(() => _query = v),
-                                style: theme.typography.normal.copyWith(
-                                  fontSize: 14,
-                                  color: theme.colorScheme.foreground,
-                                ),
-                              ),
-                            ),
-                            // Connect lives INSIDE the field; the original
-                            // keeps it a muted text button in every state (the
-                            // blue Connect is the drawer's).
-                            GhostButton(
-                              key: const ValueKey('quick-connect'),
-                              density: ButtonDensity.compact,
-                              onPressed: _query.trim().isEmpty
-                                  ? null
-                                  : _quickConnect,
-                              child: Text(
-                                'Connect',
-                                style: theme.typography.normal.copyWith(
-                                  fontSize: 13,
-                                  color: _query.trim().isEmpty
-                                      ? theme.colorScheme.mutedForeground
-                                      : theme.colorScheme.foreground,
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ),
@@ -694,6 +766,22 @@ class _HostsScreenState extends State<HostsScreen> {
         ),
       ],
     );
+
+    return Stack(
+      children: [
+        Positioned.fill(child: content),
+        if (_serialOpen)
+          Positioned.fill(
+            child: SerialConnectDialog(
+              host: _serialHost,
+              loadPorts: widget.loadSerialPorts,
+              error: _serialError,
+              onSubmit: _submitSerial,
+              onClose: () => setState(() => _serialOpen = false),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _groupEditorBar(ThemeData theme) {
@@ -725,25 +813,12 @@ class _HostsScreenState extends State<HostsScreen> {
           Row(
             children: [
               Expanded(
-                child: TextField(
+                child: TermiusField(
                   key: const ValueKey('group-name'),
                   controller: _groupName,
                   autofocus: true,
                   onSubmitted: (_) => _saveGroup(),
-                  border: Border.all(color: Colors.transparent),
-                  borderRadius: BorderRadius.circular(TermiusRadius.field),
-                  decoration: BoxDecoration(
-                    color: TermiusMetrics.searchFieldFill,
-                    borderRadius: BorderRadius.circular(TermiusRadius.field),
-                  ),
-                  placeholder: const Text(
-                    'Group name (for example: Production)',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF8D91A5)),
-                  ),
-                  style: theme.typography.normal.copyWith(
-                    fontSize: 13,
-                    color: theme.colorScheme.foreground,
-                  ),
+                  placeholder: 'Group name (for example: Production)',
                 ),
               ),
               const SizedBox(width: 10),
@@ -858,11 +933,7 @@ class _HostsScreenState extends State<HostsScreen> {
     ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return [
       if (ungrouped.isNotEmpty || names.isEmpty)
-        _HostSection(
-          name: null,
-          collapsed: false,
-          hosts: ungrouped,
-        ),
+        _HostSection(name: null, collapsed: false, hosts: ungrouped),
       for (final name in names)
         _HostSection(
           name: name,
@@ -896,9 +967,8 @@ class _HostsScreenState extends State<HostsScreen> {
                       ),
                     ),
                     onRename: () => _openGroupEditor(rename: section.name),
-                    onDelete: () => setState(
-                      () => _deletingGroup = section.name,
-                    ),
+                    onDelete: () =>
+                        setState(() => _deletingGroup = section.name),
                     onAdd: () => _newHostInGroup(section.name!),
                   ),
           if (section.name == null || !section.collapsed)
@@ -1168,11 +1238,7 @@ class _HeaderAction extends StatelessWidget {
           height: 28,
           margin: const EdgeInsets.only(left: 2),
           alignment: Alignment.center,
-          child: Icon(
-            icon,
-            size: 15,
-            color: theme.colorScheme.mutedForeground,
-          ),
+          child: Icon(icon, size: 15, color: theme.colorScheme.mutedForeground),
         ),
       ),
     );

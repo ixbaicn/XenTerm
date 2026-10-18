@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../theme/app_fonts.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 
 /// The desktop terminal's right-hand tools: live search over the visible
@@ -47,19 +48,11 @@ class TerminalToolsPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
+          TermiusField(
             key: const ValueKey('terminal-search'),
             focusNode: searchFocus,
             onChanged: onSearch,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            decoration: BoxDecoration(
-              color: const Color(0xFF282B3D),
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-            ),
-            placeholder: const Text(
-              'Search terminal',
-              style: TextStyle(fontSize: 13, color: Color(0xFF8D91A5)),
-            ),
+            placeholder: 'Search terminal',
           ),
           const SizedBox(height: 6),
           Text(
@@ -300,10 +293,7 @@ class _ResourceSection extends StatelessWidget {
         if (user.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              user,
-              style: TextStyle(fontSize: 12, color: muted),
-            ),
+            child: Text(user, style: TextStyle(fontSize: 12, color: muted)),
           ),
         _ResourceMeter(
           key: const ValueKey('terminal-resource-cpu'),
@@ -360,10 +350,8 @@ class _ResourceSection extends StatelessWidget {
                     '${(((gpu['util_percent'] as num?)?.toDouble() ?? 0)).round()}%'
                     '${gpu['temp_c'] != null ? ' · ${gpu['temp_c']}°C' : ''}',
                 fraction:
-                    (((gpu['util_percent'] as num?)?.toDouble() ?? 0) / 100).clamp(
-                      0.0,
-                      1.0,
-                    ),
+                    (((gpu['util_percent'] as num?)?.toDouble() ?? 0) / 100)
+                        .clamp(0.0, 1.0),
               ),
             ),
         ] else if (data['gpu_unsupported'] == true) ...[
@@ -419,7 +407,10 @@ class _ResourceMeter extends StatelessWidget {
             ),
             Text(
               value,
-              style: TextStyle(fontSize: 12, color: theme.colorScheme.foreground),
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.foreground,
+              ),
             ),
           ],
         ),

@@ -1,0 +1,121 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:xenterm_app/bridge/native_bridge.dart';
+import 'package:xenterm_app/data/hosts.dart';
+import 'package:xenterm_app/screens/hosts/serial_connect_dialog.dart';
+import 'package:xenterm_app/theme/termius_field.dart';
+import 'package:xenterm_app/theme/termius_theme.dart';
+
+Widget _app(Widget child) => ShadcnApp(
+  theme: ThemeData(colorScheme: termiusDarkScheme()),
+  home: Scaffold(child: SizedBox(width: 1000, height: 900, child: child)),
+);
+
+void main() {
+  testWidgets('the serial dialog collects port, line settings and login', (
+    tester,
+  ) async {
+    SerialDraft? submitted;
+    await tester.pumpWidget(
+      _app(
+        SerialConnectDialog(
+          loadPorts: () async => const [
+            SerialPortInfo(name: 'COM3', kind: 'USB · FTDI'),
+            SerialPortInfo(name: 'COM7', kind: 'Serial'),
+          ],
+          onSubmit: (draft) => submitted = draft,
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The first attached port is selected for a new connection.
+    expect(find.byKey(const ValueKey('serial-port-COM3')), findsOne);
+    expect(find.byKey(const ValueKey('serial-port-COM7')), findsOne);
+    expect(
+      tester
+          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .controller
+          ?.text,
+      'COM3',
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('serial-label')),
+      'Console',
+    );
+    await tester.tap(find.byKey(const ValueKey('serial-port-COM7')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('serial-advanced')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('serial-user')), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('serial-parity')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Even').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const ValueKey('serial-user')), 'admin');
+    await tester.enterText(
+      find.byKey(const ValueKey('serial-password')),
+      'console-pass',
+    );
+    await tester.tap(find.byKey(const ValueKey('serial-connect')));
+    await tester.pumpAndSettle();
+
+    expect(submitted, isNotNull);
+    expect(submitted!.label, 'Console');
+    expect(submitted!.port, 'COM7');
+    expect(submitted!.baudRate, 115200);
+    expect(submitted!.parity, 'even');
+    expect(submitted!.username, 'admin');
+    expect(submitted!.password, 'console-pass');
+  });
+
+  testWidgets('editing a serial host prefills its frame and keeps the secret', (
+    tester,
+  ) async {
+    SerialDraft? submitted;
+    await tester.pumpWidget(
+      _app(
+        SerialConnectDialog(
+          host: const Host(
+            id: 'serial-1',
+            label: 'Switch console',
+            address: 'COM4',
+            username: 'ops',
+            protocol: 'serial',
+            baudRate: 9600,
+            dataBits: 7,
+            stopBits: 2,
+            parity: 'odd',
+            flowControl: 'hardware',
+            hasPassword: true,
+          ),
+          loadPorts: () async => const [],
+          onSubmit: (draft) => submitted = draft,
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit serial connection'), findsOne);
+    expect(find.text('9600'), findsOne);
+    await tester.tap(find.byKey(const ValueKey('serial-advanced')));
+    await tester.pumpAndSettle();
+    expect(find.text('Password stored — leave blank to keep'), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('serial-connect')));
+    await tester.pumpAndSettle();
+    expect(submitted!.port, 'COM4');
+    expect(submitted!.baudRate, 9600);
+    expect(submitted!.dataBits, 7);
+    expect(submitted!.stopBits, 2);
+    expect(submitted!.parity, 'odd');
+    expect(submitted!.flowControl, 'hardware');
+    expect(submitted!.password, '');
+  });
+}

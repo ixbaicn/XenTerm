@@ -118,6 +118,16 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
                     "auth": s.auth.as_str(),
                     "private_key_path": s.private_key_path,
                     "serial": !s.serial_port.is_empty(),
+                    // Serial settings for the connection dialog. The password
+                    // itself never crosses the bridge — only whether one is
+                    // stored (the dialog shows "stored" and leaves it blank).
+                    "serial_port": s.serial_port,
+                    "baud_rate": s.baud_rate,
+                    "data_bits": s.data_bits,
+                    "stop_bits": s.stop_bits,
+                    "parity": s.parity,
+                    "flow_control": s.flow_control,
+                    "has_password": !s.password.is_empty(),
                 })
             })
             .collect();
@@ -158,6 +168,28 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
             .get("private_key_path")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
+        let password = value
+            .get("password")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let clear_password = value
+            .get("clear_password")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let baud_rate = value
+            .get("baud_rate")
+            .and_then(|v| v.as_u64())
+            .map(|v| v.clamp(50, 4_000_000) as u32);
+        let data_bits = value
+            .get("data_bits")
+            .and_then(|v| v.as_u64())
+            .map(|v| v.clamp(5, 8) as u8);
+        let stop_bits = value
+            .get("stop_bits")
+            .and_then(|v| v.as_u64())
+            .map(|v| v.clamp(1, 2) as u8);
+        let parity = value.get("parity").and_then(|v| v.as_str());
+        let flow_control = value.get("flow_control").and_then(|v| v.as_str());
 
         let store = store()?;
         let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
@@ -180,6 +212,29 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
         } else {
             xenterm::config::AuthMethod::Key
         };
+        if let Some(baud) = baud_rate {
+            session.baud_rate = baud;
+        }
+        if let Some(bits) = data_bits {
+            session.data_bits = bits;
+        }
+        if let Some(bits) = stop_bits {
+            session.stop_bits = bits;
+        }
+        if let Some(value) = parity {
+            session.parity = value.to_string();
+        }
+        if let Some(value) = flow_control {
+            session.flow_control = value.to_string();
+        }
+        // An empty password means "keep the stored one": the dialog never
+        // receives the secret, so a blank field cannot be a wipe. Clearing is
+        // an explicit flag.
+        if clear_password {
+            session.password = xenterm::config::Secret::default();
+        } else if !password.is_empty() {
+            session.password = xenterm::config::Secret::new(password);
+        }
         if session.kind == xenterm::config::SessionKind::Serial {
             session.serial_port = address.to_string();
         }
@@ -677,6 +732,19 @@ pub extern "C" fn xenterm_quick_command_delete(index: i64) -> *mut c_char {
     match result {
         Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
         Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Serial ports reported by the OS as `[{"name","kind"}]`.
+#[no_mangle]
+pub extern "C" fn xenterm_serial_ports_json() -> *mut c_char {
+    let rows: Vec<serde_json::Value> = xenterm::frontend::serial_ports()
+        .into_iter()
+        .map(|port| serde_json::json!({ "name": port.name, "kind": port.kind }))
+        .collect();
+    match serde_json::to_string(&rows) {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

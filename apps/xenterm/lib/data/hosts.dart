@@ -30,6 +30,16 @@ class Host {
   /// Non-secret private key path; empty when the host uses a password.
   final String keyPath;
 
+  // Serial-line settings (kind == 'serial').
+  final int baudRate;
+  final int dataBits;
+  final int stopBits;
+  final String parity;
+  final String flowControl;
+
+  /// Whether the core has a stored login password for this serial session.
+  final bool hasPassword;
+
   const Host({
     required this.id,
     required this.label,
@@ -43,6 +53,12 @@ class Host {
     this.protocol = 'ssh',
     this.auth = 'password',
     this.keyPath = '',
+    this.baudRate = 115200,
+    this.dataBits = 8,
+    this.stopBits = 1,
+    this.parity = 'none',
+    this.flowControl = 'none',
+    this.hasPassword = false,
   });
 
   /// Maps one `xenterm_sessions_json` row (native bridge) onto the UI model.
@@ -62,16 +78,41 @@ class Host {
       lastUsed: json['last_used'] as String?,
       auth: (json['auth'] as String?) ?? 'password',
       keyPath: (json['private_key_path'] as String?) ?? '',
+      baudRate: (json['baud_rate'] as num?)?.toInt() ?? 115200,
+      dataBits: (json['data_bits'] as num?)?.toInt() ?? 8,
+      stopBits: (json['stop_bits'] as num?)?.toInt() ?? 1,
+      parity: (json['parity'] as String?) ?? 'none',
+      flowControl: (json['flow_control'] as String?) ?? 'none',
+      hasPassword: json['has_password'] == true,
     );
   }
 
-  String get detail => username.isEmpty ? address : '$username@$address:$port';
+  bool get isSerial => protocol == 'serial';
+
+  /// "8N1" for a serial line.
+  String get serialFrame {
+    final parityLetter = switch (parity) {
+      'odd' => 'O',
+      'even' => 'E',
+      _ => 'N',
+    };
+    return '$dataBits$parityLetter$stopBits';
+  }
+
+  String get detail => isSerial
+      ? '$address · $baudRate ${serialFrame.toUpperCase()}'
+      : username.isEmpty
+      ? address
+      : '$username@$address:$port';
 
   /// "ssh, root, 阿里云" — the card's second line.
   String get subtitle {
     final parts = <String>[
       protocol,
-      if (username.isNotEmpty) username,
+      if (isSerial)
+        '$baudRate ${serialFrame.toUpperCase()}'
+      else if (username.isNotEmpty)
+        username,
       if (tags.isNotEmpty) ...tags else if (group.isNotEmpty) group,
     ];
     return parts.join(', ');

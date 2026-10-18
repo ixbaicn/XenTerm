@@ -3,6 +3,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
+import 'package:xenterm_app/theme/termius_field.dart';
 import 'package:xenterm_app/theme/termius_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
@@ -172,18 +173,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('group-rename-Production')),
-    );
+    await tester.tap(find.byKey(const ValueKey('group-rename-Production')));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<TextField>(find.byKey(const ValueKey('group-name'))).controller?.text,
+      tester
+          .widget<TermiusField>(find.byKey(const ValueKey('group-name')))
+          .controller
+          ?.text,
       'Production',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('group-name')),
-      'Prod',
-    );
+    await tester.enterText(find.byKey(const ValueKey('group-name')), 'Prod');
     await tester.tap(find.byKey(const ValueKey('group-save')));
     await tester.pumpAndSettle();
     expect((renamedFrom, renamedTo), ('Production', 'Prod'));

@@ -32,6 +32,13 @@ void main() {
                 required group,
                 required kind,
                 keyPath = '',
+                int? baudRate,
+                int? dataBits,
+                int? stopBits,
+                String? parity,
+                String? flowControl,
+                String? password,
+                bool? clearPassword,
               }) async {
                 saved = {
                   'label': label,
@@ -94,6 +101,13 @@ void main() {
                 required group,
                 required kind,
                 keyPath = '',
+                int? baudRate,
+                int? dataBits,
+                int? stopBits,
+                String? parity,
+                String? flowControl,
+                String? password,
+                bool? clearPassword,
               }) async {
                 savedLabel = label;
                 hosts = [
@@ -119,6 +133,84 @@ void main() {
     expect(find.text('Host Details'), findsOneWidget);
   });
 
+  testWidgets('the Serial action opens the serial modal and connects', (
+    tester,
+  ) async {
+    var hosts = <Host>[];
+    Host? connected;
+    Map<String, Object?>? saved;
+    await tester.pumpWidget(
+      _app(
+        HostsScreen(
+          loadHosts: () async => hosts,
+          loadSerialPorts: () async => const [
+            SerialPortInfo(name: 'COM3', kind: 'USB'),
+          ],
+          onConnect: (host) => connected = host,
+          saveSession:
+              ({
+                required id,
+                required label,
+                required address,
+                required port,
+                required username,
+                required group,
+                required kind,
+                keyPath = '',
+                int? baudRate,
+                int? dataBits,
+                int? stopBits,
+                String? parity,
+                String? flowControl,
+                String? password,
+                bool? clearPassword,
+              }) async {
+                saved = {
+                  'label': label,
+                  'address': address,
+                  'kind': kind,
+                  'baud': baudRate,
+                  'parity': parity,
+                  'password': password,
+                };
+                hosts = [
+                  Host(
+                    id: 'serial1',
+                    label: label,
+                    address: address,
+                    port: port,
+                    username: username,
+                    group: group,
+                    protocol: kind,
+                    baudRate: baudRate ?? 115200,
+                    dataBits: dataBits ?? 8,
+                    stopBits: stopBits ?? 1,
+                    parity: parity ?? 'none',
+                    flowControl: flowControl ?? 'none',
+                  ),
+                ];
+                return const CoreWriteResult(ok: true, id: 'serial1');
+              },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Serial'));
+    await tester.pumpAndSettle();
+    expect(find.text('Serial connection'), findsOne);
+    expect(find.byKey(const ValueKey('serial-port-COM3')), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('serial-connect')));
+    await tester.pumpAndSettle();
+
+    expect(saved?['kind'], 'serial');
+    expect(saved?['address'], 'COM3');
+    expect(saved?['baud'], 115200);
+    expect(connected?.protocol, 'serial');
+    expect(connected?.address, 'COM3');
+  });
+
   testWidgets('the Terminal action opens a real local session', (tester) async {
     var hosts = <Host>[];
     Host? connected;
@@ -137,6 +229,13 @@ void main() {
                 required group,
                 required kind,
                 keyPath = '',
+                int? baudRate,
+                int? dataBits,
+                int? stopBits,
+                String? parity,
+                String? flowControl,
+                String? password,
+                bool? clearPassword,
               }) async {
                 hosts = [
                   Host(

@@ -15,6 +15,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../terminal/core_settings.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 import 'connection_prompt.dart';
 
@@ -526,25 +527,11 @@ class _SftpBrowserState extends State<SftpBrowser> {
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: TermiusField(
                     key: const ValueKey('sftp-new-folder-name'),
                     controller: _folderName,
                     autofocus: true,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF202436),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
-                    ),
-                    placeholder: const Text(
-                      'Folder name',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF6E7388),
-                      ),
-                    ),
+                    placeholder: 'Folder name',
                   ),
                 ),
                 const SizedBox(width: 8),

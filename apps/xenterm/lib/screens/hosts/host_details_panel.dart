@@ -21,6 +21,7 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 import 'host_card.dart';
 
@@ -545,45 +546,13 @@ class _PanelField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
+    return TermiusField(
+      placeholder: placeholder,
+      controller: controller,
       height: height,
-      padding: leading == null
-          ? const EdgeInsets.symmetric(horizontal: 10)
-          : const EdgeInsets.only(left: 9, right: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-        border: Border.all(color: theme.colorScheme.border),
-      ),
-      child: Row(
-        children: [
-          if (leading != null) ...[
-            Icon(leading, size: 14, color: _textDisabled),
-            const SizedBox(width: 5),
-          ],
-          Expanded(
-            child: TextField(
-              controller: controller,
-              padding: EdgeInsets.zero,
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-              ),
-              placeholder: Text(
-                placeholder,
-                style: theme.typography.normal.copyWith(
-                  fontSize: 14,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              style: theme.typography.normal.copyWith(
-                fontSize: 14,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-          ),
-        ],
-      ),
+      leading: leading == null
+          ? null
+          : Icon(leading, size: 14, color: _textDisabled),
     );
   }
 }

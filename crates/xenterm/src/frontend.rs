@@ -601,6 +601,43 @@ pub fn forget_known_host(id: &str) -> Result<bool, String> {
     crate::ssh::known_hosts::forget(id).map_err(|error| error.to_string())
 }
 
+/// One serial port the OS reports, for the serial connection dialog.
+pub struct SerialPortInfo {
+    pub name: String,
+    pub kind: String,
+}
+
+/// Enumerate serial ports (best effort: an OS error reads as no ports and the
+/// dialog still accepts a typed device path).
+pub fn serial_ports() -> Vec<SerialPortInfo> {
+    use serialport::SerialPortType;
+    serialport::available_ports()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|port| {
+            let kind = match &port.port_type {
+                SerialPortType::UsbPort(info) => {
+                    let mut label = "USB".to_string();
+                    if let Some(product) = info.product.as_deref() {
+                        if !product.trim().is_empty() {
+                            label.push_str(" · ");
+                            label.push_str(product.trim());
+                        }
+                    }
+                    label
+                }
+                SerialPortType::PciPort => "PCI".into(),
+                SerialPortType::BluetoothPort => "Bluetooth".into(),
+                SerialPortType::Unknown => "Serial".into(),
+            };
+            SerialPortInfo {
+                name: port.port_name,
+                kind,
+            }
+        })
+        .collect()
+}
+
 /// What one SSH-config import changed.
 pub struct ImportSummary {
     pub added: usize,
