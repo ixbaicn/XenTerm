@@ -115,6 +115,8 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
                         xenterm::config::SessionKind::Local => "local",
                     },
                     "last_used": s.last_used,
+                    "auth": s.auth.as_str(),
+                    "private_key_path": s.private_key_path,
                     "serial": !s.serial_port.is_empty(),
                 })
             })
@@ -152,6 +154,10 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("ssh");
+        let key_path = value
+            .get("private_key_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
 
         let store = store()?;
         let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
@@ -168,6 +174,12 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
         session.user = username.to_string();
         session.group = group.to_string();
         session.kind = xenterm::config::SessionKind::from_str(kind);
+        session.private_key_path = key_path.trim().to_string();
+        session.auth = if session.private_key_path.is_empty() {
+            xenterm::config::AuthMethod::Password
+        } else {
+            xenterm::config::AuthMethod::Key
+        };
         if session.kind == xenterm::config::SessionKind::Serial {
             session.serial_port = address.to_string();
         }
@@ -473,6 +485,193 @@ pub extern "C" fn xenterm_known_host_delete(id: *const c_char) -> *mut c_char {
     match xenterm::frontend::forget_known_host(&id) {
         Ok(removed) => to_c(serde_json::json!({"ok": true, "removed": removed}).to_string()),
         Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Every saved SSH port-forward rule, annotated with its owning session.
+#[no_mangle]
+pub extern "C" fn xenterm_forwards_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut rows = Vec::new();
+        for session in store.sessions() {
+            for (index, forward) in session.forwards.iter().enumerate() {
+                rows.push(serde_json::json!({
+                    "session_id": session.id,
+                    "session_name": if session.name.is_empty() { &session.host } else { &session.name },
+                    "session_kind": match session.kind {
+                        xenterm::config::SessionKind::Ssh => "ssh",
+                        xenterm::config::SessionKind::Serial => "serial",
+                        xenterm::config::SessionKind::Telnet => "telnet",
+                        xenterm::config::SessionKind::Local => "local",
+                    },
+                    "index": index,
+                    "kind": forward.kind,
+                    "name": forward.name,
+                    "bind_addr": forward.bind_addr,
+                    "bind_port": forward.bind_port,
+                    "host": forward.host,
+                    "host_port": forward.host_port,
+                }));
+            }
+        }
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(error) => to_c(serde_json::json!({"__error": error}).to_string()),
+    }
+}
+
+fn json_port(value: &serde_json::Value, key: &str) -> String {
+    match value.get(key) {
+        Some(serde_json::Value::Number(number)) => number.to_string(),
+        Some(serde_json::Value::String(text)) => text.clone(),
+        _ => String::new(),
+    }
+}
+
+/// Create (`index` < 0) or update one port-forward rule on its session.
+/// Validation is the same rule set the desktop editor uses.
+#[no_mangle]
+pub extern "C" fn xenterm_forward_upsert(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let session_id = value
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if session_id.is_empty() {
+            return Err("no host selected".into());
+        }
+        let index = value.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+        let draft = xenterm::core::tunnel::TunnelDraft {
+            kind: value
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("local")
+                .to_string(),
+            name: value
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            bind_addr: value
+                .get("bind_addr")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            bind_port: json_port(&value, "bind_port"),
+            host: value
+                .get("host")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            host_port: json_port(&value, "host_port"),
+        };
+        let rule = xenterm::core::tunnel::validate(&[draft])
+            .map_err(|error| error)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "the rule is empty".to_string())?;
+
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut session = store
+            .sessions()
+            .iter()
+            .find(|s| s.id == session_id)
+            .cloned()
+            .ok_or_else(|| "host no longer exists".to_string())?;
+        let position = if index >= 0 && (index as usize) < session.forwards.len() {
+            session.forwards[index as usize] = rule;
+            index as usize
+        } else {
+            session.forwards.push(rule);
+            session.forwards.len() - 1
+        };
+        store
+            .upsert_and_save(session)
+            .map_err(|e| format!("save failed: {e}"))?;
+        Ok(serde_json::json!({"ok": true, "index": position, "session_id": session_id})
+            .to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Delete one port-forward rule from its session.
+#[no_mangle]
+pub extern "C" fn xenterm_forward_delete(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let session_id = value
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let index = value.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if session_id.is_empty() || index < 0 {
+            return Err("invalid rule reference".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut session = store
+            .sessions()
+            .iter()
+            .find(|s| s.id == session_id)
+            .cloned()
+            .ok_or_else(|| "host no longer exists".to_string())?;
+        let at = index as usize;
+        if at >= session.forwards.len() {
+            return Err("the rule no longer exists".into());
+        }
+        session.forwards.remove(at);
+        store
+            .upsert_and_save(session)
+            .map_err(|e| format!("save failed: {e}"))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// SSH key credentials referenced by saved sessions (metadata only).
+#[no_mangle]
+pub extern "C" fn xenterm_keys_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let rows: Vec<serde_json::Value> = xenterm::frontend::key_inventory(&store)
+            .into_iter()
+            .map(|key| {
+                serde_json::json!({
+                    "session_id": key.session_id,
+                    "session_name": key.session_name,
+                    "host": key.host,
+                    "user": key.user,
+                    "source": key.source,
+                    "path": key.path,
+                    "key_type": key.key_type,
+                    "fingerprint": key.fingerprint,
+                    "status": key.status,
+                })
+            })
+            .collect();
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

@@ -142,6 +142,18 @@ class NativeBridge {
   late final _StrFn _knownHostDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
     'xenterm_known_host_delete',
   );
+  late final _PtrFn _forwards = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_forwards_json',
+  );
+  late final _StrFn _forwardUpsert = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_forward_upsert',
+  );
+  late final _StrFn _forwardDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_forward_delete',
+  );
+  late final _PtrFn _keys = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_keys_json',
+  );
   late final _IndexDelete _quickDelete = _lib
       .lookupFunction<_IndexDeleteC, _IndexDelete>(
         'xenterm_quick_command_delete',
@@ -225,6 +237,30 @@ class NativeBridge {
       _resize(handle, cols, rows) == 1;
 
   bool closeSession(int handle) => _close(handle) == 1;
+
+  // ── SSH keys ──────────────────────────────────────────────────────────
+
+  String? keysJson() {
+    final pointer = _keys();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  // ── Port forwarding ───────────────────────────────────────────────────
+
+  String? forwardsJson() {
+    final pointer = _forwards();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> upsertForward(Map<String, dynamic> payload) =>
+      jsonDecode(_callWith(_forwardUpsert, jsonEncode(payload)))
+          as Map<String, dynamic>;
+
+  Map<String, dynamic> deleteForward(Map<String, dynamic> payload) =>
+      jsonDecode(_callWith(_forwardDelete, jsonEncode(payload)))
+          as Map<String, dynamic>;
 
   // ── Known hosts ───────────────────────────────────────────────────────
 
@@ -394,6 +430,203 @@ Future<CoreWriteResult> deleteQuickCommandFromCore(int index) {
   });
 }
 
+/// One SSH key credential referenced by a saved session. Key material never
+/// crosses the bridge — only its path, algorithm, fingerprint and usage.
+class KeyInfo {
+  final String sessionId;
+  final String sessionName;
+  final String host;
+  final String user;
+  final String source; // file | inline
+  final String path; // file name only
+  final String keyType;
+  final String fingerprint;
+  final String status; // available | locked | missing
+
+  const KeyInfo({
+    required this.sessionId,
+    required this.sessionName,
+    required this.host,
+    required this.user,
+    required this.source,
+    required this.path,
+    required this.keyType,
+    required this.fingerprint,
+    required this.status,
+  });
+
+  factory KeyInfo.fromCoreJson(Map<String, dynamic> json) => KeyInfo(
+    sessionId: (json['session_id'] as String?) ?? '',
+    sessionName: (json['session_name'] as String?) ?? '',
+    host: (json['host'] as String?) ?? '',
+    user: (json['user'] as String?) ?? '',
+    source: (json['source'] as String?) ?? 'file',
+    path: (json['path'] as String?) ?? '',
+    keyType: (json['key_type'] as String?) ?? '',
+    fingerprint: (json['fingerprint'] as String?) ?? '',
+    status: (json['status'] as String?) ?? 'available',
+  );
+
+  String get title =>
+      source == 'inline' ? 'Pasted key' : (path.isEmpty ? 'Key file' : path);
+
+  String get usage => user.isEmpty ? host : '$user@$host';
+}
+
+Future<List<KeyInfo>> loadKeysFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.keysJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load keys');
+    }
+    return (jsonDecode(raw) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(KeyInfo.fromCoreJson)
+        .toList();
+  });
+}
+
+/// One saved port-forward rule and the session that owns it.
+class ForwardRule {
+  final String sessionId;
+  final String sessionName;
+  final String sessionKind;
+  final int index;
+  final String kind;
+  final String name;
+  final String bindAddr;
+  final int bindPort;
+  final String host;
+  final int hostPort;
+
+  const ForwardRule({
+    required this.sessionId,
+    required this.sessionName,
+    required this.sessionKind,
+    required this.index,
+    required this.kind,
+    required this.name,
+    required this.bindAddr,
+    required this.bindPort,
+    required this.host,
+    required this.hostPort,
+  });
+
+  factory ForwardRule.fromCoreJson(Map<String, dynamic> json) => ForwardRule(
+    sessionId: (json['session_id'] as String?) ?? '',
+    sessionName: (json['session_name'] as String?) ?? '',
+    sessionKind: (json['session_kind'] as String?) ?? 'ssh',
+    index: (json['index'] as num?)?.toInt() ?? 0,
+    kind: (json['kind'] as String?) ?? 'local',
+    name: (json['name'] as String?) ?? '',
+    bindAddr: (json['bind_addr'] as String?) ?? '',
+    bindPort: (json['bind_port'] as num?)?.toInt() ?? 0,
+    host: (json['host'] as String?) ?? '',
+    hostPort: (json['host_port'] as num?)?.toInt() ?? 0,
+  );
+
+  String get bind => '$bindAddr:$bindPort';
+  String get target => kind == 'dynamic'
+      ? 'SOCKS5'
+      : host.isEmpty || hostPort == 0
+      ? ''
+      : '$host:$hostPort';
+}
+
+Future<List<ForwardRule>> loadForwardsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.forwardsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load port forwards');
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is Map && decoded['__error'] != null) {
+      throw NativeBridgeError('${decoded['__error']}');
+    }
+    return (decoded as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(ForwardRule.fromCoreJson)
+        .toList();
+  });
+}
+
+Future<CoreWriteResult> saveForwardToCore({
+  required String sessionId,
+  required int index,
+  required String kind,
+  required String name,
+  required String bindAddr,
+  required String bindPort,
+  required String host,
+  required String hostPort,
+}) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.upsertForward({
+      'session_id': sessionId,
+      'index': index,
+      'kind': kind,
+      'name': name,
+      'bind_addr': bindAddr,
+      'bind_port': bindPort,
+      'host': host,
+      'host_port': hostPort,
+    });
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not save the rule',
+      );
+    }
+    return CoreWriteResult(
+      ok: true,
+      id: (result['index'] as num?)?.toInt().toString(),
+    );
+  });
+}
+
+Future<CoreWriteResult> deleteForwardFromCore({
+  required String sessionId,
+  required int index,
+}) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteForward({
+      'session_id': sessionId,
+      'index': index,
+    });
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not delete the rule',
+      );
+    }
+    return const CoreWriteResult(ok: true);
+  });
+}
+
 /// One remembered SSH host key (`known_hosts`, TOFU).
 class KnownHost {
   final String id;
@@ -495,6 +728,7 @@ Future<CoreWriteResult> saveSessionToCore({
   required String username,
   required String group,
   required String kind,
+  String keyPath = '',
 }) {
   return Isolate.run(() {
     final bridge = NativeBridge.tryLoad();

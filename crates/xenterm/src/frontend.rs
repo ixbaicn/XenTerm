@@ -435,6 +435,96 @@ pub fn forget_known_host(id: &str) -> Result<bool, String> {
     crate::ssh::known_hosts::forget(id).map_err(|error| error.to_string())
 }
 
+/// One SSH key credential referenced by a saved session. Key material never
+/// leaves the core: only the path, algorithm, fingerprint and usage are exposed.
+pub struct KeyInfo {
+    pub session_id: String,
+    pub session_name: String,
+    pub host: String,
+    pub user: String,
+    /// "file" / "inline"
+    pub source: String,
+    /// File path for file-backed keys; empty for pasted keys.
+    pub path: String,
+    pub key_type: String,
+    pub fingerprint: String,
+    /// "available" (parsed), "locked" (encrypted/unreadable), "missing".
+    pub status: String,
+}
+
+/// Inventory of key credentials across saved sessions. Parsing only happens for
+/// unencrypted file keys; pasted/encrypted keys are listed without material.
+pub fn key_inventory(store: &ConfigStore) -> Vec<KeyInfo> {
+    store
+        .sessions()
+        .iter()
+        .filter_map(|session| {
+            let path = session.private_key_path.trim();
+            let inline = !session.private_key_inline.is_empty();
+            if path.is_empty() && !inline {
+                return None;
+            }
+            let (source, key_name) = if !path.is_empty() {
+                ("file", path.to_string())
+            } else {
+                ("inline", String::new())
+            };
+            let mut key_type = String::new();
+            let mut fingerprint = String::new();
+            let mut status = "available".to_string();
+            if source == "inline" {
+                status = "locked".into();
+            } else {
+                let normalised = path.replace('\\', "/");
+                let key_path = normalised
+                    .strip_suffix(".pub")
+                    .map(str::to_string)
+                    .unwrap_or(normalised);
+                if !std::path::Path::new(&key_path).exists() {
+                    status = "missing".into();
+                } else if key_path.to_ascii_lowercase().ends_with(".ppk") {
+                    key_type = "PuTTY PPK".into();
+                } else {
+                    match crate::ssh::load_session_private_key(session, "") {
+                        Ok(key) => {
+                            let public = key.public_key();
+                            key_type = public.algorithm().as_str().to_string();
+                            fingerprint =
+                                public.fingerprint(russh::keys::HashAlg::Sha256).to_string();
+                        }
+                        Err(_) => status = "locked".into(),
+                    }
+                }
+            }
+            let name = if session.name.is_empty() {
+                session.host.clone()
+            } else {
+                session.name.clone()
+            };
+            let file_name = if key_name.is_empty() {
+                String::new()
+            } else {
+                std::path::Path::new(&key_name)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&key_name)
+                    .to_string()
+            };
+            Some(KeyInfo {
+                session_id: session.id.clone(),
+                session_name: name,
+                host: session.host.clone(),
+                user: session.user.clone(),
+                source: source.into(),
+                path: file_name,
+                key_type,
+                fingerprint,
+                status,
+            })
+        })
+        .collect()
+}
+
 /// Convenience for a frontend that keeps a registry of sessions.
 pub type SessionRegistry = HashMap<u64, Arc<TerminalSession>>;
 

@@ -17,6 +17,7 @@ enum HostsLayout { cards, rows }
 
 class HostsScreen extends StatefulWidget {
   final ValueChanged<Host>? onConnect;
+
   /// Session source; defaults to the Rust core through the FFI bridge.
   final Future<List<Host>> Function()? loadHosts;
 
@@ -99,6 +100,7 @@ class _HostsScreenState extends State<HostsScreen> {
         username: host.username,
         group: host.group,
         kind: host.protocol,
+        keyPath: host.keyPath,
       );
       if (!result.ok) return result.error ?? 'Save failed';
       await _reload(silent: true);
@@ -172,9 +174,9 @@ class _HostsScreenState extends State<HostsScreen> {
 
   /// The hover pencil opens the details drawer (edit path).
   void _onEditHost(Host host) => setState(() {
-        _drawerHost = host;
-        _drawerOpen = true;
-      });
+    _drawerHost = host;
+    _drawerOpen = true;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -207,8 +209,9 @@ class _HostsScreenState extends State<HostsScreen> {
                         height: 36,
                         decoration: BoxDecoration(
                           color: TermiusMetrics.searchFieldFill,
-                          borderRadius:
-                              BorderRadius.circular(TermiusRadius.field),
+                          borderRadius: BorderRadius.circular(
+                            TermiusRadius.field,
+                          ),
                         ),
                         padding: const EdgeInsets.only(left: 12, right: 8),
                         child: Row(
@@ -216,10 +219,10 @@ class _HostsScreenState extends State<HostsScreen> {
                             Expanded(
                               child: TextField(
                                 controller: _search,
-                                border:
-                                    Border.all(color: Colors.transparent),
+                                border: Border.all(color: Colors.transparent),
                                 borderRadius: BorderRadius.circular(
-                                    TermiusRadius.field),
+                                  TermiusRadius.field,
+                                ),
                                 decoration: const BoxDecoration(
                                   color: Colors.transparent,
                                   borderRadius: BorderRadius.all(
@@ -233,8 +236,7 @@ class _HostsScreenState extends State<HostsScreen> {
                                     color: theme.colorScheme.mutedForeground,
                                   ),
                                 ),
-                                onChanged: (v) =>
-                                    setState(() => _query = v),
+                                onChanged: (v) => setState(() => _query = v),
                                 style: theme.typography.normal.copyWith(
                                   fontSize: 14,
                                   color: theme.colorScheme.foreground,
@@ -299,11 +301,14 @@ class _HostsScreenState extends State<HostsScreen> {
                           ),
                           const SizedBox(width: 6),
                           IconToggleButton(
-                              icon: LucideIcons.tag, onPressed: () {}),
+                            icon: LucideIcons.tag,
+                            onPressed: () {},
+                          ),
                           const SizedBox(width: 6),
                           IconToggleButton(
-                              icon: LucideIcons.keyboard,
-                              onPressed: () {}),
+                            icon: LucideIcons.keyboard,
+                            onPressed: () {},
+                          ),
                           const SizedBox(width: 10),
                           Container(
                             width: 28,
@@ -375,15 +380,12 @@ class _HostsScreenState extends State<HostsScreen> {
                           ),
                         )
                       : _loadError != null
-                          ? _ErrorState(
-                              message: _loadError!,
-                              onRetry: _reload,
-                            )
-                          : hosts.isEmpty
-                              ? const _EmptyState()
-                              : _layout == HostsLayout.cards
-                                  ? _cardGrid(hosts)
-                                  : _rowList(hosts),
+                      ? _ErrorState(message: _loadError!, onRetry: _reload)
+                      : hosts.isEmpty
+                      ? const _EmptyState()
+                      : _layout == HostsLayout.cards
+                      ? _cardGrid(hosts)
+                      : _rowList(hosts),
                 ),
               ),
             ],
@@ -465,16 +467,27 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.server,
-              size: 34, color: theme.colorScheme.mutedForeground),
+          Icon(
+            LucideIcons.server,
+            size: 34,
+            color: theme.colorScheme.mutedForeground,
+          ),
           const SizedBox(height: 12),
-          Text('No hosts yet',
-              style: theme.typography.semiBold.copyWith(
-                  fontSize: 16, color: theme.colorScheme.foreground)),
+          Text(
+            'No hosts yet',
+            style: theme.typography.semiBold.copyWith(
+              fontSize: 16,
+              color: theme.colorScheme.foreground,
+            ),
+          ),
           const SizedBox(height: 4),
-          Text('Hosts saved by the XenTerm core appear here.',
-              style: theme.typography.normal.copyWith(
-                  fontSize: 13, color: theme.colorScheme.mutedForeground)),
+          Text(
+            'Hosts saved by the XenTerm core appear here.',
+            style: theme.typography.normal.copyWith(
+              fontSize: 13,
+              color: theme.colorScheme.mutedForeground,
+            ),
+          ),
         ],
       ),
     );
@@ -494,12 +507,19 @@ class _ErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(LucideIcons.circleAlert,
-              size: 30, color: theme.colorScheme.destructive),
+          Icon(
+            LucideIcons.circleAlert,
+            size: 30,
+            color: theme.colorScheme.destructive,
+          ),
           const SizedBox(height: 12),
-          Text('Could not load hosts',
-              style: theme.typography.semiBold.copyWith(
-                  fontSize: 16, color: theme.colorScheme.foreground)),
+          Text(
+            'Could not load hosts',
+            style: theme.typography.semiBold.copyWith(
+              fontSize: 16,
+              color: theme.colorScheme.foreground,
+            ),
+          ),
           const SizedBox(height: 4),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
@@ -507,16 +527,22 @@ class _ErrorState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: theme.typography.normal.copyWith(
-                  fontSize: 12, color: theme.colorScheme.mutedForeground),
+                fontSize: 12,
+                color: theme.colorScheme.mutedForeground,
+              ),
             ),
           ),
           const SizedBox(height: 12),
           GhostButton(
             density: ButtonDensity.compact,
             onPressed: onRetry,
-            child: Text('Retry',
-                style: theme.typography.normal.copyWith(
-                    fontSize: 13, color: theme.colorScheme.foreground)),
+            child: Text(
+              'Retry',
+              style: theme.typography.normal.copyWith(
+                fontSize: 13,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
           ),
         ],
       ),

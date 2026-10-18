@@ -34,8 +34,10 @@ class HostDetailsPanel extends StatefulWidget {
   final Host host;
   final VoidCallback onClose;
   final VoidCallback onConnect;
+
   /// Persists the edited fields to the core; returns an error text or null.
   final Future<String?> Function(Host) onSave;
+
   /// Deletes the session from the core; returns an error text or null.
   final Future<String?> Function(Host) onDelete;
 
@@ -53,16 +55,24 @@ class HostDetailsPanel extends StatefulWidget {
 }
 
 class _HostDetailsPanelState extends State<HostDetailsPanel> {
-  late final TextEditingController _address =
-      TextEditingController(text: widget.host.address);
-  late final TextEditingController _label =
-      TextEditingController(text: widget.host.label);
-  late final TextEditingController _group =
-      TextEditingController(text: widget.host.group);
-  late final TextEditingController _port =
-      TextEditingController(text: '${widget.host.port}');
-  late final TextEditingController _username =
-      TextEditingController(text: widget.host.username);
+  late final TextEditingController _address = TextEditingController(
+    text: widget.host.address,
+  );
+  late final TextEditingController _label = TextEditingController(
+    text: widget.host.label,
+  );
+  late final TextEditingController _group = TextEditingController(
+    text: widget.host.group,
+  );
+  late final TextEditingController _port = TextEditingController(
+    text: '${widget.host.port}',
+  );
+  late final TextEditingController _username = TextEditingController(
+    text: widget.host.username,
+  );
+  late final TextEditingController _keyPath = TextEditingController(
+    text: widget.host.keyPath,
+  );
   bool _saving = false;
   String? _saveError;
 
@@ -75,6 +85,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
       _group.text = widget.host.group;
       _port.text = '${widget.host.port}';
       _username.text = widget.host.username;
+      _keyPath.text = widget.host.keyPath;
       _saveError = null;
     }
   }
@@ -86,21 +97,24 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
     _group.dispose();
     _port.dispose();
     _username.dispose();
+    _keyPath.dispose();
     super.dispose();
   }
 
   Host _edited() => Host(
-        id: widget.host.id,
-        label: _label.text,
-        address: _address.text,
-        port: int.tryParse(_port.text.trim()) ?? widget.host.port,
-        username: _username.text,
-        group: _group.text,
-        protocol: widget.host.protocol,
-        os: widget.host.os,
-        tags: widget.host.tags,
-        lastUsed: widget.host.lastUsed,
-      );
+    id: widget.host.id,
+    label: _label.text,
+    address: _address.text,
+    port: int.tryParse(_port.text.trim()) ?? widget.host.port,
+    username: _username.text,
+    group: _group.text,
+    protocol: widget.host.protocol,
+    os: widget.host.os,
+    tags: widget.host.tags,
+    lastUsed: widget.host.lastUsed,
+    keyPath: _keyPath.text.trim(),
+    auth: _keyPath.text.trim().isEmpty ? 'password' : 'key',
+  );
 
   Future<void> _delete() async {
     final error = await widget.onDelete(widget.host);
@@ -145,10 +159,10 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.destructive
-                            .withValues(alpha: 0.12),
-                        borderRadius:
-                            BorderRadius.circular(TermiusRadius.card),
+                        color: theme.colorScheme.destructive.withValues(
+                          alpha: 0.12,
+                        ),
+                        borderRadius: BorderRadius.circular(TermiusRadius.card),
                       ),
                       child: Text(
                         _saveError!,
@@ -180,8 +194,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   _FormCard(
                     children: [
                       const _SectionTitle('General'),
-                      _PanelField(
-                          controller: _label, placeholder: 'Label'),
+                      _PanelField(controller: _label, placeholder: 'Label'),
                       _PanelField(
                         controller: _group,
                         placeholder: 'Parent Group',
@@ -203,6 +216,13 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             controller: _username,
                             placeholder: 'Username',
                             leading: LucideIcons.user,
+                          ),
+                          const SizedBox(height: 10),
+                          _PanelField(
+                            key: const ValueKey('host-key-path'),
+                            controller: _keyPath,
+                            placeholder: 'Private key path (optional)',
+                            leading: LucideIcons.keyRound,
                           ),
                         ],
                       ),
@@ -275,15 +295,21 @@ class _Header extends StatelessWidget {
           // The check persists the drawer's edits into the core store.
           _HeaderIcon(
             onPressed: saving ? null : onSave,
-            child: Icon(LucideIcons.check,
-                size: 15, color: saving ? _textDisabled : Colors.white),
+            child: Icon(
+              LucideIcons.check,
+              size: 15,
+              color: saving ? _textDisabled : Colors.white,
+            ),
           ),
           const SizedBox(width: 5),
           _MoreButton(onDelete: onDelete),
           _HeaderIcon(
             onPressed: onClose,
-            child: const Icon(LucideIcons.arrowRightToLine,
-                size: 16, color: _titleGrey),
+            child: const Icon(
+              LucideIcons.arrowRightToLine,
+              size: 16,
+              color: _titleGrey,
+            ),
           ),
         ],
       ),
@@ -393,8 +419,11 @@ class _MoreItem extends StatelessWidget {
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
-            Icon(LucideIcons.trash2,
-                size: 15, color: theme.colorScheme.destructive),
+            Icon(
+              LucideIcons.trash2,
+              size: 15,
+              color: theme.colorScheme.destructive,
+            ),
             const SizedBox(width: 10),
             Text(
               label,
@@ -507,6 +536,7 @@ class _PanelField extends StatelessWidget {
   final double height;
 
   const _PanelField({
+    super.key,
     required this.placeholder,
     required this.controller,
     this.leading,

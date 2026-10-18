@@ -20,8 +20,15 @@ class Host {
   final List<String> tags;
   final HostOs os;
   final String? lastUsed;
+
   /// "ssh" / "serial" / "telnet" / "local" — the first part of the card line.
   final String protocol;
+
+  /// "password" / "key" / "keyboard-interactive".
+  final String auth;
+
+  /// Non-secret private key path; empty when the host uses a password.
+  final String keyPath;
 
   const Host({
     required this.id,
@@ -34,6 +41,8 @@ class Host {
     this.os = HostOs.debian,
     this.lastUsed,
     this.protocol = 'ssh',
+    this.auth = 'password',
+    this.keyPath = '',
   });
 
   /// Maps one `xenterm_sessions_json` row (native bridge) onto the UI model.
@@ -51,11 +60,12 @@ class Host {
       protocol: kind,
       os: kind == 'serial' ? HostOs.linux : HostOs.debian,
       lastUsed: json['last_used'] as String?,
+      auth: (json['auth'] as String?) ?? 'password',
+      keyPath: (json['private_key_path'] as String?) ?? '',
     );
   }
 
-  String get detail =>
-      username.isEmpty ? address : '$username@$address:$port';
+  String get detail => username.isEmpty ? address : '$username@$address:$port';
 
   /// "ssh, root, 阿里云" — the card's second line.
   String get subtitle {
