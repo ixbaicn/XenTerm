@@ -138,6 +138,9 @@ class _Handle(paramiko.SFTPHandle):
 
 
 class Server(paramiko.ServerInterface):
+    def __init__(self):
+        self.direct_requests = {}
+
     def check_auth_password(self, username, password):
         return (
             paramiko.AUTH_SUCCESSFUL
@@ -154,6 +157,12 @@ class Server(paramiko.ServerInterface):
 
     def check_channel_request(self, kind, chanid):
         print("channel request", kind, flush=True)
+        return paramiko.OPEN_SUCCEEDED
+
+    def check_channel_direct_tcpip_request(self, chanid, origin, destination):
+        """Accept local (-L) forwarding and remember where to connect."""
+        print("direct-tcpip", origin, "->", destination, flush=True)
+        self.direct_requests[chanid] = destination
         return paramiko.OPEN_SUCCEEDED
 
     def check_channel_shell_request(self, channel):
@@ -173,6 +182,46 @@ class Server(paramiko.ServerInterface):
         )
         handler.start()
         return True
+
+
+def pump_forward(channel, destination):
+    """Bridge one forwarded channel to a plain TCP socket."""
+    try:
+        target = socket.create_connection(destination, timeout=5)
+    except OSError as error:
+        print("forward connect failed", destination, error, flush=True)
+        channel.close()
+        return
+    print("forward connected", destination, flush=True)
+
+    def channel_to_target():
+        try:
+            while True:
+                data = channel.recv(4096)
+                if not data:
+                    break
+                target.sendall(data)
+        except Exception:
+            pass
+        try:
+            target.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+
+    threading.Thread(target=channel_to_target, daemon=True).start()
+    try:
+        while True:
+            data = target.recv(4096)
+            if not data:
+                break
+            channel.sendall(data)
+    except Exception:
+        pass
+    try:
+        target.close()
+    except OSError:
+        pass
+    channel.close()
 
 
 def serve_client(client, addr, host_key):
@@ -195,8 +244,39 @@ def serve_client(client, addr, host_key):
         channel = transport.accept(1)
         if channel is not None:
             channels.append(channel)
+            destination = server.direct_requests.pop(channel.get_id(), None)
+            if destination is not None:
+                threading.Thread(
+                    target=pump_forward,
+                    args=(channel, destination),
+                    daemon=True,
+                ).start()
         else:
             threading.Event().wait(0.1)
+
+
+def echo_server(port):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", port))
+    listener.listen(8)
+    print(f"echo listening on 127.0.0.1:{port}", flush=True)
+    while True:
+        conn, _ = listener.accept()
+        threading.Thread(target=echo_one, args=(conn,), daemon=True).start()
+
+
+def echo_one(conn):
+    try:
+        while True:
+            data = conn.recv(4096)
+            if not data:
+                break
+            conn.sendall(data)
+    except OSError:
+        pass
+    finally:
+        conn.close()
 
 
 def main():
@@ -216,6 +296,9 @@ def main():
         f.write(line + "\n")
     print("hostkey:", line)
     print("root:", ROOT)
+
+    echo_port = int(os.environ.get("XENTERM_SFTP_ECHO_PORT", "18081"))
+    threading.Thread(target=echo_server, args=(echo_port,), daemon=True).start()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
