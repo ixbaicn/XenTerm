@@ -55,6 +55,7 @@ class _RootShellState extends State<RootShell> {
   final List<Host> _openHosts = <Host>[];
   String? _activeHostId;
   bool _terminalSftp = false;
+  bool _railOpen = true;
 
   Host? get _activeHost {
     for (final host in _openHosts) {
@@ -67,6 +68,9 @@ class _RootShellState extends State<RootShell> {
     setState(() {
       if (!_openHosts.any((h) => h.id == host.id)) _openHosts.add(host);
       _activeHostId = host.id;
+      // The terminal gets the full width; the hamburger brings the rail back
+      // (the original's terminal window opens with the side menu collapsed).
+      _railOpen = false;
     });
   }
 
@@ -76,6 +80,7 @@ class _RootShellState extends State<RootShell> {
       if (_activeHostId == id) {
         _activeHostId = null;
         _terminalSftp = false;
+        if (_openHosts.isEmpty) _railOpen = true;
       }
     });
   }
@@ -110,21 +115,37 @@ class _RootShellState extends State<RootShell> {
             onNewTab: () => setState(() => _activeHostId = null),
             showSftp: _terminalSftp,
             onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
+            onToggleSidebar: () => setState(() => _railOpen = !_railOpen),
           ),
           Expanded(
             child: Row(
               children: [
-                _NavRail(
-                  width: _navRailWidth,
-                  active: _active,
-                  destinations: _destinations,
-                  onSelect: (d) => setState(() {
-                    _active = d;
-                    // Choosing a screen in the rail parks the session tabs;
-                    // clicking a tab in the title bar brings them back.
-                    _activeHostId = null;
-                    _terminalSftp = false;
-                  }),
+                // Collapsible rail: fixed-width content clipped by an
+                // animated 0⇄182px box (no squashing mid-animation).
+                ClipRect(
+                  child: AnimatedContainer(
+                    duration: TermiusMotion.micro,
+                    curve: TermiusMotion.easeOut,
+                    width: _railOpen ? _navRailWidth : 0,
+                    child: OverflowBox(
+                      alignment: Alignment.centerLeft,
+                      minWidth: _navRailWidth,
+                      maxWidth: _navRailWidth,
+                      child: _NavRail(
+                        width: _navRailWidth,
+                        active: _active,
+                        destinations: _destinations,
+                        onSelect: (d) => setState(() {
+                          _active = d;
+                          // Choosing a screen in the rail parks the session
+                          // tabs; clicking a tab in the title bar brings them
+                          // back.
+                          _activeHostId = null;
+                          _terminalSftp = false;
+                        }),
+                      ),
+                    ),
+                  ),
                 ),
                 Expanded(
                   child: _activeHost != null

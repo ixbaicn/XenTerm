@@ -26,6 +26,7 @@ class TitleBar extends StatelessWidget {
   final VoidCallback? onNewTab;
   final bool showSftp;
   final VoidCallback? onToggleSftp;
+  final VoidCallback? onToggleSidebar;
 
   const TitleBar({
     super.key,
@@ -36,6 +37,7 @@ class TitleBar extends StatelessWidget {
     this.onNewTab,
     this.showSftp = false,
     this.onToggleSftp,
+    this.onToggleSidebar,
   });
 
   @override
@@ -70,11 +72,7 @@ class TitleBar extends StatelessWidget {
             padding: const EdgeInsets.only(left: 10),
             child: Row(
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Icon(LucideIcons.list,
-                      size: 14, color: Color(0xFF8D91A5)),
-                ),
+                _SidebarToggle(onPressed: onToggleSidebar),
                 const SizedBox(width: 5),
                 _SftpPill(
                   active: showSftp,
@@ -204,6 +202,47 @@ class _SessionTabState extends State<_SessionTab> {
 }
 
 const _muted = Color(0xFF8D91A5);
+
+/// The hamburger: toggles the left navigation rail (Termius collapses it in
+/// the terminal window; the same button brings it back).
+class _SidebarToggle extends StatefulWidget {
+  final VoidCallback? onPressed;
+
+  const _SidebarToggle({this.onPressed});
+
+  @override
+  State<_SidebarToggle> createState() => _SidebarToggleState();
+}
+
+class _SidebarToggleState extends State<_SidebarToggle> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        key: const ValueKey('toggle-sidebar'),
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hovering ? const Color(0xFF2C2F3F) : Colors.transparent,
+            borderRadius: BorderRadius.circular(TermiusRadius.card),
+          ),
+          child: const Icon(LucideIcons.list, size: 14, color: _muted),
+        ),
+      ),
+    );
+  }
+}
 
 /// The SFTP tab from the original: a filled --dark-grey-3 chip with the
 /// folder icon and label; it toggles the active terminal's SFTP view.
