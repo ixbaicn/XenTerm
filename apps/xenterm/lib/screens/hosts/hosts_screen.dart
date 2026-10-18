@@ -26,7 +26,8 @@ class HostsScreen extends StatefulWidget {
 class _HostsScreenState extends State<HostsScreen> {
   final TextEditingController _search = TextEditingController();
   HostsLayout _layout = HostsLayout.cards;
-  Host? _selected;
+  Host? _drawerHost;
+  bool _drawerOpen = false;
   String _query = '';
 
   @override
@@ -52,12 +53,18 @@ class _HostsScreenState extends State<HostsScreen> {
     if (host != null) widget.onConnect?.call(host);
   }
 
+  /// Collapse first; AnimatedSize.onEnd unmounts the panel afterwards.
+  void _closeDrawer() => setState(() => _drawerOpen = false);
+
   void _onCardTap(Host host) {
-    if (_selected?.id == host.id) {
+    if (_drawerOpen && _drawerHost?.id == host.id) {
       _connect(host);
-    } else {
-      setState(() => _selected = host);
+      return;
     }
+    setState(() {
+      _drawerHost = host;
+      _drawerOpen = true;
+    });
   }
 
   @override
@@ -104,16 +111,14 @@ class _HostsScreenState extends State<HostsScreen> {
                 // drawer's).
                 GhostButton(
                   density: ButtonDensity.compact,
-                  onPressed: _selected == null
-                      ? null
-                      : () => _connect(_selected),
+                  onPressed: _drawerOpen ? null : () => _connect(_drawerHost),
                   child: Text(
                     '连接',
                     style: theme.typography.normal.copyWith(
                       fontSize: 13,
-                      color: _selected == null
-                          ? theme.colorScheme.mutedForeground
-                          : theme.colorScheme.foreground,
+                      color: _drawerOpen
+                          ? theme.colorScheme.foreground
+                          : theme.colorScheme.mutedForeground,
                     ),
                   ),
                 ),
@@ -215,53 +220,55 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
         ),
         Expanded(
-          child: Stack(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: _layout == HostsLayout.cards
-                    ? _cardGrid(hosts)
-                    : _rowList(hosts),
-              ),
-              // The details DRAWER: docked at the right edge, full height,
-              // sliding in from the right — the original's arrangement.
-              if (_selected != null)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 480,
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 1, end: 0),
-                    duration: TermiusMotion.panel,
-                    curve: TermiusMotion.easeOut,
-                    builder: (context, offset, child) => Transform.translate(
-                      offset: Offset(offset * 480, 0),
-                      child: child,
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.background,
-                        border: Border(
-                          left: BorderSide(color: theme.colorScheme.border),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.30),
-                            blurRadius: 18,
-                            offset: const Offset(-6, 0),
-                          ),
-                        ],
-                      ),
-                      child: HostDetailsPanel(
-                        host: _selected!,
-                        onClose: () => setState(() => _selected = null),
-                        onConnect: () => _connect(_selected),
-                        onEditAll: () {},
-                      ),
-                    ),
-                  ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: _layout == HostsLayout.cards
+                      ? _cardGrid(hosts)
+                      : _rowList(hosts),
                 ),
+              ),
+              // The details drawer PUSHES the grid: AnimatedSize animates
+              // its width both ways, so the cards reflow while it opens and
+              // the column is reclaimed while it collapses (no instant
+              // removal, no floating popup — the original's behavior).
+              AnimatedSize(
+                duration:
+                    _drawerOpen ? TermiusMotion.panel : TermiusMotion.collapse,
+                curve: TermiusMotion.easeInOut,
+                alignment: Alignment.centerRight,
+                onEnd: () {
+                  if (!_drawerOpen && _drawerHost != null) {
+                    setState(() => _drawerHost = null);
+                  }
+                },
+                child: _drawerOpen && _drawerHost != null
+                    ? SizedBox(
+                        // The original drawer is ~420 logical px wide —
+                        // narrower than half the window, so the grid keeps
+                        // its two-column rhythm while it pushes.
+                        width: 420,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.background,
+                            border: Border(
+                              left: BorderSide(
+                                  color: theme.colorScheme.border),
+                            ),
+                          ),
+                          child: HostDetailsPanel(
+                            host: _drawerHost!,
+                            onClose: _closeDrawer,
+                            onConnect: () => _connect(_drawerHost),
+                            onEditAll: () {},
+                          ),
+                        ),
+                      )
+                    : const SizedBox(width: 0),
+              ),
             ],
           ),
         ),
@@ -282,7 +289,7 @@ class _HostsScreenState extends State<HostsScreen> {
         final host = hosts[index];
         return HostCard.grid(
           host: host,
-          selected: _selected?.id == host.id,
+          selected: _drawerOpen && _drawerHost?.id == host.id,
           onTap: () => _onCardTap(host),
         );
       },
@@ -298,7 +305,7 @@ class _HostsScreenState extends State<HostsScreen> {
           padding: const EdgeInsets.only(bottom: 8),
           child: HostCard.row(
             host: host,
-            selected: _selected?.id == host.id,
+            selected: _drawerOpen && _drawerHost?.id == host.id,
             onTap: () => _onCardTap(host),
           ),
         );
