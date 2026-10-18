@@ -84,11 +84,11 @@ class HostDetailsPanel extends StatelessWidget {
                       _PanelField(initialValue: host.label, placeholder: 'Label'),
                       _PanelField(
                         placeholder: 'Parent Group',
-                        leading: BootstrapIcons.folder,
+                        leading: LucideIcons.folder,
                       ),
                       _PanelField(
                         placeholder: 'Tags',
-                        leading: BootstrapIcons.tag,
+                        leading: LucideIcons.tag,
                       ),
                       const _BackspaceRow(),
                     ],
@@ -114,7 +114,7 @@ class HostDetailsPanel extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Icon(
-                              BootstrapIcons.peopleFill,
+                              LucideIcons.users,
                               size: 18,
                               color: theme.colorScheme.primary,
                             ),
@@ -136,12 +136,12 @@ class HostDetailsPanel extends StatelessWidget {
                           _PanelField(
                             initialValue: host.username,
                             placeholder: 'Username',
-                            leading: BootstrapIcons.person,
+                            leading: LucideIcons.user,
                           ),
                           const SizedBox(height: 10),
                           const _PanelField(
                             placeholder: 'Password',
-                            leading: BootstrapIcons.key,
+                            leading: LucideIcons.keyRound,
                             obscure: true,
                           ),
                         ],
@@ -207,15 +207,19 @@ class _Header extends StatelessWidget {
           // savingStatus: an 18px slot with a 14px check.
           const SizedBox(
             width: 18,
-            child: Icon(BootstrapIcons.check2, size: 14, color: Colors.white),
+            child: Icon(LucideIcons.check, size: 14, color: Colors.white),
           ),
           const SizedBox(width: 5),
           _HeaderIcon(
             onPressed: () {},
-            child: const Icon(BootstrapIcons.threeDots,
+            child: const Icon(LucideIcons.ellipsis,
                 size: 15, color: _titleGrey),
           ),
-          _HeaderIcon(onPressed: onClose, child: const _ArrowRightPipe()),
+          _HeaderIcon(
+            onPressed: onClose,
+            child: const Icon(LucideIcons.arrowRightToLine,
+                size: 16, color: _titleGrey),
+          ),
         ],
       ),
     );
@@ -234,33 +238,6 @@ class _HeaderIcon extends StatelessWidget {
       onPressed: onPressed,
       icon: child,
       size: ButtonSize.small,
-    );
-  }
-}
-
-/// Termius's close glyph: a right arrow ending on a vertical pipe (→|).
-class _ArrowRightPipe extends StatelessWidget {
-  const _ArrowRightPipe();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 19,
-      height: 18,
-      child: Stack(
-        children: [
-          const Positioned(
-            left: 0,
-            top: 1,
-            child: Icon(BootstrapIcons.arrowRight, size: 16, color: _titleGrey),
-          ),
-          Positioned(
-            right: 0,
-            top: 2,
-            child: Container(width: 1.6, height: 14, color: _titleGrey),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -417,7 +394,7 @@ class _BackspaceRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(BootstrapIcons.keyboard, size: 14, color: _textDisabled),
+          const Icon(LucideIcons.keyboard, size: 14, color: _textDisabled),
           const SizedBox(width: 5),
           Text(
             'Backspace',
@@ -458,7 +435,7 @@ class _VaultCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(BootstrapIcons.safe, size: 16, color: theme.colorScheme.foreground),
+          Icon(LucideIcons.vault, size: 16, color: theme.colorScheme.foreground),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -469,8 +446,8 @@ class _VaultCard extends StatelessWidget {
               ),
             ),
           ),
-          Icon(BootstrapIcons.chevronDown,
-              size: 12, color: theme.colorScheme.foreground),
+          Icon(LucideIcons.chevronDown,
+              size: 14, color: theme.colorScheme.foreground),
         ],
       ),
     );

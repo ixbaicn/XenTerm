@@ -43,15 +43,15 @@ class ForwardsScreen extends StatelessWidget {
           child: Row(
             children: [
               const SplitButton(
-                  label: '新建转发规则', icon: BootstrapIcons.plus),
+                  label: '新建转发规则', icon: LucideIcons.plus),
               const SizedBox(width: 20),
               const GhostAction(
-                  icon: BootstrapIcons.arrowLeftRight, label: '全部暂停'),
+                  icon: LucideIcons.arrowLeftRight, label: '全部暂停'),
               const Spacer(),
               const Row(children: [
-                IconToggleButton(icon: BootstrapIcons.search),
+                IconToggleButton(icon: LucideIcons.search),
                 SizedBox(width: 6),
-                IconToggleButton(icon: BootstrapIcons.grid),
+                IconToggleButton(icon: LucideIcons.layoutGrid),
               ]),
             ],
           ),

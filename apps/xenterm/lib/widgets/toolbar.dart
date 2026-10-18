@@ -57,8 +57,8 @@ class SplitButton extends StatelessWidget {
             _SplitSegment(
               onTap: onDropdown,
               padding: const EdgeInsets.symmetric(horizontal: 9),
-              child: Icon(BootstrapIcons.caretDownFill,
-                  size: 11, color: theme.colorScheme.foreground),
+              child: Icon(LucideIcons.chevronDown,
+                  size: 14, color: theme.colorScheme.foreground),
             ),
           ],
         ),

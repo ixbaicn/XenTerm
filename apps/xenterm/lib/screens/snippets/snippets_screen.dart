@@ -36,15 +36,15 @@ class SnippetsScreen extends StatelessWidget {
           child: Row(
             children: [
               const SplitButton(
-                  label: '新建快捷命令', icon: BootstrapIcons.plus),
+                  label: '新建快捷命令', icon: LucideIcons.plus),
               const SizedBox(width: 20),
               const GhostAction(
-                  icon: BootstrapIcons.collection, label: '分组管理'),
+                  icon: LucideIcons.folderTree, label: '分组管理'),
               const Spacer(),
               const Row(children: [
-                IconToggleButton(icon: BootstrapIcons.search),
+                IconToggleButton(icon: LucideIcons.search),
                 SizedBox(width: 6),
-                IconToggleButton(icon: BootstrapIcons.list),
+                IconToggleButton(icon: LucideIcons.list),
               ]),
             ],
           ),
@@ -92,7 +92,7 @@ class _SnippetCard extends StatelessWidget {
               color: theme.colorScheme.popover,
               borderRadius: BorderRadius.circular(TermiusRadius.card),
             ),
-            child: Icon(BootstrapIcons.terminal,
+            child: Icon(LucideIcons.terminal,
                 size: 18, color: theme.colorScheme.mutedForeground),
           ),
           const SizedBox(width: 14),
@@ -126,7 +126,7 @@ class _SnippetCard extends StatelessWidget {
             ),
           ),
           // Send-to-terminal action, revealed per the original's hover.
-          Icon(BootstrapIcons.send,
+          Icon(LucideIcons.send,
               size: 15, color: theme.colorScheme.mutedForeground),
         ],
       ),

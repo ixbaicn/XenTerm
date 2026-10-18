@@ -52,41 +52,41 @@ class TitleBar extends StatelessWidget {
               children: [
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Icon(BootstrapIcons.list,
+                  child: Icon(LucideIcons.list,
                       size: 14, color: Color(0xFF8D91A5)),
                 ),
                 const SizedBox(width: 5),
                 const _TitlePill(
-                  icon: Icon(BootstrapIcons.safe,
+                  icon: Icon(LucideIcons.vault,
                       size: 15, color: Color(0xFF8D91A5)),
                   label: 'Vaults',
                   filled: true,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(BootstrapIcons.cloudFill,
+                      Icon(LucideIcons.cloud,
                           size: 13, color: Color(0xFF8D91A5)),
                       SizedBox(width: 6),
-                      Icon(BootstrapIcons.caretDownFill,
-                          size: 9, color: Color(0xFF8D91A5)),
+                      Icon(LucideIcons.chevronDown,
+                          size: 12, color: Color(0xFF8D91A5)),
                     ],
                   ),
                 ),
                 const SizedBox(width: 5),
                 const _TitlePill(
-                  icon: Icon(BootstrapIcons.folder2Open,
+                  icon: Icon(LucideIcons.folderOpen,
                       size: 15, color: Color(0xFF8D91A5)),
                   label: 'SFTP',
                 ),
                 const SizedBox(width: 5),
                 _PillButton(
-                  icon: BootstrapIcons.plus,
+                  icon: LucideIcons.plus,
                   onPressed: () {},
                 ),
                 const Spacer(),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(BootstrapIcons.bell,
+                  child: Icon(LucideIcons.bell,
                       size: 15, color: Color(0xFF8D91A5)),
                 ),
                 const SizedBox(width: 4),
@@ -219,11 +219,11 @@ class _WindowControls extends StatelessWidget {
     return Row(
       children: [
         _ControlButton(
-          icon: BootstrapIcons.dashLg,
+          icon: LucideIcons.minus,
           onTap: windowManager.minimize,
         ),
         _ControlButton(
-          icon: BootstrapIcons.square,
+          icon: LucideIcons.square,
           onTap: () async {
             if (await windowManager.isMaximized()) {
               await windowManager.unmaximize();
@@ -233,7 +233,7 @@ class _WindowControls extends StatelessWidget {
           },
         ),
         _ControlButton(
-          icon: BootstrapIcons.xLg,
+          icon: LucideIcons.x,
           hoverColor: const Color(0xFFE81123), // Windows close red
           onTap: windowManager.close,
         ),

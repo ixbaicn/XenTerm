@@ -44,12 +44,12 @@ class _TerminalScreenState extends State<TerminalScreen> {
             color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
             child: Row(
               children: [
-                _tab(context, BootstrapIcons.cloudFill, 'Vault', false, null),
+                _tab(context, LucideIcons.cloud, 'Vault', false, null),
                 const SizedBox(width: 8),
                 Flexible(
                   child: _tab(
                     context,
-                    BootstrapIcons.terminal,
+                    LucideIcons.terminal,
                     widget.host.label,
                     !_sftpActive,
                     widget.onClose,
@@ -76,7 +76,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                   const SizedBox(width: 8),
                 ],
                 Icon(
-                  BootstrapIcons.plus,
+                  LucideIcons.plus,
                   size: 20,
                   color: scheme.mutedForeground,
                 ),

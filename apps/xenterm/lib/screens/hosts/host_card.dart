@@ -24,7 +24,7 @@ OsChip osChipFor(HostOs os) => switch (os) {
       HostOs.arch => const OsChip(Color(0xFF1793D1), SimpleIcons.archlinux),
       HostOs.linux => const OsChip(Color(0xFF3E4257), SimpleIcons.linux),
       HostOs.windows =>
-        const OsChip(Color(0xFF2091F6), BootstrapIcons.windows),
+        const OsChip(Color(0xFF2091F6), LucideIcons.appWindow),
       HostOs.apple => const OsChip(Color(0xFF5A5E73), SimpleIcons.apple),
       HostOs.android => const OsChip(Color(0xFF21B568), SimpleIcons.android),
     };
@@ -147,7 +147,7 @@ class _HostCardState extends State<HostCard> {
                         color: const Color(0xFF3E4257),
                         borderRadius: BorderRadius.circular(TermiusRadius.menu),
                       ),
-                      child: const Icon(BootstrapIcons.pencil,
+                      child: const Icon(LucideIcons.pencil,
                           size: 13, color: Colors.white),
                     ),
                   ),

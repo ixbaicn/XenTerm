@@ -55,12 +55,12 @@ class _RootShellState extends State<RootShell> {
   static const double _navRailWidth = 182;
 
   static const List<(NavDestination, String, IconData)> _destinations = [
-    (NavDestination.hosts, 'Hosts', BootstrapIcons.grid),
-    (NavDestination.keys, 'Keychain', BootstrapIcons.key),
-    (NavDestination.forwards, 'Port Forwarding', BootstrapIcons.arrowLeftRight),
-    (NavDestination.snippets, 'Snippets', BootstrapIcons.braces),
-    (NavDestination.knownHosts, 'Known Hosts', BootstrapIcons.shieldCheck),
-    (NavDestination.logs, 'Logs', BootstrapIcons.exclamationCircle),
+    (NavDestination.hosts, 'Hosts', LucideIcons.layoutGrid),
+    (NavDestination.keys, 'Keychain', LucideIcons.keyRound),
+    (NavDestination.forwards, 'Port Forwarding', LucideIcons.arrowLeftRight),
+    (NavDestination.snippets, 'Snippets', LucideIcons.braces),
+    (NavDestination.knownHosts, 'Known Hosts', LucideIcons.shieldCheck),
+    (NavDestination.logs, 'Logs', LucideIcons.circleAlert),
   ];
 
   @override

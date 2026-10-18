@@ -161,27 +161,27 @@ class _HostsScreenState extends State<HostsScreen> {
                         children: [
                           SplitButton(
                             label: 'New host',
-                            icon: BootstrapIcons.plus,
+                            icon: LucideIcons.plus,
                             onPressed: () {},
                             onDropdown: () {},
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
-                            icon: BootstrapIcons.terminal,
+                            icon: LucideIcons.terminal,
                             label: 'Terminal',
                             onPressed: () {},
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
-                            icon: BootstrapIcons.usbPlug,
+                            icon: LucideIcons.usb,
                             label: 'Serial',
                             onPressed: () {},
                           ),
                           const Spacer(),
                           IconToggleButton(
                             icon: _layout == HostsLayout.cards
-                                ? BootstrapIcons.grid
-                                : BootstrapIcons.list,
+                                ? LucideIcons.layoutGrid
+                                : LucideIcons.list,
                             onPressed: () => setState(
                               () => _layout = _layout == HostsLayout.cards
                                   ? HostsLayout.rows
@@ -190,10 +190,10 @@ class _HostsScreenState extends State<HostsScreen> {
                           ),
                           const SizedBox(width: 6),
                           IconToggleButton(
-                              icon: BootstrapIcons.tag, onPressed: () {}),
+                              icon: LucideIcons.tag, onPressed: () {}),
                           const SizedBox(width: 6),
                           IconToggleButton(
-                              icon: BootstrapIcons.keyboard,
+                              icon: LucideIcons.keyboard,
                               onPressed: () {}),
                           const SizedBox(width: 10),
                           Container(
@@ -233,7 +233,7 @@ class _HostsScreenState extends State<HostsScreen> {
                               ),
                             ),
                             child: const Icon(
-                              BootstrapIcons.plus,
+                              LucideIcons.plus,
                               size: 14,
                               color: Colors.white,
                             ),

@@ -24,23 +24,23 @@ class KeychainScreen extends StatelessWidget {
           child: Row(
             children: [
               const SplitButton(
-                  label: '新建密钥', icon: BootstrapIcons.plus),
+                  label: '新建密钥', icon: LucideIcons.plus),
               const SizedBox(width: 20),
               const GhostAction(
-                  icon: BootstrapIcons.fileEarmarkText, label: '证书'),
+                  icon: LucideIcons.fileText, label: '证书'),
               const SizedBox(width: 20),
               const GhostAction(
-                  icon: BootstrapIcons.personBadge, label: 'Windows Hello'),
+                  icon: LucideIcons.userRoundCheck, label: 'Windows Hello'),
               const SizedBox(width: 20),
               const GhostAction(
-                  icon: BootstrapIcons.usbDrive, label: 'FIDO2'),
+                  icon: LucideIcons.usb, label: 'FIDO2'),
               const Spacer(),
               const Row(children: [
-                IconToggleButton(icon: BootstrapIcons.search),
+                IconToggleButton(icon: LucideIcons.search),
                 SizedBox(width: 6),
-                IconToggleButton(icon: BootstrapIcons.grid),
+                IconToggleButton(icon: LucideIcons.layoutGrid),
                 SizedBox(width: 6),
-                IconToggleButton(icon: BootstrapIcons.keyboard),
+                IconToggleButton(icon: LucideIcons.keyboard),
               ]),
             ],
           ),
@@ -92,7 +92,7 @@ class _KeyCard extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child:
-                const Icon(BootstrapIcons.key, size: 18, color: Colors.white),
+                const Icon(LucideIcons.keyRound, size: 18, color: Colors.white),
           ),
           const SizedBox(width: 14),
           Expanded(
