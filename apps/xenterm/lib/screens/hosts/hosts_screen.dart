@@ -99,8 +99,10 @@ class _HostsScreenState extends State<HostsScreen> {
                     ),
                   ),
                 ),
-                // Connect lives INSIDE the field; disabled reads grey.
-                PrimaryButton(
+                // Connect lives INSIDE the field; the original keeps it a
+                // muted text button in every state (the blue Connect is the
+                // drawer's).
+                GhostButton(
                   density: ButtonDensity.compact,
                   onPressed: _selected == null
                       ? null
@@ -111,7 +113,7 @@ class _HostsScreenState extends State<HostsScreen> {
                       fontSize: 13,
                       color: _selected == null
                           ? theme.colorScheme.mutedForeground
-                          : theme.colorScheme.primaryForeground,
+                          : theme.colorScheme.foreground,
                     ),
                   ),
                 ),

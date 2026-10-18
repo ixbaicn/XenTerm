@@ -28,6 +28,7 @@ class SplitButton extends StatefulWidget {
 
 class _SplitButtonState extends State<SplitButton> {
   bool _hovering = false;
+  final bool _hoverSegment = false;
 
   @override
   Widget build(BuildContext context) {
@@ -36,50 +37,47 @@ class _SplitButtonState extends State<SplitButton> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
-      child: AnimatedContainer(
-        duration: TermiusMotion.micro,
-        curve: TermiusMotion.easeOut,
-        height: 36,
-        decoration: BoxDecoration(
-          color: _hovering
-              ? theme.colorScheme.secondary
-              : theme.colorScheme.secondary.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(TermiusRadius.card),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: widget.onPressed,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(widget.icon,
-                        size: 14, color: theme.colorScheme.foreground),
-                    const SizedBox(width: 8),
-                    Text(widget.label,
-                        style: theme.typography.normal.copyWith(
-                            fontSize: 14,
-                            color: theme.colorScheme.foreground)),
-                  ],
-                ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Action half: its own rounded rect.
+          _Segment(
+            theme: theme,
+            hovered: _hovering,
+            onTap: widget.onPressed,
+            radius: const BorderRadius.horizontal(
+                left: Radius.circular(TermiusRadius.card)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(widget.icon,
+                      size: 14, color: theme.colorScheme.foreground),
+                  const SizedBox(width: 8),
+                  Text(widget.label,
+                      style: theme.typography.normal.copyWith(
+                          fontSize: 14,
+                          color: theme.colorScheme.foreground)),
+                ],
               ),
             ),
-            Container(width: 1, height: 20, color: theme.colorScheme.border),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: widget.onDropdown,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 9),
-                child: Icon(BootstrapIcons.caretDownFill,
-                    size: 11, color: theme.colorScheme.foreground),
-              ),
+          ),
+          const SizedBox(width: 2),
+          // Dropdown half: mirrored rounding, 2px gap between the two.
+          _Segment(
+            theme: theme,
+            hovered: _hoverSegment,
+            onTap: widget.onDropdown,
+            radius: const BorderRadius.horizontal(
+                right: Radius.circular(TermiusRadius.card)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              child: Icon(BootstrapIcons.caretDownFill,
+                  size: 11, color: theme.colorScheme.foreground),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -196,6 +194,58 @@ class SectionTitle extends StatelessWidget {
       child: Text(text,
           style: theme.typography.bold.copyWith(
               fontSize: 18, color: theme.colorScheme.foreground)),
+    );
+  }
+}
+
+
+/// One half of the split button: independent hover, outer-rounded corners.
+class _Segment extends StatefulWidget {
+  final ThemeData theme;
+  final bool hovered;
+  final VoidCallback? onTap;
+  final BorderRadius radius;
+  final Widget child;
+
+  const _Segment({
+    required this.theme,
+    required this.hovered,
+    required this.onTap,
+    required this.radius,
+    required this.child,
+  });
+
+  @override
+  State<_Segment> createState() => _SegmentState();
+}
+
+class _SegmentState extends State<_Segment> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.hovered || _hovering;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 36,
+          decoration: BoxDecoration(
+            color: active
+                ? widget.theme.colorScheme.secondary
+                : widget.theme.colorScheme.secondary
+                    .withValues(alpha: 0.55),
+            borderRadius: widget.radius,
+          ),
+          child: widget.child,
+        ),
+      ),
     );
   }
 }
