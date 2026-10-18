@@ -28,14 +28,16 @@ class LogsScreen extends StatelessWidget {
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: theme.colorScheme.card,
+              color: const Color(0xFF282B3D), // --dark-grey-3 card
               borderRadius: BorderRadius.circular(TermiusRadius.field),
             ),
             child: Row(
               children: [
-                Text('当前计划不支持日志。',
-                    style: theme.typography.normal.copyWith(
-                        fontSize: 14, color: theme.colorScheme.foreground)),
+                Expanded(
+                  child: Text('Logs are not available on your current plan.',
+                      style: theme.typography.normal.copyWith(
+                          fontSize: 14, color: theme.colorScheme.foreground)),
+                ),
                 const SizedBox(width: 12),
                 GhostButton(
                   density: ButtonDensity.compact,
@@ -43,7 +45,7 @@ class LogsScreen extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('升级',
+                      Text('Upgrade',
                           style: theme.typography.normal.copyWith(
                               fontSize: 13,
                               color: theme.colorScheme.foreground)),
@@ -59,27 +61,22 @@ class LogsScreen extends StatelessWidget {
         ),
         // ── Table header ────────────────────────────────────────────────
         Padding(
-          padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
+          padding: const EdgeInsets.fromLTRB(34, 18, 34, 0),
           child: Row(
             children: [
-              _headerCell(context, '日期',
+              _headerCell(context, 'Date',
                   trailing: BootstrapIcons.chevronDown, width: 170),
-              _headerCell(context, '用户', width: 320),
-              _headerCell(context, '主机', width: 260),
-              _headerCell(context, '收藏',
+              _headerCell(context, 'User', width: 320),
+              _headerCell(context, 'Host', width: 260),
+              _headerCell(context, 'Saved',
                   trailing: BootstrapIcons.bookmark),
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          height: 1,
-          color: theme.colorScheme.border,
-        ),
-        // ── Rows ────────────────────────────────────────────────────────
+        // ── Rows: separate cards, 10px apart (the Termius list language) ──
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
             itemCount: 3,
             itemBuilder: (context, index) {
               const dates = [
@@ -149,10 +146,11 @@ class _LogRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.card,
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
+        color: const Color(0xFF282B3D), // --dark-grey-3 card
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
       ),
       child: Row(
         children: [

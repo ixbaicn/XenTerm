@@ -6,6 +6,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../theme/termius_theme.dart';
 import '../../widgets/toolbar.dart';
 
 class KeychainScreen extends StatelessWidget {
@@ -77,8 +78,8 @@ class _KeyCard extends StatelessWidget {
       height: 76,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.secondary,
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFF282B3D), // --dark-grey-3 card
+        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
       ),
       child: Row(
         children: [

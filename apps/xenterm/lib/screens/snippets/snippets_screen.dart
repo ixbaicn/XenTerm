@@ -79,8 +79,8 @@ class _SnippetCard extends StatelessWidget {
       height: 76,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: theme.colorScheme.secondary,
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFF282B3D), // --dark-grey-3 card
+        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
       ),
       child: Row(
         children: [
