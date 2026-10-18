@@ -9,6 +9,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 # The service core, and nothing else. This crate is a translation layer: it
-# maps the core's models onto FRB-friendly DTOs and Streams, and the core
-# keeps zero knowledge of any frontend (arch_guards enforces that boundary).
+# maps the core's models onto C-ABI/JSON DTOs, and the core keeps zero
+# knowledge of any frontend (arch_guards enforces that boundary).
 xenterm = { path = "../../../crates/xenterm" }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
