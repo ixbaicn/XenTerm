@@ -11,6 +11,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../theme/termius_theme.dart';
 import 'title_bar.dart';
 import '../screens/hosts/hosts_screen.dart';
+import '../screens/forwards/forwards_screen.dart';
+import '../screens/known_hosts/known_hosts_screen.dart';
+import '../screens/snippets/snippets_screen.dart';
 import '../screens/keychain/keychain_screen.dart';
 import '../screens/logs/logs_screen.dart';
 import '../screens/settings/settings_screen.dart';
@@ -150,16 +153,9 @@ class _RootShellState extends State<RootShell> {
         onThemeChanged: widget.onThemeChanged,
         fonts: widget.fonts,
       ),
-      // Placeholder until the bridge exposes each area's data; the rail is
-      // honest about what exists, so these name their screen and wait.
-      _ => _PlaceholderScreen(
-        title: switch (destination) {
-          NavDestination.forwards => '端口转发',
-          NavDestination.snippets => '快捷命令',
-          NavDestination.knownHosts => '已知主机',
-          _ => '?',
-        },
-      ),
+      NavDestination.forwards => const ForwardsScreen(),
+      NavDestination.snippets => const SnippetsScreen(),
+      NavDestination.knownHosts => const KnownHostsScreen(),
     };
   }
 }
@@ -285,33 +281,6 @@ class _RailItemState extends State<_RailItem> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: theme.typography.semiBold.copyWith(fontSize: 22)),
-          const SizedBox(height: 8),
-          Text(
-            '等待 Rust 桥接（docs/flutter-bridge.md）',
-            style: theme.typography.normal.copyWith(
-              fontSize: 14,
-              color: theme.colorScheme.mutedForeground,
-            ),
-          ),
-        ],
       ),
     );
   }
