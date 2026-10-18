@@ -4,7 +4,6 @@
 /// card grid, cards with colored OS chips and a hover edit-pencil.
 library;
 
-import 'package:flutter/foundation.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
@@ -16,7 +15,9 @@ import 'host_details_panel.dart';
 enum HostsLayout { cards, rows }
 
 class HostsScreen extends StatefulWidget {
-  const HostsScreen({super.key});
+  final ValueChanged<Host>? onConnect;
+
+  const HostsScreen({super.key, this.onConnect});
 
   @override
   State<HostsScreen> createState() => _HostsScreenState();
@@ -38,17 +39,17 @@ class _HostsScreenState extends State<HostsScreen> {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return kSampleHosts;
     return kSampleHosts
-        .where((h) =>
-            h.label.toLowerCase().contains(q) ||
-            h.address.toLowerCase().contains(q) ||
-            h.username.toLowerCase().contains(q))
+        .where(
+          (h) =>
+              h.label.toLowerCase().contains(q) ||
+              h.address.toLowerCase().contains(q) ||
+              h.username.toLowerCase().contains(q),
+        )
         .toList();
   }
 
   void _connect(Host? host) {
-    if (host != null && kDebugMode) {
-      debugPrint('connect → ${host.id} (bridge pending, docs/flutter-bridge.md)');
-    }
+    if (host != null) widget.onConnect?.call(host);
   }
 
   void _onCardTap(Host host) {
@@ -84,26 +85,35 @@ class _HostsScreenState extends State<HostsScreen> {
                     controller: _search,
                     border: Border.all(color: Colors.transparent),
                     borderRadius: BorderRadius.circular(TermiusRadius.field),
-                    placeholder: Text('查找主机或 ssh user@hostname…',
-                        style: TextStyle(
-                            fontSize: 14,
-                            color: theme.colorScheme.mutedForeground)),
+                    placeholder: Text(
+                      '查找主机或 ssh user@hostname…',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.colorScheme.mutedForeground,
+                      ),
+                    ),
                     onChanged: (v) => setState(() => _query = v),
                     style: theme.typography.normal.copyWith(
-                        fontSize: 14, color: theme.colorScheme.foreground),
+                      fontSize: 14,
+                      color: theme.colorScheme.foreground,
+                    ),
                   ),
                 ),
                 // Connect lives INSIDE the field; disabled reads grey.
                 PrimaryButton(
                   density: ButtonDensity.compact,
-                  onPressed:
-                      _selected == null ? null : () => _connect(_selected),
-                  child: Text('连接',
-                      style: theme.typography.normal.copyWith(
-                          fontSize: 13,
-                          color: _selected == null
-                              ? theme.colorScheme.mutedForeground
-                              : theme.colorScheme.primaryForeground)),
+                  onPressed: _selected == null
+                      ? null
+                      : () => _connect(_selected),
+                  child: Text(
+                    '连接',
+                    style: theme.typography.normal.copyWith(
+                      fontSize: 13,
+                      color: _selected == null
+                          ? theme.colorScheme.mutedForeground
+                          : theme.colorScheme.primaryForeground,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -137,10 +147,11 @@ class _HostsScreenState extends State<HostsScreen> {
                 icon: _layout == HostsLayout.cards
                     ? BootstrapIcons.grid
                     : BootstrapIcons.list,
-                onPressed: () => setState(() => _layout =
-                    _layout == HostsLayout.cards
-                        ? HostsLayout.rows
-                        : HostsLayout.cards),
+                onPressed: () => setState(
+                  () => _layout = _layout == HostsLayout.cards
+                      ? HostsLayout.rows
+                      : HostsLayout.cards,
+                ),
               ),
               const SizedBox(width: 6),
               IconToggleButton(icon: BootstrapIcons.tag, onPressed: () {}),
@@ -155,14 +166,18 @@ class _HostsScreenState extends State<HostsScreen> {
                   color: const Color(0xFF21B568),
                   shape: BoxShape.circle,
                   border: Border.all(
-                      color: const Color(0xFF21B568).withValues(alpha: 0.5),
-                      width: 2),
+                    color: const Color(0xFF21B568).withValues(alpha: 0.5),
+                    width: 2,
+                  ),
                 ),
-                child: const Text('B',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white)),
+                child: const Text(
+                  'B',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
               ),
               const SizedBox(width: 6),
               Container(
@@ -173,11 +188,15 @@ class _HostsScreenState extends State<HostsScreen> {
                   color: const Color(0xFF21B568),
                   shape: BoxShape.circle,
                   border: Border.all(
-                      color: const Color(0xFF21B568).withValues(alpha: 0.5),
-                      width: 2),
+                    color: const Color(0xFF21B568).withValues(alpha: 0.5),
+                    width: 2,
+                  ),
                 ),
-                child: const Icon(BootstrapIcons.plus,
-                    size: 14, color: Colors.white),
+                child: const Icon(
+                  BootstrapIcons.plus,
+                  size: 14,
+                  color: Colors.white,
+                ),
               ),
             ],
           ),
@@ -185,9 +204,13 @@ class _HostsScreenState extends State<HostsScreen> {
         // ── Section title + cards ───────────────────────────────────────
         Padding(
           padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
-          child: Text('主机',
-              style: theme.typography.bold.copyWith(
-                  fontSize: 18, color: theme.colorScheme.foreground)),
+          child: Text(
+            '主机',
+            style: theme.typography.bold.copyWith(
+              fontSize: 18,
+              color: theme.colorScheme.foreground,
+            ),
+          ),
         ),
         Expanded(
           child: Stack(
