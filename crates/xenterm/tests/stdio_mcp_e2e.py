@@ -29,11 +29,18 @@ def main():
         untouched = root / 'must-remain-absent'
         isolated_env = dict(env, HOME=str(untouched), XDG_CONFIG_HOME=str(untouched / 'config'),
                             XDG_DATA_HOME=str(untouched / 'data'))
-        for command in [['cli', 'sessions'], ['mcp', 'serve'], ['--config-info'], []]:
+        for command in [['cli', 'sessions'], ['mcp', 'serve']]:
             result = subprocess.run([str(args.exe.resolve()), *command], env=isolated_env,
                                     input='', capture_output=True, text=True, timeout=5)
             assert result.returncode != 0 and '--data-dir' in result.stderr
             assert not untouched.exists(), 'headless startup touched an implicit desktop profile'
+        # `--config-info` and the bare help launch are read-only diagnostics:
+        # they must stay usable without a profile and must not create one.
+        for command in [['--config-info'], []]:
+            result = subprocess.run([str(args.exe.resolve()), *command], env=isolated_env,
+                                    input='', capture_output=True, text=True, timeout=5)
+            assert result.returncode == 0
+            assert not untouched.exists(), 'headless diagnostics touched an implicit desktop profile'
         assert subprocess.run([str(args.exe.resolve()), '--version'], env=isolated_env,
                               capture_output=True, timeout=5).returncode == 0
         print('PASS: all headless profile operations require an explicit profile before touching defaults')
