@@ -7,8 +7,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../theme/termius_theme.dart';
 
-/// [+ Label | ▾] — one rounded container, hairline between the halves.
-class SplitButton extends StatefulWidget {
+/// [+ Label | ▾] — the original is ONE pill (--dark-grey-4) split by a
+/// hairline, each half highlighting on its own hover.
+class SplitButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
@@ -23,61 +24,44 @@ class SplitButton extends StatefulWidget {
   });
 
   @override
-  State<SplitButton> createState() => _SplitButtonState();
-}
-
-class _SplitButtonState extends State<SplitButton> {
-  bool _hovering = false;
-  final bool _hoverSegment = false;
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Action half: its own rounded rect.
-          _Segment(
-            theme: theme,
-            hovered: _hovering,
-            onTap: widget.onPressed,
-            radius: const BorderRadius.horizontal(
-                left: Radius.circular(TermiusRadius.card)),
-            child: Padding(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(TermiusRadius.field),
+      child: Container(
+        height: 36,
+        color: const Color(0xFF32364A), // --dark-grey-4
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SplitSegment(
+              onTap: onPressed,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(widget.icon,
-                      size: 14, color: theme.colorScheme.foreground),
+                  Icon(icon, size: 14, color: theme.colorScheme.foreground),
                   const SizedBox(width: 8),
-                  Text(widget.label,
-                      style: theme.typography.normal.copyWith(
+                  Text(label,
+                      style: theme.typography.medium.copyWith(
                           fontSize: 14,
                           color: theme.colorScheme.foreground)),
                 ],
               ),
             ),
-          ),
-          const SizedBox(width: 2),
-          // Dropdown half: mirrored rounding, 2px gap between the two.
-          _Segment(
-            theme: theme,
-            hovered: _hoverSegment,
-            onTap: widget.onDropdown,
-            radius: const BorderRadius.horizontal(
-                right: Radius.circular(TermiusRadius.card)),
-            child: Padding(
+            Container(
+              width: 1,
+              height: 20,
+              color: const Color(0xFF282B3D), // hairline on the pill
+            ),
+            _SplitSegment(
+              onTap: onDropdown,
               padding: const EdgeInsets.symmetric(horizontal: 9),
               child: Icon(BootstrapIcons.caretDownFill,
                   size: 11, color: theme.colorScheme.foreground),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -199,32 +183,28 @@ class SectionTitle extends StatelessWidget {
 }
 
 
-/// One half of the split button: independent hover, outer-rounded corners.
-class _Segment extends StatefulWidget {
-  final ThemeData theme;
-  final bool hovered;
+/// One half of the split pill: independent hover, same fill as the parent
+/// container until hovered.
+class _SplitSegment extends StatefulWidget {
   final VoidCallback? onTap;
-  final BorderRadius radius;
+  final EdgeInsetsGeometry padding;
   final Widget child;
 
-  const _Segment({
-    required this.theme,
-    required this.hovered,
+  const _SplitSegment({
     required this.onTap,
-    required this.radius,
+    required this.padding,
     required this.child,
   });
 
   @override
-  State<_Segment> createState() => _SegmentState();
+  State<_SplitSegment> createState() => _SplitSegmentState();
 }
 
-class _SegmentState extends State<_Segment> {
+class _SplitSegmentState extends State<_SplitSegment> {
   bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.hovered || _hovering;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
@@ -235,14 +215,9 @@ class _SegmentState extends State<_Segment> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 36,
-          decoration: BoxDecoration(
-            color: active
-                ? widget.theme.colorScheme.secondary
-                : widget.theme.colorScheme.secondary
-                    .withValues(alpha: 0.55),
-            borderRadius: widget.radius,
-          ),
+          color: _hovering ? const Color(0xFF3E4257) : Colors.transparent,
+          padding: widget.padding,
+          alignment: Alignment.center,
           child: widget.child,
         ),
       ),

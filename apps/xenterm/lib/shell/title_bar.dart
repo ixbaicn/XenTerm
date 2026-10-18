@@ -34,9 +34,9 @@ class TitleBar extends StatelessWidget {
           }
         },
         child: Container(
-          height: 56,
+          height: 50,
           color: termiusTitleBarColor(theme.colorScheme.brightness),
-          padding: const EdgeInsets.fromLTRB(10, 8, 0, 8),
+          padding: const EdgeInsets.fromLTRB(10, 0, 0, 0),
           child: Row(
             children: [
               const Padding(
@@ -46,16 +46,25 @@ class TitleBar extends StatelessWidget {
               ),
               const SizedBox(width: 5),
               const _TitlePill(
-                icon: Icon(BootstrapIcons.cloudFill,
-                    size: 13, color: Color(0xFF8D91A5)),
+                icon: Icon(BootstrapIcons.safe,
+                    size: 15, color: Color(0xFF8D91A5)),
                 label: 'Vaults',
-                trailing: Icon(BootstrapIcons.caretDownFill,
-                    size: 9, color: Color(0xFF8D91A5)),
+                filled: true,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(BootstrapIcons.cloudFill,
+                        size: 13, color: Color(0xFF8D91A5)),
+                    SizedBox(width: 6),
+                    Icon(BootstrapIcons.caretDownFill,
+                        size: 9, color: Color(0xFF8D91A5)),
+                  ],
+                ),
               ),
               const SizedBox(width: 5),
               const _TitlePill(
                 icon: Icon(BootstrapIcons.folder2Open,
-                    size: 13, color: Color(0xFF8D91A5)),
+                    size: 15, color: Color(0xFF8D91A5)),
                 label: 'SFTP',
               ),
               const SizedBox(width: 5),
@@ -64,6 +73,12 @@ class TitleBar extends StatelessWidget {
                 onPressed: () {},
               ),
               const Spacer(),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(BootstrapIcons.bell,
+                    size: 15, color: Color(0xFF8D91A5)),
+              ),
+              const SizedBox(width: 4),
               const _WindowControls(),
             ],
           ),
@@ -73,17 +88,20 @@ class TitleBar extends StatelessWidget {
   }
 }
 
-/// One titlebar tab pill: 20px icon + label, gap 10, padding 6/10, radius 10,
-/// weight 450 (Q4e). Hover brightens the pill on --dark-grey-4.
+/// One titlebar tab pill: icon + label, gap 8, height 30, radius 10. The
+/// active tab (Vaults) is a filled --dark-grey-4 chip; the inactive one is
+/// transparent until hover.
 class _TitlePill extends StatefulWidget {
   final Widget icon;
   final String label;
   final Widget? trailing;
+  final bool filled;
 
   const _TitlePill({
     required this.icon,
     required this.label,
     this.trailing,
+    this.filled = false,
   });
 
   @override
@@ -109,25 +127,22 @@ class _TitlePillState extends State<_TitlePill> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: theme.colorScheme.background,
+            color: widget.filled
+                ? const Color(0xFF2C2F3F)
+                : (_hovering ? const Color(0xFF2C2F3F) : Colors.transparent),
             borderRadius: BorderRadius.circular(TermiusRadius.field),
-            border: Border.all(
-              color: _hovering
-                  ? theme.colorScheme.secondary
-                  : theme.colorScheme.secondary.withValues(alpha: 0.6),
-            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               widget.icon,
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Text(widget.label,
                   style: theme.typography.normal
-                      .copyWith(fontSize: 13, color: fg)),
+                      .copyWith(fontSize: 14, color: fg)),
               if (widget.trailing != null) ...[
                 const SizedBox(width: 8),
                 widget.trailing!,
@@ -244,7 +259,7 @@ class _ControlButtonState extends State<_ControlButton> {
         onTap: widget.onTap,
         child: SizedBox(
           width: 46,
-          height: 56,
+          height: 50,
           child: Icon(
             widget.icon,
             size: 14,

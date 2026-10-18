@@ -83,140 +83,162 @@ class _HostsScreenState extends State<HostsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Search + Connect (inside the field) ─────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: Container(
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.secondary,
-                    borderRadius: BorderRadius.circular(TermiusRadius.field),
-                  ),
-                  padding: const EdgeInsets.only(left: 12, right: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _search,
-                          border: Border.all(color: Colors.transparent),
+              // ── Header band: search row + toolbar on --dark-grey-3 ──────
+              // The original's hosts header sits on a lighter surface than
+              // the page, and the rail shares that surface.
+              Container(
+                color: const Color(0xFF282B3D), // --dark-grey-3
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Search + Connect (inside the field).
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                      child: Container(
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: TermiusMetrics.searchFieldFill,
                           borderRadius:
                               BorderRadius.circular(TermiusRadius.field),
-                          placeholder: Text(
-                            'Search hosts or ssh user@hostname…',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: theme.colorScheme.mutedForeground,
+                        ),
+                        padding: const EdgeInsets.only(left: 12, right: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _search,
+                                border:
+                                    Border.all(color: Colors.transparent),
+                                borderRadius: BorderRadius.circular(
+                                    TermiusRadius.field),
+                                decoration: const BoxDecoration(
+                                  color: Colors.transparent,
+                                  borderRadius: BorderRadius.all(
+                                    Radius.circular(TermiusRadius.field),
+                                  ),
+                                ),
+                                placeholder: Text(
+                                  'Find a host or ssh user@hostname...',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: theme.colorScheme.mutedForeground,
+                                  ),
+                                ),
+                                onChanged: (v) =>
+                                    setState(() => _query = v),
+                                style: theme.typography.normal.copyWith(
+                                  fontSize: 14,
+                                  color: theme.colorScheme.foreground,
+                                ),
+                              ),
+                            ),
+                            // Connect lives INSIDE the field; the original
+                            // keeps it a muted text button in every state (the
+                            // blue Connect is the drawer's).
+                            GhostButton(
+                              density: ButtonDensity.compact,
+                              onPressed: _drawerOpen
+                                  ? null
+                                  : () => _connect(_drawerHost),
+                              child: Text(
+                                'Connect',
+                                style: theme.typography.normal.copyWith(
+                                  fontSize: 13,
+                                  color: _drawerOpen
+                                      ? theme.colorScheme.foreground
+                                      : theme.colorScheme.mutedForeground,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Toolbar row.
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+                      child: Row(
+                        children: [
+                          SplitButton(
+                            label: 'New host',
+                            icon: BootstrapIcons.plus,
+                            onPressed: () {},
+                            onDropdown: () {},
+                          ),
+                          const SizedBox(width: 20),
+                          GhostAction(
+                            icon: BootstrapIcons.terminal,
+                            label: 'Terminal',
+                            onPressed: () {},
+                          ),
+                          const SizedBox(width: 20),
+                          GhostAction(
+                            icon: BootstrapIcons.usbPlug,
+                            label: 'Serial',
+                            onPressed: () {},
+                          ),
+                          const Spacer(),
+                          IconToggleButton(
+                            icon: _layout == HostsLayout.cards
+                                ? BootstrapIcons.grid
+                                : BootstrapIcons.list,
+                            onPressed: () => setState(
+                              () => _layout = _layout == HostsLayout.cards
+                                  ? HostsLayout.rows
+                                  : HostsLayout.cards,
                             ),
                           ),
-                          onChanged: (v) => setState(() => _query = v),
-                          style: theme.typography.normal.copyWith(
-                            fontSize: 14,
-                            color: theme.colorScheme.foreground,
+                          const SizedBox(width: 6),
+                          IconToggleButton(
+                              icon: BootstrapIcons.tag, onPressed: () {}),
+                          const SizedBox(width: 6),
+                          IconToggleButton(
+                              icon: BootstrapIcons.keyboard,
+                              onPressed: () {}),
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF21B568),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xFF21B568)
+                                    .withValues(alpha: 0.5),
+                                width: 2,
+                              ),
+                            ),
+                            child: const Text(
+                              'B',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      // Connect lives INSIDE the field; the original keeps it
-                      // a muted text button in every state (the blue Connect
-                      // is the drawer's).
-                      GhostButton(
-                        density: ButtonDensity.compact,
-                        onPressed:
-                            _drawerOpen ? null : () => _connect(_drawerHost),
-                        child: Text(
-                          'Connect',
-                          style: theme.typography.normal.copyWith(
-                            fontSize: 13,
-                            color: _drawerOpen
-                                ? theme.colorScheme.foreground
-                                : theme.colorScheme.mutedForeground,
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF21B568),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0xFF21B568)
+                                    .withValues(alpha: 0.5),
+                                width: 2,
+                              ),
+                            ),
+                            child: const Icon(
+                              BootstrapIcons.plus,
+                              size: 14,
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              // ── Toolbar row ─────────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-                child: Row(
-                  children: [
-                    SplitButton(
-                      label: 'New Host',
-                      icon: BootstrapIcons.plus,
-                      onPressed: () {},
-                      onDropdown: () {},
-                    ),
-                    const SizedBox(width: 20),
-                    GhostAction(
-                      icon: BootstrapIcons.terminal,
-                      label: 'Terminal',
-                      onPressed: () {},
-                    ),
-                    const SizedBox(width: 20),
-                    GhostAction(
-                      icon: BootstrapIcons.usbPlug,
-                      label: 'Serial',
-                      onPressed: () {},
-                    ),
-                    const Spacer(),
-                    IconToggleButton(
-                      icon: _layout == HostsLayout.cards
-                          ? BootstrapIcons.grid
-                          : BootstrapIcons.list,
-                      onPressed: () => setState(
-                        () => _layout = _layout == HostsLayout.cards
-                            ? HostsLayout.rows
-                            : HostsLayout.cards,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    IconToggleButton(
-                        icon: BootstrapIcons.tag, onPressed: () {}),
-                    const SizedBox(width: 6),
-                    IconToggleButton(
-                        icon: BootstrapIcons.keyboard, onPressed: () {}),
-                    const SizedBox(width: 10),
-                    Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF21B568),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFF21B568)
-                              .withValues(alpha: 0.5),
-                          width: 2,
-                        ),
-                      ),
-                      child: const Text(
-                        'B',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF21B568),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: const Color(0xFF21B568)
-                              .withValues(alpha: 0.5),
-                          width: 2,
-                        ),
-                      ),
-                      child: const Icon(
-                        BootstrapIcons.plus,
-                        size: 14,
-                        color: Colors.white,
+                        ],
                       ),
                     ),
                   ],
@@ -224,7 +246,7 @@ class _HostsScreenState extends State<HostsScreen> {
               ),
               // ── Section title + cards ───────────────────────────────────
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
+                padding: const EdgeInsets.fromLTRB(18, 15, 0, 12),
                 child: Text(
                   'Hosts',
                   style: theme.typography.bold.copyWith(
@@ -235,7 +257,7 @@ class _HostsScreenState extends State<HostsScreen> {
               ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
                   child: _layout == HostsLayout.cards
                       ? _cardGrid(hosts)
                       : _rowList(hosts),
@@ -263,10 +285,13 @@ class _HostsScreenState extends State<HostsScreen> {
   Widget _cardGrid(List<Host> hosts) {
     return GridView.builder(
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 560,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 540 / 76,
+        // Original: 3 columns at a 1280-wide window, cards ≈347×60 logical,
+        // 10px gaps — measured from the reference screenshot (520×90 physical
+        // at 1.5 DPR). The delegate rounds up, so 350 yields three columns.
+        maxCrossAxisExtent: 350,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 347 / 60,
       ),
       itemCount: hosts.length,
       itemBuilder: (context, index) {

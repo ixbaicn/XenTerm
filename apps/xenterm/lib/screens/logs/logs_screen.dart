@@ -8,6 +8,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
 import '../../theme/termius_theme.dart';
+import '../hosts/host_card.dart';
 
 class LogsScreen extends StatelessWidget {
   const LogsScreen({super.key});
@@ -94,6 +95,7 @@ class LogsScreen extends StatelessWidget {
                 machine: 'DESKTOP-PKS43FI',
                 hostLabel: host.label,
                 hostDetail: 'ssh, root, 阿里云',
+                os: host.os,
               );
             },
           ),
@@ -131,6 +133,7 @@ class _LogRow extends StatelessWidget {
   final String machine;
   final String hostLabel;
   final String hostDetail;
+  final HostOs os;
 
   const _LogRow({
     required this.date,
@@ -139,6 +142,7 @@ class _LogRow extends StatelessWidget {
     required this.machine,
     required this.hostLabel,
     required this.hostDetail,
+    required this.os,
   });
 
   @override
@@ -207,12 +211,12 @@ class _LogRow extends StatelessWidget {
                   width: 30,
                   height: 30,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFD70A53),
-                    shape: BoxShape.circle,
+                  decoration: BoxDecoration(
+                    color: osChipFor(os).fill,
+                    borderRadius: BorderRadius.circular(7),
                   ),
-                  child: const Icon(BootstrapIcons.lightningChargeFill,
-                      size: 14, color: Colors.white),
+                  child: Icon(osChipFor(os).glyph,
+                      size: 17, color: Colors.white),
                 ),
                 const SizedBox(width: 10),
                 Column(

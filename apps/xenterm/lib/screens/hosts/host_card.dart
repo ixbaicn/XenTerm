@@ -1,30 +1,33 @@
-/// One host card — the original shows a colored OS logo chip (Debian swirl
-/// pink / Ubuntu orange alternate), name over "ssh, user, tag" detail, and
-/// an edit-pencil button that appears on hover. No visible border: the
-/// lighter fill separates the card from the darker page.
+/// One host card — the original shows the real OS logo in a colored rounded
+/// square, the name over "ssh, user, tag", and an edit pencil on hover.
+/// Card: 60px tall, radius 15, --dark-grey-3 fill, no border.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:simple_icons/simple_icons.dart';
 
 import '../../data/hosts.dart';
 import '../../theme/termius_theme.dart';
 
-/// The OS chip palette cycles per card, echoing the original's colored OS
-/// logos (Debian pink-red, Ubuntu orange, Arch blue…).
+/// The colored OS chip: brand fill + the actual brand glyph (Simple Icons),
+/// matching the original's Debian swirl / Ubuntu roundel / Arch arrow.
 class OsChip {
   final Color fill;
-  final IconData icon;
+  final IconData glyph;
 
-  const OsChip(this.fill, this.icon);
+  const OsChip(this.fill, this.glyph);
 }
 
-const _osChips = <OsChip>[
-  OsChip(Color(0xFFD70A53), BootstrapIcons.lightningChargeFill), // Debian pink
-  OsChip(Color(0xFFE95420), BootstrapIcons.circleFill), // Ubuntu orange
-  OsChip(Color(0xFF1793D1), BootstrapIcons.diamondHalf), // Arch blue
-];
-
-OsChip osChipFor(int index) => _osChips[index % _osChips.length];
+OsChip osChipFor(HostOs os) => switch (os) {
+      HostOs.debian => const OsChip(Color(0xFFCE0056), SimpleIcons.debian),
+      HostOs.ubuntu => const OsChip(Color(0xFFE95420), SimpleIcons.ubuntu),
+      HostOs.arch => const OsChip(Color(0xFF1793D1), SimpleIcons.archlinux),
+      HostOs.linux => const OsChip(Color(0xFF3E4257), SimpleIcons.linux),
+      HostOs.windows =>
+        const OsChip(Color(0xFF2091F6), BootstrapIcons.windows),
+      HostOs.apple => const OsChip(Color(0xFF5A5E73), SimpleIcons.apple),
+      HostOs.android => const OsChip(Color(0xFF21B568), SimpleIcons.android),
+    };
 
 class HostCard extends StatefulWidget {
   final Host host;
@@ -53,20 +56,20 @@ class HostCard extends StatefulWidget {
 class _HostCardState extends State<HostCard> {
   bool _hovering = false;
 
+  static const _cardFill = Color(0xFF282B3D); // --dark-grey-3 / --card-a
+  static const _cardHover = Color(0xFF32364A); // one step up
+  static const _subtitle = Color(0xFF8D91A5); // --dark-grey-7
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final host = widget.host;
     final selected = widget.selected;
-    final chip = osChipFor(host.id.hashCode.abs());
-    // Selection rings the card with the accent; hover lightens the fill one
-    // step and reveals the edit pencil.
+    final chip = osChipFor(host.os);
     final border = selected
         ? Border.all(color: theme.colorScheme.primary, width: 1.5)
         : Border.all(color: Colors.transparent);
-    final fill = _hovering
-        ? theme.colorScheme.secondary.withValues(alpha: 0.9)
-        : theme.colorScheme.secondary;
+    final fill = _hovering ? _cardHover : _cardFill;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -78,11 +81,11 @@ class _HostCardState extends State<HostCard> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 76,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 15),
           decoration: BoxDecoration(
             color: fill,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
             border: border,
           ),
           child: Row(
@@ -93,11 +96,11 @@ class _HostCardState extends State<HostCard> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: chip.fill,
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(chip.icon, size: 18, color: Colors.white),
+                child: Icon(chip.glyph, size: 22, color: Colors.white),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -107,15 +110,20 @@ class _HostCardState extends State<HostCard> {
                       host.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.typography.medium.copyWith(fontSize: 15),
+                      style: theme.typography.semiBold.copyWith(
+                        fontSize: 16,
+                        color: theme.colorScheme.foreground,
+                      ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
-                      'ssh, ${host.username}',
+                      host.subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.typography.normal.copyWith(
-                          fontSize: 13, color: theme.colorScheme.mutedForeground),
+                        fontSize: 13,
+                        color: _subtitle,
+                      ),
                     ),
                   ],
                 ),
@@ -132,15 +140,15 @@ class _HostCardState extends State<HostCard> {
                     behavior: HitTestBehavior.opaque,
                     onTap: () {},
                     child: Container(
-                      width: 32,
-                      height: 32,
+                      width: 28,
+                      height: 28,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.card,
-                        borderRadius: BorderRadius.circular(TermiusRadius.card),
+                        color: const Color(0xFF3E4257),
+                        borderRadius: BorderRadius.circular(TermiusRadius.menu),
                       ),
                       child: const Icon(BootstrapIcons.pencil,
-                          size: 14, color: Colors.white),
+                          size: 13, color: Colors.white),
                     ),
                   ),
                 ),

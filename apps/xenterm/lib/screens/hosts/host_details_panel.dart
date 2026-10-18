@@ -273,7 +273,7 @@ class _OsChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chip = osChipFor(host.id.hashCode);
+    final chip = osChipFor(host.os);
     return Container(
       width: 36,
       height: 36,
@@ -282,7 +282,7 @@ class _OsChip extends StatelessWidget {
         color: chip.fill,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Icon(chip.icon, size: 20, color: Colors.white),
+      child: Icon(chip.glyph, size: 20, color: Colors.white),
     );
   }
 }

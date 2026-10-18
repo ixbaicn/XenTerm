@@ -59,6 +59,7 @@ class _XenTermAppState extends State<XenTermApp> {
   Widget build(BuildContext context) {
     return ShadcnApp(
       title: 'XenTerm',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: _lightTheme ? termiusLightScheme() : termiusDarkScheme(),
         typography: const Typography.geist().scale(_fonts.uiSize / 14),

@@ -1,9 +1,7 @@
-/// The root shell: Termius's two-column spine — the labeled nav rail (~180px,
-/// navigation only) and the content area. SFTP and Vaults anchor the rail's
-/// bottom, as in the original (design-tokens.md §6).
+/// The root shell: Termius's two-column spine — the labeled nav rail (~182px,
+/// --dark-grey-3 surface) and the content area. The rail carries the screens;
+/// Settings anchors its bottom, as the original keeps app-wide actions apart.
 library;
-
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -53,19 +51,16 @@ class RootShell extends StatefulWidget {
 class _RootShellState extends State<RootShell> {
   NavDestination _active = NavDestination.hosts;
   Host? _terminalHost;
-  double _navRailWidth = 200;
 
-  static const double _dividerHitWidth = 8;
-  static const double _minContentWidth = 320;
+  static const double _navRailWidth = 182;
 
   static const List<(NavDestination, String, IconData)> _destinations = [
-    (NavDestination.hosts, '主机', BootstrapIcons.hddRack),
-    (NavDestination.keys, '密钥', BootstrapIcons.key),
-    (NavDestination.forwards, '端口转发', BootstrapIcons.shuffle),
-    (NavDestination.snippets, '快捷命令', BootstrapIcons.lightning),
-    (NavDestination.knownHosts, '已知主机', BootstrapIcons.shieldCheck),
-    (NavDestination.logs, '日志', BootstrapIcons.clockHistory),
-    (NavDestination.settings, '设置', material.Icons.settings_outlined),
+    (NavDestination.hosts, 'Hosts', BootstrapIcons.grid),
+    (NavDestination.keys, 'Keychain', BootstrapIcons.key),
+    (NavDestination.forwards, 'Port Forwarding', BootstrapIcons.arrowLeftRight),
+    (NavDestination.snippets, 'Snippets', BootstrapIcons.braces),
+    (NavDestination.knownHosts, 'Known Hosts', BootstrapIcons.shieldCheck),
+    (NavDestination.logs, 'Logs', BootstrapIcons.exclamationCircle),
   ];
 
   @override
@@ -84,56 +79,16 @@ class _RootShellState extends State<RootShell> {
                     onClose: () => setState(() => _terminalHost = null),
                     fonts: widget.fonts,
                   )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      final maxRailWidth = math.max(
-                        0.0,
-                        math.min(
-                          400.0,
-                          constraints.maxWidth -
-                              _dividerHitWidth -
-                              _minContentWidth,
-                        ),
-                      );
-                      final minRailWidth = math.min(160.0, maxRailWidth);
-                      final railWidth = _navRailWidth.clamp(
-                        minRailWidth,
-                        maxRailWidth,
-                      );
-                      return Row(
-                        children: [
-                          _NavRail(
-                            width: railWidth,
-                            active: _active,
-                            destinations: _destinations,
-                            onSelect: (d) => setState(() => _active = d),
-                          ),
-                          MouseRegion(
-                            cursor: SystemMouseCursors.resizeColumn,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onHorizontalDragUpdate: (details) {
-                                setState(() {
-                                  _navRailWidth = (railWidth + details.delta.dx)
-                                      .clamp(minRailWidth, maxRailWidth);
-                                });
-                              },
-                              child: SizedBox(
-                                width: _dividerHitWidth,
-                                height: double.infinity,
-                                child: Center(
-                                  child: Container(
-                                    width: 1,
-                                    color: theme.colorScheme.border,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          Expanded(child: _screenFor(_active)),
-                        ],
-                      );
-                    },
+                : Row(
+                    children: [
+                      _NavRail(
+                        width: _navRailWidth,
+                        active: _active,
+                        destinations: _destinations,
+                        onSelect: (d) => setState(() => _active = d),
+                      ),
+                      Expanded(child: _screenFor(_active)),
+                    ],
                   ),
           ),
         ],
@@ -160,8 +115,8 @@ class _RootShellState extends State<RootShell> {
   }
 }
 
-/// The labeled nav rail, ~180px, entries 32px tall with 13px labels — the
-/// original's compact scale. SFTP / Vaults pin to the bottom.
+/// The labeled nav rail on the --dark-grey-3 surface: 36px entries with 15px
+/// labels, selected = --dark-grey-5 chip. Settings sits at the bottom.
 class _NavRail extends StatelessWidget {
   final double width;
   final NavDestination active;
@@ -177,37 +132,28 @@ class _NavRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       width: width,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      color: const Color(0xFF282B3D), // --dark-grey-3 chrome surface
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (destination, title, icon) in destinations)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: _RailItem(
-                icon: icon,
-                label: title,
-                selected: destination == active,
-                onTap: () => onSelect(destination),
-              ),
+            _RailItem(
+              icon: icon,
+              label: title,
+              selected: destination == active,
+              onTap: () => onSelect(destination),
             ),
           const Spacer(),
-          Divider(height: 1, color: theme.colorScheme.border),
+          const Divider(height: 1, color: Color(0xFF1D2033)),
           const SizedBox(height: 4),
           _RailItem(
-            icon: BootstrapIcons.folder2Open,
-            label: 'SFTP',
-            selected: false,
-            onTap: () {},
-          ),
-          _RailItem(
-            icon: BootstrapIcons.cloudFill,
-            label: 'Vaults',
-            selected: false,
-            onTap: () {},
+            icon: material.Icons.settings_outlined,
+            label: 'Settings',
+            selected: active == NavDestination.settings,
+            onTap: () => onSelect(NavDestination.settings),
           ),
         ],
       ),
@@ -238,11 +184,10 @@ class _RailItemState extends State<_RailItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Selected = the --list-select grey chip (--dark-grey-4 on the dark
-    // theme) with primary text; hover = --list-hover (--dark-grey-5).
+    // Selected = --dark-grey-5 chip with primary text; hover = --dark-grey-4.
     final background = widget.selected
-        ? theme.colorScheme.secondary
-        : (_hovering ? theme.colorScheme.accent : Colors.transparent);
+        ? const Color(0xFF3E4257)
+        : (_hovering ? const Color(0xFF32364A) : Colors.transparent);
     final foreground = widget.selected
         ? theme.colorScheme.foreground
         : theme.colorScheme.mutedForeground;
@@ -256,12 +201,12 @@ class _RailItemState extends State<_RailItem> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 44,
+          height: 36,
           margin: const EdgeInsets.only(bottom: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: background,
-            borderRadius: BorderRadius.circular(TermiusRadius.menu),
+            borderRadius: BorderRadius.circular(TermiusRadius.card),
           ),
           child: Row(
             children: [

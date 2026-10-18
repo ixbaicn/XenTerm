@@ -10,7 +10,7 @@ void main() {
     await tester.pumpWidget(const XenTermApp());
     expect(find.text('Hosts'), findsWidgets);
     // The toolbar's button and the grid's tail card both say it.
-    expect(find.text('New Host'), findsWidgets);
+    expect(find.text('New host'), findsWidgets);
   });
 
   testWidgets('a host opens the terminal preview and can be closed', (
@@ -40,7 +40,7 @@ void main() {
     expect(find.text('apt update'), findsWidgets);
     await tester.tap(find.byIcon(material.Icons.close).first);
     await tester.pumpAndSettle();
-    expect(find.text('New Host'), findsWidgets);
+    expect(find.text('New host'), findsWidgets);
   });
 
   testWidgets(
@@ -85,7 +85,7 @@ void main() {
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
       await tester.tap(find.byIcon(material.Icons.close).first);
       await tester.pumpAndSettle();
-      expect(find.text('New Host'), findsWidgets);
+      expect(find.text('New host'), findsWidgets);
     },
   );
 
@@ -96,7 +96,7 @@ void main() {
     final fonts = AppFonts();
     addTearDown(fonts.dispose);
     await tester.pumpWidget(XenTermApp(fonts: fonts));
-    await tester.tap(find.text('设置'));
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     expect(find.text('界面字体'), findsOneWidget);
     expect(find.text('SSH 界面字体'), findsOneWidget);
