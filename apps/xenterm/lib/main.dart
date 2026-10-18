@@ -72,16 +72,18 @@ class _XenTermAppState extends State<XenTermApp> {
         // TermiusRadius, so the multiplier only styles library internals.
         radius: 0.5,
       ),
-      home: DefaultTextStyle.merge(
+      home: DefaultTextEditingShortcuts(
+        child: DefaultTextStyle.merge(
         style: TextStyle(
           fontFamily: _fonts.uiFamily.isEmpty ? null : _fonts.uiFamily,
           fontSize: _fonts.uiSize,
         ),
-        child: RootShell(
-          lightTheme: _lightTheme,
-          onThemeChanged: (light) => setState(() => _lightTheme = light),
-          fonts: _fonts,
-          hostsLoader: widget.hostsLoader,
+          child: RootShell(
+            lightTheme: _lightTheme,
+            onThemeChanged: (light) => setState(() => _lightTheme = light),
+            fonts: _fonts,
+            hostsLoader: widget.hostsLoader,
+          ),
         ),
       ),
     );

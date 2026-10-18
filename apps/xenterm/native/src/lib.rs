@@ -11,20 +11,31 @@
 //! carries only the fields the hosts list draws (docs/features.md §1 —
 //! reveal-permission policy lives in the core's editor, not here).
 
-use std::ffi::{c_char, CString};
-use std::sync::OnceLock;
+use std::ffi::{c_char, CStr, CString};
+use std::sync::{Mutex, OnceLock};
 
 /// The core, initialized exactly once per process (the bridge outlives
-/// individual screens; ConfigStore::load is cheap after the first).
-static STORE: OnceLock<Result<xenterm::config::ConfigStore, String>> = OnceLock::new();
+/// individual screens; ConfigStore::load is cheap after the first). The
+/// mutex guards the store's save path (`upsert_and_save`/`remove`).
+static STORE: OnceLock<Result<Mutex<xenterm::config::ConfigStore>, String>> = OnceLock::new();
 
-fn store() -> Result<&'static xenterm::config::ConfigStore, String> {
+fn store() -> Result<&'static Mutex<xenterm::config::ConfigStore>, String> {
     match STORE.get_or_init(|| {
-        xenterm::config::ConfigStore::load().map_err(|e| e.to_string())
+        xenterm::config::ConfigStore::load()
+            .map(Mutex::new)
+            .map_err(|e| e.to_string())
     }) {
         Ok(store) => Ok(store),
         Err(error) => Err(error.clone()),
     }
+}
+
+/// SAFETY (callers): `ptr` must have come from Dart's `toNativeUtf8`.
+unsafe fn take_c(ptr: *const c_char) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
 }
 
 fn to_c(s: String) -> *mut c_char {
@@ -45,6 +56,7 @@ pub extern "C" fn xenterm_core_version() -> *mut c_char {
 pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
     let json = (|| -> Result<String, String> {
         let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
         let rows: Vec<serde_json::Value> = store
             .sessions()
             .iter()
@@ -76,6 +88,81 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
     match json {
         Ok(json) => to_c(json),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Create or update one session from the JSON the drawer/editor sends
+/// (`id` empty = create). Returns `{"ok":true,"id":"…"}` on success or
+/// `{"ok":false,"error":"…"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let id = value.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let label = value.get("label").and_then(|v| v.as_str()).unwrap_or_default();
+        let address = value
+            .get("address")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let port = value.get("port").and_then(|v| v.as_u64()).unwrap_or(22) as u16;
+        let username = value
+            .get("username")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let group = value
+            .get("group")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("ssh");
+
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut session = store
+            .sessions()
+            .iter()
+            .find(|s| !id.is_empty() && s.id == id)
+            .cloned()
+            .unwrap_or_else(xenterm::config::Session::new_empty);
+
+        session.name = label.to_string();
+        session.host = address.to_string();
+        session.port = port;
+        session.user = username.to_string();
+        session.group = group.to_string();
+        session.kind = xenterm::config::SessionKind::from_str(kind);
+        if session.kind == xenterm::config::SessionKind::Serial {
+            session.serial_port = address.to_string();
+        }
+        let id = session.id.clone();
+        store
+            .upsert_and_save(session)
+            .map_err(|e| format!("save failed: {e}"))?;
+        Ok(id)
+    })();
+    match result {
+        Ok(id) => to_c(serde_json::json!({"ok": true, "id": id}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Remove one saved session. Returns `{"ok":true}` or `{"ok":false,"error"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_session_delete(id: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let id = unsafe { take_c(id) };
+        if id.is_empty() {
+            return Err("empty session id".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        store.remove(&id);
+        store.save().map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
     }
 }
 

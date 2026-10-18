@@ -42,11 +42,13 @@ class _HostsScreenState extends State<HostsScreen> {
     _reload();
   }
 
-  Future<void> _reload() async {
-    setState(() {
-      _loading = true;
-      _loadError = null;
-    });
+  Future<void> _reload({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
     try {
       final hosts = await (widget.loadHosts ?? loadHostsFromCore)();
       if (!mounted) return;
@@ -84,6 +86,82 @@ class _HostsScreenState extends State<HostsScreen> {
 
   void _connect(Host? host) {
     if (host != null) widget.onConnect?.call(host);
+  }
+
+  /// Persists the drawer's edits into the core store, then refreshes the list.
+  Future<String?> _saveHostToCore(Host host) async {
+    try {
+      final result = await saveSessionToCore(
+        id: host.id,
+        label: host.label,
+        address: host.address,
+        port: host.port,
+        username: host.username,
+        group: host.group,
+        kind: host.protocol,
+      );
+      if (!result.ok) return result.error ?? 'Save failed';
+      await _reload(silent: true);
+      final id = result.id ?? host.id;
+      for (final h in _hosts) {
+        if (h.id == id) {
+          if (mounted) setState(() => _drawerHost = h);
+          break;
+        }
+      }
+      return null;
+    } catch (error) {
+      return '$error';
+    }
+  }
+
+  /// Deletes one session through the core and refreshes the list.
+  Future<String?> _deleteHostToCore(Host host) async {
+    try {
+      final result = await deleteSessionFromCore(host.id);
+      if (!result.ok) return result.error ?? 'Delete failed';
+      _closeDrawer();
+      await _reload(silent: true);
+      return null;
+    } catch (error) {
+      return '$error';
+    }
+  }
+
+  /// Creates an empty session in the core and opens it in the drawer for
+  /// editing — the New host button is a real store write now.
+  Future<void> _createSession() async {
+    try {
+      final result = await saveSessionToCore(
+        id: '',
+        label: 'New Host',
+        address: '',
+        port: 22,
+        username: 'root',
+        group: '',
+        kind: 'ssh',
+      );
+      if (!result.ok) {
+        if (mounted) {
+          setState(() => _loadError = result.error ?? 'Could not create host');
+        }
+        return;
+      }
+      await _reload(silent: true);
+      for (final h in _hosts) {
+        if (h.id == result.id) {
+          if (mounted) {
+            setState(() {
+              _drawerHost = h;
+              _drawerOpen = true;
+            });
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      if (mounted) setState(() => _loadError = '$error');
+    }
   }
 
   /// Collapse the slider; the panel content stays mounted for the next open.
@@ -193,7 +271,7 @@ class _HostsScreenState extends State<HostsScreen> {
                           SplitButton(
                             label: 'New host',
                             icon: LucideIcons.plus,
-                            onPressed: () {},
+                            onPressed: _createSession,
                             onDropdown: () {},
                           ),
                           const SizedBox(width: 20),
@@ -326,6 +404,8 @@ class _HostsScreenState extends State<HostsScreen> {
                     _closeDrawer();
                     _connect(host);
                   },
+                  onSave: _saveHostToCore,
+                  onDelete: _deleteHostToCore,
                 ),
         ),
       ],

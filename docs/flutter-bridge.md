@@ -49,6 +49,12 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   SQLite，因此读取放在 `Isolate.run`，UI 线程不阻塞。
 - 主机屏通过 `loadHostsFromCore()` 读取真实会话：空列表显示空状态，加载失败
   显示错误与重试；widget 测试注入 `kSampleHosts` 作为夹具，不伪装生产数据。
+- 会话 CRUD 已打通：New host 调用 `xenterm_session_upsert` 在核心创建会话，
+  抽屉字段（Address / Label / Parent Group / Port / Username）经头部 ✓ 保存，
+  ⋯ → Remove host 通过 `xenterm_session_delete` 删除；全部为真实 `sessions.db`
+  写入，已实测创建→重命名→删除。
+- shadcn 的文字输入默认没有 Ctrl+A/C/V 快捷键，应用根部已包
+  `DefaultTextEditingShortcuts`。
 - 构建与放置：`apps/xenterm/tool/build_native.ps1`（Windows）或
   `build_native.sh`，产物需与 Flutter 可执行文件同目录。
 - 未实现：连接生命周期、终端输出流、SFTP 与资源采样（下一步）。

@@ -30,17 +30,96 @@ const _textDisabled = Color(0xFF5A5E73); // --dark-grey-6
 const _titleGrey = Color(0xFF8D91A5); // --dark-grey-7
 const _headerBorder = Color(0xFF32364A); // --dark-grey-4
 
-class HostDetailsPanel extends StatelessWidget {
+class HostDetailsPanel extends StatefulWidget {
   final Host host;
   final VoidCallback onClose;
   final VoidCallback onConnect;
+  /// Persists the edited fields to the core; returns an error text or null.
+  final Future<String?> Function(Host) onSave;
+  /// Deletes the session from the core; returns an error text or null.
+  final Future<String?> Function(Host) onDelete;
 
   const HostDetailsPanel({
     super.key,
     required this.host,
     required this.onClose,
     required this.onConnect,
+    required this.onSave,
+    required this.onDelete,
   });
+
+  @override
+  State<HostDetailsPanel> createState() => _HostDetailsPanelState();
+}
+
+class _HostDetailsPanelState extends State<HostDetailsPanel> {
+  late final TextEditingController _address =
+      TextEditingController(text: widget.host.address);
+  late final TextEditingController _label =
+      TextEditingController(text: widget.host.label);
+  late final TextEditingController _group =
+      TextEditingController(text: widget.host.group);
+  late final TextEditingController _port =
+      TextEditingController(text: '${widget.host.port}');
+  late final TextEditingController _username =
+      TextEditingController(text: widget.host.username);
+  bool _saving = false;
+  String? _saveError;
+
+  @override
+  void didUpdateWidget(HostDetailsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.host.id != widget.host.id) {
+      _address.text = widget.host.address;
+      _label.text = widget.host.label;
+      _group.text = widget.host.group;
+      _port.text = '${widget.host.port}';
+      _username.text = widget.host.username;
+      _saveError = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _address.dispose();
+    _label.dispose();
+    _group.dispose();
+    _port.dispose();
+    _username.dispose();
+    super.dispose();
+  }
+
+  Host _edited() => Host(
+        id: widget.host.id,
+        label: _label.text,
+        address: _address.text,
+        port: int.tryParse(_port.text.trim()) ?? widget.host.port,
+        username: _username.text,
+        group: _group.text,
+        protocol: widget.host.protocol,
+        os: widget.host.os,
+        tags: widget.host.tags,
+        lastUsed: widget.host.lastUsed,
+      );
+
+  Future<void> _delete() async {
+    final error = await widget.onDelete(widget.host);
+    if (!mounted) return;
+    if (error != null) setState(() => _saveError = error);
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    final error = await widget.onSave(_edited());
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _saveError = error;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +128,12 @@ class HostDetailsPanel extends StatelessWidget {
       color: theme.colorScheme.background, // --dark-grey-2
       child: Column(
         children: [
-          _Header(onClose: onClose),
+          _Header(
+            onClose: widget.onClose,
+            onSave: _save,
+            onDelete: _delete,
+            saving: _saving,
+          ),
           Expanded(
             child: SingleChildScrollView(
               // formPaddings: 15px calc(15px - scrollbar) 85px 15px; gap 15.
@@ -57,15 +141,34 @@ class HostDetailsPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (_saveError != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.destructive
+                            .withValues(alpha: 0.12),
+                        borderRadius:
+                            BorderRadius.circular(TermiusRadius.card),
+                      ),
+                      child: Text(
+                        _saveError!,
+                        style: theme.typography.normal.copyWith(
+                          fontSize: 12,
+                          color: theme.colorScheme.destructive,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                  ],
                   _FormCard(
                     children: [
                       const _SectionTitle('Address'),
                       Row(
                         children: [
-                          _OsChip(host: host),
+                          _OsChip(host: widget.host),
                           Expanded(
                             child: _PanelField(
-                              initialValue: host.address,
+                              controller: _address,
                               placeholder: 'IP or Hostname',
                             ),
                           ),
@@ -77,38 +180,29 @@ class HostDetailsPanel extends StatelessWidget {
                   _FormCard(
                     children: [
                       const _SectionTitle('General'),
-                      _PanelField(initialValue: host.label, placeholder: 'Label'),
                       _PanelField(
+                          controller: _label, placeholder: 'Label'),
+                      _PanelField(
+                        controller: _group,
                         placeholder: 'Parent Group',
                         leading: LucideIcons.folder,
                       ),
-                      _PanelField(
-                        placeholder: 'Tags',
-                        leading: LucideIcons.tag,
-                      ),
-                      const _BackspaceRow(),
                     ],
                   ),
                   const SizedBox(height: 15),
                   _FormCard(
                     padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
                     children: [
-                      _PortRow(port: host.port),
+                      _PortRow(controller: _port),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const _SectionTitle('Credentials'),
                           const SizedBox(height: 10),
                           _PanelField(
-                            initialValue: host.username,
+                            controller: _username,
                             placeholder: 'Username',
                             leading: LucideIcons.user,
-                          ),
-                          const SizedBox(height: 10),
-                          const _PanelField(
-                            placeholder: 'Password',
-                            leading: LucideIcons.keyRound,
-                            obscure: true,
                           ),
                         ],
                       ),
@@ -126,7 +220,7 @@ class HostDetailsPanel extends StatelessWidget {
               width: double.infinity,
               height: 36,
               child: Button(
-                onPressed: onConnect,
+                onPressed: widget.onConnect,
                 style: const ButtonStyle.primary(),
                 child: const Text('Connect'),
               ),
@@ -138,11 +232,19 @@ class HostDetailsPanel extends StatelessWidget {
   }
 }
 
-/// The 56px header: title in --dark-grey-7 16px/600, saved check, ⋯, →|.
+/// The 56px header: title in --dark-grey-7 16px/600, save check, ⋯, →|.
 class _Header extends StatelessWidget {
   final VoidCallback onClose;
+  final VoidCallback onSave;
+  final VoidCallback onDelete;
+  final bool saving;
 
-  const _Header({required this.onClose});
+  const _Header({
+    required this.onClose,
+    required this.onSave,
+    required this.onDelete,
+    required this.saving,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -170,17 +272,14 @@ class _Header extends StatelessWidget {
               ),
             ),
           ),
-          // savingStatus: an 18px slot with a 14px check.
-          const SizedBox(
-            width: 18,
-            child: Icon(LucideIcons.check, size: 14, color: Colors.white),
+          // The check persists the drawer's edits into the core store.
+          _HeaderIcon(
+            onPressed: saving ? null : onSave,
+            child: Icon(LucideIcons.check,
+                size: 15, color: saving ? _textDisabled : Colors.white),
           ),
           const SizedBox(width: 5),
-          _HeaderIcon(
-            onPressed: () {},
-            child: const Icon(LucideIcons.ellipsis,
-                size: 15, color: _titleGrey),
-          ),
+          _MoreButton(onDelete: onDelete),
           _HeaderIcon(
             onPressed: onClose,
             child: const Icon(LucideIcons.arrowRightToLine,
@@ -192,8 +291,127 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// The ⋯ menu: currently just "Remove host" (a real store delete through the
+/// bridge). Anchored under the button like the toolbar menus.
+class _MoreButton extends StatefulWidget {
+  final VoidCallback onDelete;
+
+  const _MoreButton({required this.onDelete});
+
+  @override
+  State<_MoreButton> createState() => _MoreButtonState();
+}
+
+class _MoreButtonState extends State<_MoreButton> {
+  final OverlayPortalController _menu = OverlayPortalController();
+  final LayerLink _link = LayerLink();
+
+  Widget _menuChild(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _menu.hide,
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        CompositedTransformFollower(
+          link: _link,
+          targetAnchor: Alignment.bottomRight,
+          followerAnchor: Alignment.topRight,
+          offset: const Offset(0, 6),
+          showWhenUnlinked: false,
+          child: Align(
+            alignment: Alignment.topRight,
+            child: Container(
+              width: 180,
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: _cardSurface,
+                borderRadius: BorderRadius.circular(TermiusRadius.field),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 16,
+                    offset: Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: _MoreItem(
+                label: 'Remove host',
+                onTap: () {
+                  _menu.hide();
+                  widget.onDelete();
+                },
+                theme: theme,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OverlayPortal(
+      controller: _menu,
+      overlayChildBuilder: _menuChild,
+      child: CompositedTransformTarget(
+        link: _link,
+        child: IconButton.ghost(
+          onPressed: () => _menu.isShowing ? _menu.hide() : _menu.show(),
+          icon: const Icon(LucideIcons.ellipsis, size: 15, color: _titleGrey),
+          size: ButtonSize.small,
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreItem extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  const _MoreItem({
+    required this.label,
+    required this.onTap,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Icon(LucideIcons.trash2,
+                size: 15, color: theme.colorScheme.destructive),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: theme.typography.normal.copyWith(
+                fontSize: 13,
+                color: theme.colorScheme.destructive,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _HeaderIcon extends StatelessWidget {
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Widget child;
 
   const _HeaderIcon({required this.onPressed, required this.child});
@@ -284,16 +502,14 @@ class _SectionTitle extends StatelessWidget {
 /// placeholder --dark-grey-7; optional 14px leading icon in --dark-grey-6.
 class _PanelField extends StatelessWidget {
   final String placeholder;
-  final String? initialValue;
+  final TextEditingController controller;
   final IconData? leading;
-  final bool obscure;
   final double height;
 
   const _PanelField({
     required this.placeholder,
-    this.initialValue,
+    required this.controller,
     this.leading,
-    this.obscure = false,
     this.height = 36,
   });
 
@@ -317,8 +533,7 @@ class _PanelField extends StatelessWidget {
           ],
           Expanded(
             child: TextField(
-              initialValue: initialValue,
-              obscureText: obscure,
+              controller: controller,
               padding: EdgeInsets.zero,
               decoration: BoxDecoration(
                 color: Colors.transparent,
@@ -343,53 +558,11 @@ class _PanelField extends StatelessWidget {
   }
 }
 
-/// Backspace selector row: outlined, keyboard icon, label and value both in
-/// --dark-grey-6 (the disabled tone), value right-aligned.
-class _BackspaceRow extends StatelessWidget {
-  const _BackspaceRow();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 36,
-      padding: const EdgeInsets.symmetric(horizontal: 9),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-        border: Border.all(color: theme.colorScheme.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(LucideIcons.keyboard, size: 14, color: _textDisabled),
-          const SizedBox(width: 5),
-          Text(
-            'Backspace',
-            style: theme.typography.normal.copyWith(
-              fontSize: 16,
-              color: _textDisabled,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            'Default',
-            style: theme.typography.normal.copyWith(
-              fontSize: 16,
-              color: _textDisabled,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-
 /// "SSH on [22] port" with a 1px --dark-grey-5 divider underneath.
 class _PortRow extends StatelessWidget {
-  final int port;
+  final TextEditingController controller;
 
-  const _PortRow({required this.port});
+  const _PortRow({required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -412,7 +585,7 @@ class _PortRow extends StatelessWidget {
           SizedBox(
             width: 79,
             child: _PanelField(
-              initialValue: '$port',
+              controller: controller,
               placeholder: '22',
               height: 28,
             ),
