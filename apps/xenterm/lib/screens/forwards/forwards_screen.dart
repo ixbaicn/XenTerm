@@ -51,6 +51,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
   List<Host> _sshHosts = const [];
   bool _loading = true;
   String? _error;
+  String? _notice;
   bool _searching = false;
   String _query = '';
   bool _drawerOpen = false;
@@ -141,9 +142,10 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
 
   void _openNew() {
     if (_sshHosts.isEmpty) {
-      setState(() => _error = 'Add an SSH host before creating a rule.');
+      setState(() => _notice = 'Add an SSH host before creating a rule.');
       return;
     }
+    setState(() => _notice = null);
     setState(() {
       _editing = null;
       _drawerOpen = true;
@@ -239,6 +241,27 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                     placeholder: const Text(
                       'Search rules',
                       style: TextStyle(fontSize: 13, color: Color(0xFF8D91A5)),
+                    ),
+                  ),
+                ),
+              if (_notice != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x33F8AA4B),
+                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                    ),
+                    child: Text(
+                      _notice!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFF8AA4B),
+                      ),
                     ),
                   ),
                 ),

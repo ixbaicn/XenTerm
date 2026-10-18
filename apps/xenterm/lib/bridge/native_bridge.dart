@@ -37,6 +37,10 @@ typedef _CloseC = Int32 Function(Uint64);
 typedef _Close = int Function(int);
 typedef _IndexDeleteC = Pointer<Utf8> Function(Int64);
 typedef _IndexDelete = Pointer<Utf8> Function(int);
+typedef _HandlePathC = Int32 Function(Uint64, Pointer<Utf8>);
+typedef _HandlePath = int Function(int, Pointer<Utf8>);
+typedef _HandleTwoPathsC = Int32 Function(Uint64, Pointer<Utf8>, Pointer<Utf8>);
+typedef _HandleTwoPaths = int Function(int, Pointer<Utf8>, Pointer<Utf8>);
 typedef _AnswerC = Int32 Function(
   Uint64,
   Uint64,
@@ -154,6 +158,48 @@ class NativeBridge {
   late final _PtrFn _keys = _lib.lookupFunction<_PtrFnC, _PtrFn>(
     'xenterm_keys_json',
   );
+  late final _PtrFn _logs = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_logs_json',
+  );
+  late final _StrFn _logRead = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_log_read',
+  );
+  late final _StrFn _logDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_log_delete',
+  );
+  late final _PtrFn _settings = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_settings_json',
+  );
+  late final _StrFn _sftpStart = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_sftp_start',
+  );
+  late final _Version _sftpVersion = _lib.lookupFunction<_VersionC, _Version>(
+    'xenterm_sftp_version',
+  );
+  late final _Snap _sftpSnapshot = _lib.lookupFunction<_SnapC, _Snap>(
+    'xenterm_sftp_snapshot',
+  );
+  late final _HandlePath _sftpList = _lib
+      .lookupFunction<_HandlePathC, _HandlePath>('xenterm_sftp_list');
+  late final _Close _sftpRefresh = _lib.lookupFunction<_CloseC, _Close>(
+    'xenterm_sftp_refresh',
+  );
+  late final _HandleTwoPaths _sftpDownload = _lib
+      .lookupFunction<_HandleTwoPathsC, _HandleTwoPaths>(
+        'xenterm_sftp_download',
+      );
+  late final _HandlePath _sftpUpload = _lib
+      .lookupFunction<_HandlePathC, _HandlePath>('xenterm_sftp_upload');
+  late final _HandlePath _sftpMkdir = _lib
+      .lookupFunction<_HandlePathC, _HandlePath>('xenterm_sftp_mkdir');
+  late final _HandlePath _sftpDelete = _lib
+      .lookupFunction<_HandlePathC, _HandlePath>('xenterm_sftp_delete');
+  late final _Close _sftpClose = _lib.lookupFunction<_CloseC, _Close>(
+    'xenterm_sftp_close',
+  );
+  late final _StrFn _settingsSet = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_settings_set',
+  );
   late final _IndexDelete _quickDelete = _lib
       .lookupFunction<_IndexDeleteC, _IndexDelete>(
         'xenterm_quick_command_delete',
@@ -237,6 +283,91 @@ class NativeBridge {
       _resize(handle, cols, rows) == 1;
 
   bool closeSession(int handle) => _close(handle) == 1;
+
+  // ── SFTP ──────────────────────────────────────────────────────────────
+
+  int startSftp(String id) {
+    final pointer = id.toNativeUtf8();
+    try {
+      final result =
+          jsonDecode(_take(_sftpStart(pointer))) as Map<String, dynamic>;
+      if (result['ok'] != true) {
+        throw NativeBridgeError(
+          (result['error'] as String?) ?? 'Could not open SFTP',
+        );
+      }
+      return (result['handle'] as num).toInt();
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  int sftpVersion(int handle) => _sftpVersion(handle);
+
+  String? sftpSnapshot(int handle) {
+    final pointer = _sftpSnapshot(handle);
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  bool sftpList(int handle, String path) => _withPath(_sftpList, handle, path);
+
+  bool sftpRefresh(int handle) => _sftpRefresh(handle) == 1;
+
+  bool sftpDownload(int handle, String remote, String localDir) {
+    final remotePtr = remote.toNativeUtf8();
+    final dirPtr = localDir.toNativeUtf8();
+    try {
+      return _sftpDownload(handle, remotePtr, dirPtr) == 1;
+    } finally {
+      malloc.free(remotePtr);
+      malloc.free(dirPtr);
+    }
+  }
+
+  bool sftpUpload(int handle, String local) =>
+      _withPath(_sftpUpload, handle, local);
+
+  bool sftpMkdir(int handle, String name) =>
+      _withPath(_sftpMkdir, handle, name);
+
+  bool sftpDelete(int handle, String path) =>
+      _withPath(_sftpDelete, handle, path);
+
+  bool sftpClose(int handle) => _sftpClose(handle) == 1;
+
+  bool _withPath(_HandlePath fn, int handle, String value) {
+    final pointer = value.toNativeUtf8();
+    try {
+      return fn(handle, pointer) == 1;
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  // ── Session logs & settings ───────────────────────────────────────────
+
+  String? logsJson() {
+    final pointer = _logs();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> readLog(String name) =>
+      jsonDecode(_callWith(_logRead, name)) as Map<String, dynamic>;
+
+  Map<String, dynamic> deleteLog(String name) =>
+      jsonDecode(_callWith(_logDelete, name)) as Map<String, dynamic>;
+
+  String? settingsJson() {
+    final pointer = _settings();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> setSettings(Map<String, dynamic> values) =>
+      jsonDecode(_callWith(_settingsSet, jsonEncode(values)))
+          as Map<String, dynamic>;
 
   // ── SSH keys ──────────────────────────────────────────────────────────
 
@@ -424,6 +555,290 @@ Future<CoreWriteResult> deleteQuickCommandFromCore(int index) {
       return CoreWriteResult(
         ok: false,
         error: (result['error'] as String?) ?? 'Could not delete the snippet',
+      );
+    }
+    return const CoreWriteResult(ok: true);
+  });
+}
+
+/// One remote SFTP directory entry.
+class SftpEntry {
+  final String name;
+  final String path;
+  final bool isDir;
+  final int size;
+  final int modified;
+  final int mode;
+
+  const SftpEntry({
+    required this.name,
+    required this.path,
+    required this.isDir,
+    required this.size,
+    required this.modified,
+    required this.mode,
+  });
+
+  factory SftpEntry.fromCoreJson(Map<String, dynamic> json) => SftpEntry(
+    name: (json['name'] as String?) ?? '',
+    path: (json['path'] as String?) ?? '',
+    isDir: json['dir'] as bool? ?? false,
+    size: (json['size'] as num?)?.toInt() ?? 0,
+    modified: (json['modified'] as num?)?.toInt() ?? 0,
+    mode: (json['mode'] as num?)?.toInt() ?? 0,
+  );
+
+  String get permissions {
+    if (mode == 0) return '';
+    const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
+    return [
+      for (var shift = 6; shift >= 0; shift -= 3) chars[(mode >> shift) & 7],
+    ].join();
+  }
+}
+
+class SftpTransfer {
+  final String id;
+  final String name;
+  final bool upload;
+  final int transferred;
+  final int total;
+  final int state;
+  final String message;
+
+  const SftpTransfer({
+    required this.id,
+    required this.name,
+    required this.upload,
+    required this.transferred,
+    required this.total,
+    required this.state,
+    required this.message,
+  });
+
+  factory SftpTransfer.fromCoreJson(Map<String, dynamic> json) => SftpTransfer(
+    id: (json['id'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    upload: json['upload'] as bool? ?? false,
+    transferred: (json['transferred'] as num?)?.toInt() ?? 0,
+    total: (json['total'] as num?)?.toInt() ?? 0,
+    state: (json['state'] as num?)?.toInt() ?? 0,
+    message: (json['msg'] as String?) ?? '',
+  );
+}
+
+/// A polled SFTP browser snapshot.
+class SftpSnapshot {
+  final String path;
+  final List<SftpEntry> entries;
+  final bool loading;
+  final String? error;
+  final String status;
+  final String? closed;
+  final List<SftpTransfer> transfers;
+
+  const SftpSnapshot({
+    this.path = '.',
+    this.entries = const [],
+    this.loading = false,
+    this.error,
+    this.status = '',
+    this.closed,
+    this.transfers = const [],
+  });
+
+  factory SftpSnapshot.fromCoreJson(Map<String, dynamic> json) => SftpSnapshot(
+    path: (json['path'] as String?) ?? '.',
+    entries: ((json['entries'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(SftpEntry.fromCoreJson)
+        .toList(),
+    loading: json['loading'] as bool? ?? false,
+    error: json['error'] as String?,
+    status: (json['status'] as String?) ?? '',
+    closed: json['closed'] as String?,
+    transfers: ((json['transfers'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(SftpTransfer.fromCoreJson)
+        .toList(),
+  );
+}
+
+/// One saved terminal transcript.
+class SessionLogEntry {
+  final String file;
+  final String sessionId;
+  final String name;
+  final String host;
+  final String user;
+  final int startedMs;
+  final int size;
+
+  const SessionLogEntry({
+    required this.file,
+    required this.sessionId,
+    required this.name,
+    required this.host,
+    required this.user,
+    required this.startedMs,
+    required this.size,
+  });
+
+  factory SessionLogEntry.fromCoreJson(Map<String, dynamic> json) =>
+      SessionLogEntry(
+        file: (json['file'] as String?) ?? '',
+        sessionId: (json['session_id'] as String?) ?? '',
+        name: (json['name'] as String?) ?? '',
+        host: (json['host'] as String?) ?? '',
+        user: (json['user'] as String?) ?? '',
+        startedMs: (json['started_ms'] as num?)?.toInt() ?? 0,
+        size: (json['size'] as num?)?.toInt() ?? 0,
+      );
+
+  DateTime get started =>
+      DateTime.fromMillisecondsSinceEpoch(startedMs, isUtc: true).toLocal();
+}
+
+/// A transcript's content plus its metadata.
+class SessionLogContent {
+  final String text;
+  final Map<String, dynamic> meta;
+  final int? endedMs;
+  final String? closeReason;
+
+  const SessionLogContent({
+    required this.text,
+    required this.meta,
+    this.endedMs,
+    this.closeReason,
+  });
+}
+
+Future<List<SessionLogEntry>> loadSessionLogsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.logsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not list session logs');
+    }
+    return (jsonDecode(raw) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(SessionLogEntry.fromCoreJson)
+        .toList();
+  });
+}
+
+Future<SessionLogContent> readSessionLogFromCore(String file) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.readLog(file);
+    if (result['ok'] != true) {
+      throw NativeBridgeError(
+        (result['error'] as String?) ?? 'Could not read the transcript',
+      );
+    }
+    return SessionLogContent(
+      text: (result['text'] as String?) ?? '',
+      meta:
+          (result['meta'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{},
+      endedMs: (result['ended_ms'] as num?)?.toInt(),
+      closeReason: result['close_reason'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> deleteSessionLogFromCore(String file) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteLog(file);
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not delete the log',
+      );
+    }
+    return const CoreWriteResult(ok: true);
+  });
+}
+
+/// Real core settings the Flutter UI can change.
+class CoreSettings {
+  final bool sessionLogs;
+  final String cursorStyle;
+  final double lineSpacing;
+  final bool padding;
+  final bool bold;
+  final bool sftpFollowCd;
+  final String downloadDir;
+
+  const CoreSettings({
+    this.sessionLogs = false,
+    this.cursorStyle = 'block',
+    this.lineSpacing = 1.0,
+    this.padding = true,
+    this.bold = false,
+    this.sftpFollowCd = true,
+    this.downloadDir = '',
+  });
+
+  factory CoreSettings.fromCoreJson(Map<String, dynamic> json) => CoreSettings(
+    sessionLogs: json['session_logs'] as bool? ?? false,
+    cursorStyle: (json['cursor_style'] as String?) ?? 'block',
+    lineSpacing: (json['line_spacing'] as num?)?.toDouble() ?? 1.0,
+    padding: json['padding'] as bool? ?? true,
+    bold: json['bold'] as bool? ?? false,
+    sftpFollowCd: json['sftp_follow_cd'] as bool? ?? true,
+    downloadDir: (json['download_dir'] as String?) ?? '',
+  );
+}
+
+Future<CoreSettings> loadSettingsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.settingsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load settings');
+    }
+    return CoreSettings.fromCoreJson(
+      (jsonDecode(raw) as Map).cast<String, dynamic>(),
+    );
+  });
+}
+
+Future<CoreWriteResult> saveSettingsToCore(Map<String, dynamic> values) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.setSettings(values);
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not save settings',
       );
     }
     return const CoreWriteResult(ok: true);

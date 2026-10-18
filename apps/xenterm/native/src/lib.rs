@@ -675,6 +675,247 @@ pub extern "C" fn xenterm_keys_json() -> *mut c_char {
     }
 }
 
+/// Saved session transcripts (metadata only) as a JSON array.
+#[no_mangle]
+pub extern "C" fn xenterm_logs_json() -> *mut c_char {
+    let rows: Vec<serde_json::Value> = xenterm::frontend::session_logs()
+        .into_iter()
+        .map(|log| {
+            serde_json::json!({
+                "file": log.file,
+                "session_id": log.session_id,
+                "name": log.name,
+                "host": log.host,
+                "user": log.user,
+                "started_ms": log.started_ms,
+                "size": log.size,
+            })
+        })
+        .collect();
+    match serde_json::to_string(&rows) {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Reads one transcript: `{"ok":true,"text":"…","meta":{…},"ended_ms":…}`.
+#[no_mangle]
+pub extern "C" fn xenterm_log_read(name: *const c_char) -> *mut c_char {
+    let name = unsafe { take_c(name) };
+    match xenterm::frontend::read_session_log(&name) {
+        Ok(value) => {
+            let mut result = value;
+            result["ok"] = serde_json::Value::Bool(true);
+            to_c(result.to_string())
+        }
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Deletes one transcript.
+#[no_mangle]
+pub extern "C" fn xenterm_log_delete(name: *const c_char) -> *mut c_char {
+    let name = unsafe { take_c(name) };
+    match xenterm::frontend::delete_session_log(&name) {
+        Ok(removed) => to_c(serde_json::json!({"ok": true, "removed": removed}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// The settings the Flutter UI can change, read from the core config.
+#[no_mangle]
+pub extern "C" fn xenterm_settings_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        Ok(serde_json::json!({
+            "session_logs": store.session_logs(),
+            "cursor_style": store.terminal_cursor_style(),
+            "line_spacing": store.terminal_line_spacing(),
+            "padding": store.terminal_padding(),
+            "bold": store.terminal_bold(),
+            "sftp_follow_cd": store.sftp_follow_cd(),
+            "download_dir": store.download_dir(),
+        })
+        .to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Applies any subset of the settings above and saves the store.
+#[no_mangle]
+pub extern "C" fn xenterm_settings_set(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(enabled) = value.get("session_logs").and_then(|v| v.as_bool()) {
+            store.set_session_logs(enabled);
+        }
+        if let Some(style) = value.get("cursor_style").and_then(|v| v.as_str()) {
+            store.set_terminal_cursor_style(style.to_string());
+        }
+        if let Some(spacing) = value.get("line_spacing").and_then(|v| v.as_f64()) {
+            store.set_terminal_line_spacing(spacing as f32);
+        }
+        if let Some(padding) = value.get("padding").and_then(|v| v.as_bool()) {
+            store.set_terminal_padding(padding);
+        }
+        if let Some(bold) = value.get("bold").and_then(|v| v.as_bool()) {
+            store.set_terminal_bold(bold);
+        }
+        if let Some(follow) = value.get("sftp_follow_cd").and_then(|v| v.as_bool()) {
+            store.set_sftp_follow_cd(follow);
+        }
+        if let Some(dir) = value.get("download_dir").and_then(|v| v.as_str()) {
+            store.set_download_dir(dir.to_string());
+        }
+        store.save().map_err(|e| format!("save failed: {e}"))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+static SFTP_SESSIONS: OnceLock<Mutex<HashMap<u64, Arc<xenterm::frontend::SftpSession>>>> =
+    OnceLock::new();
+
+fn sftp_sessions() -> &'static Mutex<HashMap<u64, Arc<xenterm::frontend::SftpSession>>> {
+    SFTP_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn sftp(handle: u64) -> Option<Arc<xenterm::frontend::SftpSession>> {
+    sftp_sessions().lock().ok()?.get(&handle).cloned()
+}
+
+/// Opens an SFTP channel for a saved session; returns `{"ok":true,"handle":N}`.
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_start(id: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<u64, String> {
+        let id = unsafe { take_c(id) };
+        if id.is_empty() {
+            return Err("empty session id".into());
+        }
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let runtime = runtime()?;
+        let session = xenterm::frontend::SftpSession::start(runtime.handle(), &store, &id)?;
+        let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut map) = sftp_sessions().lock() {
+            map.insert(handle, session);
+        }
+        Ok(handle)
+    })();
+    match result {
+        Ok(handle) => to_c(serde_json::json!({"ok": true, "handle": handle}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_version(handle: u64) -> u64 {
+    sftp(handle).map(|s| s.version()).unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_snapshot(handle: u64) -> *mut c_char {
+    match sftp(handle) {
+        Some(session) => to_c(session.snapshot_json()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_list(handle: u64, path: *const c_char) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.list(unsafe { take_c(path) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_refresh(handle: u64) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.refresh();
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_download(
+    handle: u64,
+    remote: *const c_char,
+    local_dir: *const c_char,
+) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.download(unsafe { take_c(remote) }, unsafe { take_c(local_dir) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_upload(handle: u64, local: *const c_char) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.upload(unsafe { take_c(local) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_mkdir(handle: u64, name: *const c_char) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.mkdir(unsafe { take_c(name) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_delete(handle: u64, path: *const c_char) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.delete(unsafe { take_c(path) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_close(handle: u64) -> i32 {
+    match sftp_sessions().lock() {
+        Ok(mut map) => match map.remove(&handle) {
+            Some(session) => {
+                session.close();
+                1
+            }
+            None => 0,
+        },
+        Err(_) => 0,
+    }
+}
+
 /// Release a string this bridge returned.
 #[no_mangle]
 pub extern "C" fn xenterm_string_free(ptr: *mut c_char) {

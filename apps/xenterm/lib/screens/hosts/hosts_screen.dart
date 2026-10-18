@@ -4,6 +4,7 @@
 /// card grid, cards with colored OS chips and a hover edit-pencil.
 library;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
@@ -15,13 +16,39 @@ import 'host_details_panel.dart';
 
 enum HostsLayout { cards, rows }
 
+typedef HostSaver = Future<CoreWriteResult> Function({
+  required String id,
+  required String label,
+  required String address,
+  required int port,
+  required String username,
+  required String group,
+  required String kind,
+  String keyPath,
+});
+typedef HostDeleter = Future<CoreWriteResult> Function(String id);
+
 class HostsScreen extends StatefulWidget {
   final ValueChanged<Host>? onConnect;
 
   /// Session source; defaults to the Rust core through the FFI bridge.
   final Future<List<Host>> Function()? loadHosts;
 
-  const HostsScreen({super.key, this.onConnect, this.loadHosts});
+  /// Incremented by the title bar's + button to open the New host drawer.
+  final ValueListenable<int>? newHostRequest;
+
+  /// Test seams; production uses the FFI bridge.
+  final HostSaver? saveSession;
+  final HostDeleter? deleteSession;
+
+  const HostsScreen({
+    super.key,
+    this.onConnect,
+    this.loadHosts,
+    this.newHostRequest,
+    this.saveSession,
+    this.deleteSession,
+  });
 
   @override
   State<HostsScreen> createState() => _HostsScreenState();
@@ -40,7 +67,21 @@ class _HostsScreenState extends State<HostsScreen> {
   @override
   void initState() {
     super.initState();
+    widget.newHostRequest?.addListener(_onNewHostRequest);
     _reload();
+  }
+
+  @override
+  void didUpdateWidget(HostsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.newHostRequest != widget.newHostRequest) {
+      oldWidget.newHostRequest?.removeListener(_onNewHostRequest);
+      widget.newHostRequest?.addListener(_onNewHostRequest);
+    }
+  }
+
+  void _onNewHostRequest() {
+    if (mounted) _createSession();
   }
 
   Future<void> _reload({bool silent = false}) async {
@@ -68,6 +109,7 @@ class _HostsScreenState extends State<HostsScreen> {
 
   @override
   void dispose() {
+    widget.newHostRequest?.removeListener(_onNewHostRequest);
     _search.dispose();
     super.dispose();
   }
@@ -92,7 +134,7 @@ class _HostsScreenState extends State<HostsScreen> {
   /// Persists the drawer's edits into the core store, then refreshes the list.
   Future<String?> _saveHostToCore(Host host) async {
     try {
-      final result = await saveSessionToCore(
+      final result = await (widget.saveSession ?? saveSessionToCore)(
         id: host.id,
         label: host.label,
         address: host.address,
@@ -120,7 +162,9 @@ class _HostsScreenState extends State<HostsScreen> {
   /// Deletes one session through the core and refreshes the list.
   Future<String?> _deleteHostToCore(Host host) async {
     try {
-      final result = await deleteSessionFromCore(host.id);
+      final result = await (widget.deleteSession ?? deleteSessionFromCore)(
+        host.id,
+      );
       if (!result.ok) return result.error ?? 'Delete failed';
       _closeDrawer();
       await _reload(silent: true);
@@ -130,40 +174,119 @@ class _HostsScreenState extends State<HostsScreen> {
     }
   }
 
-  /// Creates an empty session in the core and opens it in the drawer for
-  /// editing — the New host button is a real store write now.
-  Future<void> _createSession() async {
+  /// Creates a session in the core and returns it after the list reloads.
+  Future<Host?> _createSessionFor({
+    required String kind,
+    required String label,
+    String address = '',
+    int port = 22,
+    String username = '',
+  }) async {
     try {
-      final result = await saveSessionToCore(
+      final result = await (widget.saveSession ?? saveSessionToCore)(
         id: '',
-        label: 'New Host',
-        address: '',
-        port: 22,
-        username: 'root',
+        label: label,
+        address: address,
+        port: port,
+        username: username,
         group: '',
-        kind: 'ssh',
+        kind: kind,
       );
       if (!result.ok) {
         if (mounted) {
           setState(() => _loadError = result.error ?? 'Could not create host');
         }
-        return;
+        return null;
       }
       await _reload(silent: true);
-      for (final h in _hosts) {
-        if (h.id == result.id) {
-          if (mounted) {
-            setState(() {
-              _drawerHost = h;
-              _drawerOpen = true;
-            });
-          }
-          break;
-        }
+      for (final host in _hosts) {
+        if (host.id == result.id) return host;
       }
+      return null;
     } catch (error) {
       if (mounted) setState(() => _loadError = '$error');
+      return null;
     }
+  }
+
+  /// The New host button: create an SSH session and edit it in the drawer.
+  Future<void> _createSession() async {
+    final host = await _createSessionFor(kind: 'ssh', label: 'New Host');
+    if (host == null || !mounted) return;
+    setState(() {
+      _drawerHost = host;
+      _drawerOpen = true;
+    });
+  }
+
+  /// The toolbar's Terminal action: a real local PTY session, opened directly.
+  /// An existing "Local terminal" is reused instead of piling up duplicates.
+  Future<void> _quickLocal() async {
+    for (final host in _hosts) {
+      if (host.protocol == 'local' && host.label == 'Local terminal') {
+        _connect(host);
+        return;
+      }
+    }
+    final host = await _createSessionFor(
+      kind: 'local',
+      label: 'Local terminal',
+    );
+    if (host != null) _connect(host);
+  }
+
+  /// The toolbar's Serial action: a serial session, opened in the editor so the
+  /// port can be filled in.
+  Future<void> _quickSerial() async {
+    final host = await _createSessionFor(
+      kind: 'serial',
+      label: 'Serial',
+      // The serial device goes in Address; the SSH port field stays unused.
+      port: 22,
+    );
+    if (host == null || !mounted) return;
+    setState(() {
+      _drawerHost = host;
+      _drawerOpen = true;
+    });
+  }
+
+  /// Quick connect from the search field: an existing host wins; otherwise a
+  /// `user@host:port` query creates a new SSH session and connects immediately.
+  Future<void> _quickConnect() async {
+    final query = _query.trim();
+    if (query.isEmpty) return;
+    final lower = query.toLowerCase();
+    for (final host in _hosts) {
+      if (host.label.toLowerCase() == lower ||
+          host.address.toLowerCase() == lower) {
+        _connect(host);
+        return;
+      }
+    }
+    var user = '';
+    var addressPort = query;
+    final at = query.indexOf('@');
+    if (at > 0) {
+      user = query.substring(0, at);
+      addressPort = query.substring(at + 1);
+    }
+    var address = addressPort;
+    var port = 22;
+    final colon = addressPort.lastIndexOf(':');
+    if (colon > 0 && !addressPort.contains(']')) {
+      address = addressPort.substring(0, colon);
+      port = int.tryParse(addressPort.substring(colon + 1)) ?? 22;
+    }
+    if (address.isEmpty) return;
+    final host = await _createSessionFor(
+      kind: 'ssh',
+      label: query,
+      address: address,
+      port: port,
+      username: user,
+    );
+    if (host != null) _connect(host);
   }
 
   /// Collapse the slider; the panel content stays mounted for the next open.
@@ -218,6 +341,7 @@ class _HostsScreenState extends State<HostsScreen> {
                           children: [
                             Expanded(
                               child: TextField(
+                                key: const ValueKey('host-search'),
                                 controller: _search,
                                 border: Border.all(color: Colors.transparent),
                                 borderRadius: BorderRadius.circular(
@@ -247,17 +371,18 @@ class _HostsScreenState extends State<HostsScreen> {
                             // keeps it a muted text button in every state (the
                             // blue Connect is the drawer's).
                             GhostButton(
+                              key: const ValueKey('quick-connect'),
                               density: ButtonDensity.compact,
-                              onPressed: _drawerOpen
+                              onPressed: _query.trim().isEmpty
                                   ? null
-                                  : () => _connect(_drawerHost),
+                                  : _quickConnect,
                               child: Text(
                                 'Connect',
                                 style: theme.typography.normal.copyWith(
                                   fontSize: 13,
-                                  color: _drawerOpen
-                                      ? theme.colorScheme.foreground
-                                      : theme.colorScheme.mutedForeground,
+                                  color: _query.trim().isEmpty
+                                      ? theme.colorScheme.mutedForeground
+                                      : theme.colorScheme.foreground,
                                 ),
                               ),
                             ),
@@ -274,19 +399,18 @@ class _HostsScreenState extends State<HostsScreen> {
                             label: 'New host',
                             icon: LucideIcons.plus,
                             onPressed: _createSession,
-                            onDropdown: () {},
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
                             icon: LucideIcons.terminal,
                             label: 'Terminal',
-                            onPressed: () {},
+                            onPressed: _quickLocal,
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
                             icon: LucideIcons.usb,
                             label: 'Serial',
-                            onPressed: () {},
+                            onPressed: _quickSerial,
                           ),
                           const Spacer(),
                           IconToggleButton(
@@ -300,56 +424,27 @@ class _HostsScreenState extends State<HostsScreen> {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          IconToggleButton(
-                            icon: LucideIcons.tag,
-                            onPressed: () {},
-                          ),
-                          const SizedBox(width: 6),
-                          IconToggleButton(
-                            icon: LucideIcons.keyboard,
-                            onPressed: () {},
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            width: 28,
-                            height: 28,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF21B568),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFF21B568)
-                                    .withValues(alpha: 0.5),
-                                width: 2,
+                          GestureDetector(
+                            key: const ValueKey('new-host-fab'),
+                            onTap: _createSession,
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF21B568),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFF21B568)
+                                      .withValues(alpha: 0.5),
+                                  width: 2,
+                                ),
                               ),
-                            ),
-                            child: const Text(
-                              'B',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                              child: const Icon(
+                                LucideIcons.plus,
+                                size: 14,
                                 color: Colors.white,
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            width: 28,
-                            height: 28,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF21B568),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFF21B568)
-                                    .withValues(alpha: 0.5),
-                                width: 2,
-                              ),
-                            ),
-                            child: const Icon(
-                              LucideIcons.plus,
-                              size: 14,
-                              color: Colors.white,
                             ),
                           ),
                         ],

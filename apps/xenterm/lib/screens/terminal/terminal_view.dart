@@ -16,6 +16,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../theme/app_fonts.dart';
+import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
 import '../../theme/termius_theme.dart';
 import 'terminal_tools_panel.dart';
@@ -41,12 +42,14 @@ class TerminalView extends StatefulWidget {
   final Host host;
   final AppFonts fonts;
   final TerminalCommandBus? commandBus;
+  final CoreSettingsController? settings;
 
   const TerminalView({
     super.key,
     required this.host,
     required this.fonts,
     this.commandBus,
+    this.settings,
   });
 
   @override
@@ -67,12 +70,14 @@ class _TerminalViewState extends State<TerminalView> {
   String _search = '';
   int _lastCommand = 0;
   final FocusNode _focus = FocusNode(debugLabel: 'terminal');
+  final FocusNode _searchFocus = FocusNode(debugLabel: 'terminal-search');
 
   @override
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_globalKey);
     widget.commandBus?.addListener(_onCommand);
+    widget.settings?.addListener(_onSettings);
     _start();
   }
 
@@ -149,6 +154,14 @@ class _TerminalViewState extends State<TerminalView> {
       oldWidget.commandBus?.removeListener(_onCommand);
       widget.commandBus?.addListener(_onCommand);
     }
+    if (oldWidget.settings != widget.settings) {
+      oldWidget.settings?.removeListener(_onSettings);
+      widget.settings?.addListener(_onSettings);
+    }
+  }
+
+  void _onSettings() {
+    if (mounted) setState(() {});
   }
 
   /// Runs a snippet/command link in this PTY. The bus carries the target host
@@ -160,16 +173,14 @@ class _TerminalViewState extends State<TerminalView> {
     if (command.hostId != widget.host.id) return;
     if (bus.sequence == _lastCommand) return;
     _lastCommand = bus.sequence;
-    _send([
-      ...utf8.encode(command.text),
-      if (command.sendEnter) 13,
-    ]);
+    _send([...utf8.encode(command.text), if (command.sendEnter) 13]);
     _focus.requestFocus();
   }
 
   @override
   void dispose() {
     widget.commandBus?.removeListener(_onCommand);
+    widget.settings?.removeListener(_onSettings);
     HardwareKeyboard.instance.removeHandler(_globalKey);
     _poll?.cancel();
     final handle = _handle;
@@ -203,6 +214,12 @@ class _TerminalViewState extends State<TerminalView> {
   bool _globalKey(KeyEvent event) {
     if (!_focus.hasPrimaryFocus) return false;
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return false;
+    if (HardwareKeyboard.instance.isControlPressed &&
+        HardwareKeyboard.instance.isShiftPressed &&
+        event.logicalKey == LogicalKeyboardKey.keyF) {
+      _searchFocus.requestFocus();
+      return true;
+    }
     final bytes = _encodeKey(event, _screen?['applicationCursor'] == true);
     if (bytes.isNotEmpty) _send(bytes);
     return true;
@@ -226,7 +243,9 @@ class _TerminalViewState extends State<TerminalView> {
       textDirection: TextDirection.ltr,
     )..layout();
     final cellWidth = measure.width / 10;
-    final lineHeight = fontSize * 1.25;
+    final core = widget.settings?.settings ?? const CoreSettings();
+    final lineHeight = fontSize * 1.25 * core.lineSpacing;
+    final inset = core.padding ? 12.0 : 0.0;
 
     return Row(
       children: [
@@ -236,10 +255,10 @@ class _TerminalViewState extends State<TerminalView> {
             color: const Color(0xFF141729),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final cols = ((constraints.maxWidth - 24) / cellWidth)
+                final cols = ((constraints.maxWidth - inset * 2) / cellWidth)
                     .floor()
                     .clamp(2, 1000);
-                final rows = ((constraints.maxHeight - 24) / lineHeight)
+                final rows = ((constraints.maxHeight - inset * 2) / lineHeight)
                     .floor()
                     .clamp(2, 1000);
                 _resize(cols, rows);
@@ -253,11 +272,13 @@ class _TerminalViewState extends State<TerminalView> {
                       children: [
                         Positioned.fill(
                           child: Padding(
-                            padding: const EdgeInsets.all(12),
+                            padding: EdgeInsets.all(inset),
                             child: CustomPaint(
                               painter: _TerminalPainter(
                                 screen: _screen,
                                 search: _search,
+                                bold: core.bold,
+                                cursorStyle: core.cursorStyle,
                                 fontFamily: fontFamily,
                                 fontSize: fontSize,
                                 cellWidth: cellWidth,
@@ -277,13 +298,24 @@ class _TerminalViewState extends State<TerminalView> {
                           Center(
                             child: Padding(
                               padding: const EdgeInsets.all(24),
-                              child: Text(
-                                'Terminal unavailable\n$_error',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: Color(0xFF8D91A5),
-                                  fontSize: 13,
-                                ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Terminal unavailable\n$_error',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Color(0xFF8D91A5),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Button(
+                                    style: const ButtonStyle.outline(),
+                                    onPressed: _reconnect,
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -333,6 +365,7 @@ class _TerminalViewState extends State<TerminalView> {
             fonts: widget.fonts,
             screen: _screen,
             search: _search,
+            searchFocus: _searchFocus,
             matchCount: _matchCount(),
             onSearch: (value) => setState(() => _search = value),
             onClear: () {
@@ -479,6 +512,8 @@ List<int> _encodeKey(KeyEvent event, bool applicationCursor) {
 class _TerminalPainter extends CustomPainter {
   final Map<String, dynamic>? screen;
   final String search;
+  final bool bold;
+  final String cursorStyle;
   final String fontFamily;
   final double fontSize;
   final double cellWidth;
@@ -487,6 +522,8 @@ class _TerminalPainter extends CustomPainter {
   _TerminalPainter({
     required this.screen,
     required this.search,
+    required this.bold,
+    required this.cursorStyle,
     required this.fontFamily,
     required this.fontSize,
     required this.cellWidth,
@@ -560,10 +597,20 @@ class _TerminalPainter extends CustomPainter {
     if (cursor != null && screen?['cursorHidden'] != true) {
       final row = (cursor[0] as num).toInt();
       final col = (cursor[1] as num).toInt();
-      canvas.drawRect(
-        Rect.fromLTWH(col * cellWidth, row * lineHeight, cellWidth, lineHeight),
-        Paint()..color = _cursorColor,
-      );
+      final paint = Paint()..color = _cursorColor;
+      final x = col * cellWidth;
+      final y = row * lineHeight;
+      switch (cursorStyle) {
+        case 'bar':
+          canvas.drawRect(Rect.fromLTWH(x, y, 2, lineHeight), paint);
+        case 'underline':
+          canvas.drawRect(
+            Rect.fromLTWH(x, y + lineHeight - 2, cellWidth, 2),
+            paint,
+          );
+        default:
+          canvas.drawRect(Rect.fromLTWH(x, y, cellWidth, lineHeight), paint);
+      }
     }
   }
 
@@ -612,6 +659,8 @@ class _TerminalPainter extends CustomPainter {
   bool shouldRepaint(_TerminalPainter oldDelegate) =>
       oldDelegate.screen != screen ||
       oldDelegate.search != search ||
+      oldDelegate.bold != bold ||
+      oldDelegate.cursorStyle != cursorStyle ||
       oldDelegate.fontFamily != fontFamily ||
       oldDelegate.fontSize != fontSize;
 

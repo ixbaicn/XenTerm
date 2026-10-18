@@ -44,6 +44,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
   List<QuickCommand> _snippets = const [];
   bool _loading = true;
   String? _error;
+  String? _notice;
   String _query = '';
   bool _searching = false;
   QuickCommand? _editing; // null with _drawerOpen => new snippet
@@ -161,9 +162,10 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
   void _run(QuickCommand snippet) {
     final run = widget.onRun;
     if (run == null) {
-      setState(() => _error = 'Open a terminal first to run snippets.');
+      setState(() => _notice = 'Open a terminal first to run snippets.');
       return;
     }
+    setState(() => _notice = null);
     run(snippet);
   }
 
@@ -185,11 +187,6 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                       label: 'New snippet',
                       icon: LucideIcons.plus,
                       onPressed: _openNew,
-                    ),
-                    const SizedBox(width: 20),
-                    GhostAction(
-                      icon: LucideIcons.folderTree,
-                      label: _groupSummary(),
                     ),
                     const Spacer(),
                     Row(
@@ -236,6 +233,27 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                     ),
                   ),
                 ),
+              if (_notice != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x33F8AA4B),
+                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                    ),
+                    child: Text(
+                      _notice!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFF8AA4B),
+                      ),
+                    ),
+                  ),
+                ),
               const SectionTitle(text: 'Snippets'),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -270,15 +288,6 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
         ),
       ],
     );
-  }
-
-  String _groupSummary() {
-    final groups = _snippets
-        .map((s) => s.group)
-        .where((g) => g.isNotEmpty)
-        .toSet();
-    if (groups.isEmpty) return 'No groups';
-    return '${groups.length} group${groups.length == 1 ? '' : 's'}';
   }
 
   Widget _body(ThemeData theme) {

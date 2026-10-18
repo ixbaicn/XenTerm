@@ -1,8 +1,10 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'data/hosts.dart';
 import 'shell/root_shell.dart';
+import 'terminal/core_settings.dart';
 import 'theme/termius_theme.dart';
 import 'theme/app_fonts.dart';
 
@@ -34,20 +36,44 @@ class XenTermApp extends StatefulWidget {
   /// Overrides the hosts loader (widget tests use the sample fixture; the app
   /// loads the real sessions from the Rust core).
   final Future<List<Host>> Function()? hostsLoader;
-  const XenTermApp({super.key, this.fonts, this.hostsLoader});
+  final CoreSettingsController? settings;
+  const XenTermApp({
+    super.key,
+    this.fonts,
+    this.hostsLoader,
+    this.settings,
+  });
 
   @override
   State<XenTermApp> createState() => _XenTermAppState();
 }
 
 class _XenTermAppState extends State<XenTermApp> {
+  static const _themeKey = 'xenterm.theme.light';
   bool _lightTheme = false;
   late final AppFonts _fonts = widget.fonts ?? AppFonts();
+  late final CoreSettingsController _settings =
+      widget.settings ?? CoreSettingsController();
 
   @override
   void initState() {
     super.initState();
     _fonts.addListener(_changed);
+    if (widget.settings == null) _settings.load();
+    _restoreTheme();
+  }
+
+  Future<void> _restoreTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    final light = prefs.getBool(_themeKey);
+    if (light != null && mounted) setState(() => _lightTheme = light);
+  }
+
+  void _setTheme(bool light) {
+    setState(() => _lightTheme = light);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setBool(_themeKey, light),
+    );
   }
 
   void _changed() => setState(() {});
@@ -56,6 +82,7 @@ class _XenTermAppState extends State<XenTermApp> {
   void dispose() {
     _fonts.removeListener(_changed);
     if (widget.fonts == null) _fonts.dispose();
+    if (widget.settings == null) _settings.dispose();
     super.dispose();
   }
 
@@ -80,8 +107,9 @@ class _XenTermAppState extends State<XenTermApp> {
         ),
           child: RootShell(
             lightTheme: _lightTheme,
-            onThemeChanged: (light) => setState(() => _lightTheme = light),
+            onThemeChanged: _setTheme,
             fonts: _fonts,
+            settings: _settings,
             hostsLoader: widget.hostsLoader,
           ),
         ),

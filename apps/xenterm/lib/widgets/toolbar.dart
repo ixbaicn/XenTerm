@@ -12,18 +12,32 @@ import '../theme/termius_theme.dart';
 /// menu button square, radius 2/8/8/2). The chevron rotates 180° while open.
 /// Its dropdown carries New Group / Import / the cloud integrations, the
 /// integrations tagged with the upgrade badge.
+class SplitMenuEntry {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const SplitMenuEntry({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+}
+
 class SplitButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
-  final VoidCallback? onDropdown;
+
+  /// Real menu entries. A null/empty list hides the chevron entirely instead
+  /// of showing a menu whose items do nothing.
+  final List<SplitMenuEntry>? menuItems;
 
   const SplitButton({
     super.key,
     required this.label,
     required this.icon,
     this.onPressed,
-    this.onDropdown,
+    this.menuItems,
   });
 
   @override
@@ -39,7 +53,6 @@ class _SplitButtonState extends State<SplitButton> {
       _menu.hide();
     } else {
       _menu.show();
-      widget.onDropdown?.call();
     }
   }
 
@@ -63,37 +76,45 @@ class _SplitButtonState extends State<SplitButton> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon,
-                  size: 14, color: theme.colorScheme.foreground),
+              Icon(widget.icon, size: 14, color: theme.colorScheme.foreground),
               const SizedBox(width: 8),
-              Text(widget.label,
-                  style: theme.typography.medium.copyWith(
-                      fontSize: 14, color: theme.colorScheme.foreground)),
+              Text(
+                widget.label,
+                style: theme.typography.medium.copyWith(
+                  fontSize: 14,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
             ],
           ),
         ),
-        const SizedBox(width: 2),
-        CompositedTransformTarget(
-          link: _link,
-          child: _SplitSegment(
-            onTap: _toggleMenu,
-            radius: const BorderRadius.only(
-              topLeft: inner,
-              bottomLeft: inner,
-              topRight: outer,
-              bottomRight: outer,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: AnimatedRotation(
-              turns: _menu.isShowing ? 0.5 : 0,
-              duration: TermiusMotion.micro,
-              curve: TermiusMotion.easeOut,
-              child: Icon(LucideIcons.chevronDown,
-                  size: 14, color: theme.colorScheme.foreground),
+        if (widget.menuItems?.isNotEmpty ?? false) ...[
+          const SizedBox(width: 2),
+          CompositedTransformTarget(
+            link: _link,
+            child: _SplitSegment(
+              onTap: _toggleMenu,
+              radius: const BorderRadius.only(
+                topLeft: inner,
+                bottomLeft: inner,
+                topRight: outer,
+                bottomRight: outer,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: AnimatedRotation(
+                turns: _menu.isShowing ? 0.5 : 0,
+                duration: TermiusMotion.micro,
+                curve: TermiusMotion.easeOut,
+                child: Icon(
+                  LucideIcons.chevronDown,
+                  size: 14,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
             ),
           ),
-        ),
-        OverlayPortal(controller: _menu, overlayChildBuilder: _overlay),
+          OverlayPortal(controller: _menu, overlayChildBuilder: _overlay),
+        ],
       ],
     );
   }
@@ -135,18 +156,16 @@ class _SplitButtonState extends State<SplitButton> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _MenuEntry(
-                    icon: LucideIcons.layoutGrid,
-                    label: 'New Group',
-                    onTap: _menu.hide,
-                    theme: theme,
-                  ),
-                  _MenuEntry(
-                    icon: LucideIcons.download,
-                    label: 'Import',
-                    onTap: _menu.hide,
-                    theme: theme,
-                  ),
+                  for (final item in widget.menuItems!)
+                    _MenuEntry(
+                      icon: item.icon,
+                      label: item.label,
+                      onTap: () {
+                        _menu.hide();
+                        item.onTap();
+                      },
+                      theme: theme,
+                    ),
                 ],
               ),
             ),
@@ -194,7 +213,9 @@ class _SplitSegmentState extends State<_SplitSegment> {
           padding: widget.padding,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _hovering ? const Color(0xFF3E4257) : const Color(0xFF32364A),
+            color: _hovering
+                ? const Color(0xFF3E4257)
+                : const Color(0xFF32364A),
             borderRadius: widget.radius,
           ),
           child: widget.child,
@@ -309,9 +330,13 @@ class _GhostActionState extends State<GhostAction> {
             children: [
               Icon(widget.icon, size: 15, color: theme.colorScheme.foreground),
               const SizedBox(width: 8),
-              Text(widget.label,
-                  style: theme.typography.normal.copyWith(
-                      fontSize: 14, color: theme.colorScheme.foreground)),
+              Text(
+                widget.label,
+                style: theme.typography.normal.copyWith(
+                  fontSize: 14,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
             ],
           ),
         ),
@@ -354,8 +379,11 @@ class _IconToggleButtonState extends State<IconToggleButton> {
             color: _hovering ? theme.colorScheme.accent : Colors.transparent,
             borderRadius: BorderRadius.circular(TermiusRadius.card),
           ),
-          child: Icon(widget.icon,
-              size: 15, color: theme.colorScheme.foreground),
+          child: Icon(
+            widget.icon,
+            size: 15,
+            color: theme.colorScheme.foreground,
+          ),
         ),
       ),
     );
@@ -373,9 +401,13 @@ class SectionTitle extends StatelessWidget {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
-      child: Text(text,
-          style: theme.typography.bold.copyWith(
-              fontSize: 18, color: theme.colorScheme.foreground)),
+      child: Text(
+        text,
+        style: theme.typography.bold.copyWith(
+          fontSize: 18,
+          color: theme.colorScheme.foreground,
+        ),
+      ),
     );
   }
 }

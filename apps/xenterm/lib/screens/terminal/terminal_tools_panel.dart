@@ -11,6 +11,7 @@ class TerminalToolsPanel extends StatelessWidget {
   final AppFonts fonts;
   final Map<String, dynamic>? screen;
   final String search;
+  final FocusNode? searchFocus;
   final int matchCount;
   final ValueChanged<String> onSearch;
   final VoidCallback onClear;
@@ -22,6 +23,7 @@ class TerminalToolsPanel extends StatelessWidget {
     required this.fonts,
     required this.screen,
     required this.search,
+    this.searchFocus,
     required this.matchCount,
     required this.onSearch,
     required this.onClear,
@@ -47,6 +49,7 @@ class TerminalToolsPanel extends StatelessWidget {
         children: [
           TextField(
             key: const ValueKey('terminal-search'),
+            focusNode: searchFocus,
             onChanged: onSearch,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             decoration: BoxDecoration(

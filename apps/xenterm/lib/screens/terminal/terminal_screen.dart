@@ -1,9 +1,10 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
 import '../../theme/app_fonts.dart';
-import 'sftp_preview.dart';
+import 'sftp_view.dart';
 import 'terminal_view.dart';
 
 /// One connection workspace: the live terminal (or its SFTP view) on the left,
@@ -15,6 +16,7 @@ class TerminalScreen extends StatefulWidget {
   /// SFTP view is toggled from the title bar's SFTP tab.
   final bool showSftp;
   final TerminalCommandBus? commandBus;
+  final CoreSettingsController? settings;
 
   const TerminalScreen({
     super.key,
@@ -22,6 +24,7 @@ class TerminalScreen extends StatefulWidget {
     required this.fonts,
     this.showSftp = false,
     this.commandBus,
+    this.settings,
   });
 
   @override
@@ -29,9 +32,20 @@ class TerminalScreen extends StatefulWidget {
 }
 
 class _TerminalScreenState extends State<TerminalScreen> {
+  /// Once the SFTP panel is opened it stays mounted (offstage when hidden), so
+  /// toggling back to the terminal does not drop the remote connection.
+  bool _sftpOpened = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sftpOpened = widget.showSftp;
+  }
+
   @override
   void didUpdateWidget(TerminalScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.showSftp) _sftpOpened = true;
     // While the SFTP view covers the terminal, keys must not reach the hidden
     // PTY; the offstage terminal would otherwise keep primary focus.
     if (widget.showSftp && !oldWidget.showSftp) {
@@ -53,11 +67,17 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 host: widget.host,
                 fonts: widget.fonts,
                 commandBus: widget.commandBus,
+                settings: widget.settings,
               ),
             ),
           ),
-          if (widget.showSftp)
-            Positioned.fill(child: SftpPreview(host: widget.host)),
+          if (_sftpOpened)
+            Positioned.fill(
+              child: Offstage(
+                offstage: !widget.showSftp,
+                child: SftpView(host: widget.host, settings: widget.settings),
+              ),
+            ),
         ],
       ),
     );

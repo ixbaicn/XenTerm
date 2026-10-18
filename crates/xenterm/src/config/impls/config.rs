@@ -1101,6 +1101,15 @@ impl ConfigStore {
         self.cache.download_dir = dir;
     }
 
+    /// Whether terminal transcripts are recorded under `<data>/session_logs`.
+    pub fn session_logs(&self) -> bool {
+        self.cache.session_logs
+    }
+
+    pub fn set_session_logs(&mut self, enabled: bool) {
+        self.cache.session_logs = enabled;
+    }
+
     /// UI language code ("zh" default / "en").
     pub fn language(&self) -> &str {
         if self.cache.language.is_empty() {

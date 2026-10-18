@@ -69,4 +69,26 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   Consolas/Menlo 等真实等宽字体（`monospace` 在 Windows 会回退到 Segoe UI）
   按 run 绘制并叠加块状光标；工具面板提供可见缓冲搜索（高亮+计数）、
   复制、清屏（Ctrl+L）、字号与重连，全部作用于真实会话。
-- 未实现：SFTP 列表/传输、资源采样、分组/导入（下一步）。
+- 侧栏不再是空壳（第三步，全部走核心真实数据）：
+  - Snippets：`xenterm_quick_commands_json/upsert/delete`，搜索、新建/编辑/
+    删除抽屉；卡片点击经 `TerminalCommandBus` 定向发送到活动 PTY。
+  - Known Hosts：core 公开 `known_hosts::entries/forget`，bridge 提供
+    `xenterm_known_hosts_json/delete`，宿主键指纹由 russh 解析。
+  - Port Forwarding：`xenterm_forwards_json/upsert/delete`，复用核心的
+    `core::tunnel::validate`，规则随宿主连接生效。
+  - Keychain：`xenterm_keys_json` 只投影会话引用的密钥元数据（算法/指纹/
+    状态），主机抽屉新增私钥路径并自动切到 `AuthMethod::Key`。
+  - Logs：`session_logs` 开关（默认关）开启后，泵线程把转录写成 JSONL
+    （meta/output/end+关闭原因）；`xenterm_logs_json/read/delete` 提供列表、
+    查看（读取时剥离 ANSI）与删除。
+  - Settings：`xenterm_settings_json/set` 持久化光标样式、行距、内边距、
+    粗体、日志开关与 SFTP 下载目录；终端渲染实时读取。
+- SFTP（第四步）：`xenterm_sftp_start/version/snapshot/list/refresh/
+  download/upload/mkdir/delete/close`；`SftpView` 轮询快照，真实目录导航、
+  选择、上传、下载（冲突时保留两份）、新建目录与删除，传输进度显示在底部。
+  连接失败会停止 loading 并给出错误与 Retry。
+- 测试：`cargo test -p xenterm-bridge`（quick commands/known hosts/forwards/
+  keys/logs/sftp 失败路径）、`flutter test`（终端/侧栏/SFTP/设置/logs 的
+  widget 契约）。SFTP 的成功列表需要真实 SSH 服务器，当前以失败路径与
+  呈现层契约测试覆盖。
+- 未实现：资源采样/系统信息面板、分组管理与导入、远端目录树（左树）。

@@ -101,12 +101,6 @@ class TitleBar extends StatelessWidget {
                   onPressed: onNewTab ?? () {},
                 ),
                 const Spacer(),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Icon(LucideIcons.bell,
-                      size: 15, color: Color(0xFF8D91A5)),
-                ),
-                const SizedBox(width: 4),
                 const _WindowControls(),
               ],
             ),
@@ -187,8 +181,10 @@ class _SessionTabState extends State<_SessionTab> {
                   widget.host.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.typography.normal
-                      .copyWith(fontSize: 14, color: fg),
+                  style: theme.typography.normal.copyWith(
+                    fontSize: 14,
+                    color: fg,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -265,8 +261,8 @@ class _SftpPillState extends State<_SftpPill> {
     final fg = widget.active
         ? theme.colorScheme.foreground
         : (widget.onTap == null
-            ? const Color(0xFF5A5E73)
-            : (_hovering ? theme.colorScheme.foreground : _muted));
+              ? const Color(0xFF5A5E73)
+              : (_hovering ? theme.colorScheme.foreground : _muted));
     return MouseRegion(
       cursor: widget.onTap == null
           ? SystemMouseCursors.basic
@@ -291,9 +287,13 @@ class _SftpPillState extends State<_SftpPill> {
             children: [
               Icon(LucideIcons.folderOpen, size: 15, color: fg),
               const SizedBox(width: 8),
-              Text('SFTP',
-                  style: theme.typography.normal
-                      .copyWith(fontSize: 14, color: fg)),
+              Text(
+                'SFTP',
+                style: theme.typography.normal.copyWith(
+                  fontSize: 14,
+                  color: fg,
+                ),
+              ),
             ],
           ),
         ),
@@ -333,12 +333,14 @@ class _PillButtonState extends State<_PillButton> {
           width: 30,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color:
-                _hovering ? theme.colorScheme.secondary : Colors.transparent,
+            color: _hovering ? theme.colorScheme.secondary : Colors.transparent,
             borderRadius: BorderRadius.circular(TermiusRadius.field),
           ),
-          child: Icon(widget.icon,
-              size: 14, color: theme.colorScheme.mutedForeground),
+          child: Icon(
+            widget.icon,
+            size: 14,
+            color: theme.colorScheme.mutedForeground,
+          ),
         ),
       ),
     );
@@ -353,10 +355,7 @@ class _WindowControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _ControlButton(
-          icon: LucideIcons.minus,
-          onTap: windowManager.minimize,
-        ),
+        _ControlButton(icon: LucideIcons.minus, onTap: windowManager.minimize),
         _ControlButton(
           icon: LucideIcons.square,
           onTap: () async {
@@ -412,8 +411,8 @@ class _ControlButtonState extends State<_ControlButton> {
             size: 14,
             color: _hovering
                 ? (widget.hoverColor != null
-                    ? Colors.white
-                    : theme.colorScheme.foreground)
+                      ? Colors.white
+                      : theme.colorScheme.foreground)
                 : theme.colorScheme.mutedForeground,
           ),
         ),

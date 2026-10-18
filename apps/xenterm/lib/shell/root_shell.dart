@@ -18,6 +18,7 @@ import '../screens/settings/settings_screen.dart';
 import '../screens/terminal/terminal_screen.dart';
 import '../data/hosts.dart';
 import '../bridge/native_bridge.dart';
+import '../terminal/core_settings.dart';
 import '../terminal/terminal_command_bus.dart';
 import '../theme/app_fonts.dart';
 
@@ -31,13 +32,14 @@ enum NavDestination {
   settings,
 }
 
-// Keychain 与 Logs 已按原版截图实现（screens/keychain, screens/logs）；
-// forwards/snippets/knownHosts 仍为占位，等桥接数据。
+// Every rail screen is backed by real core data (sessions, quick commands,
+// known hosts, forwards, keys, transcripts, settings).
 
 class RootShell extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
   final AppFonts fonts;
+  final CoreSettingsController settings;
   final Future<List<Host>> Function()? hostsLoader;
 
   const RootShell({
@@ -45,6 +47,7 @@ class RootShell extends StatefulWidget {
     required this.lightTheme,
     required this.onThemeChanged,
     required this.fonts,
+    required this.settings,
     this.hostsLoader,
   });
 
@@ -59,6 +62,7 @@ class _RootShellState extends State<RootShell> {
   bool _terminalSftp = false;
   bool _railOpen = true;
   final TerminalCommandBus _commands = TerminalCommandBus();
+  final ValueNotifier<int> _newHostRequest = ValueNotifier<int>(0);
 
   Host? get _activeHost {
     for (final host in _openHosts) {
@@ -88,12 +92,28 @@ class _RootShellState extends State<RootShell> {
     });
     // Send after the offstage switch so the terminal can take focus too.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _commands.send(
-        target.id,
-        snippet.command,
-        sendEnter: snippet.sendEnter,
-      );
+      _commands.send(target.id, snippet.command, sendEnter: snippet.sendEnter);
     });
+  }
+
+  /// The title bar's + opens a fresh editor on the Hosts screen.
+  void _requestNewHost() {
+    setState(() {
+      _active = NavDestination.hosts;
+      _activeHostId = null;
+      _terminalSftp = false;
+    });
+    // HostsScreen may be built by this same frame; notify after it mounts.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _newHostRequest.value++;
+    });
+  }
+
+  @override
+  void dispose() {
+    _newHostRequest.dispose();
+    _commands.dispose();
+    super.dispose();
   }
 
   void _closeHost(String id) {
@@ -134,7 +154,7 @@ class _RootShellState extends State<RootShell> {
               _terminalSftp = false;
             }),
             onCloseHost: _closeHost,
-            onNewTab: () => setState(() => _activeHostId = null),
+            onNewTab: _requestNewHost,
             showSftp: _terminalSftp,
             onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
             onToggleSidebar: () => setState(() => _railOpen = !_railOpen),
@@ -183,6 +203,7 @@ class _RootShellState extends State<RootShell> {
                               key: ValueKey('workspace-${host.id}'),
                               host: host,
                               fonts: widget.fonts,
+                              settings: widget.settings,
                               showSftp:
                                   host.id == _activeHostId && _terminalSftp,
                               commandBus: _commands,
@@ -207,6 +228,7 @@ class _RootShellState extends State<RootShell> {
       NavDestination.hosts => HostsScreen(
         onConnect: _openHost,
         loadHosts: widget.hostsLoader,
+        newHostRequest: _newHostRequest,
       ),
       NavDestination.keys => const KeychainScreen(),
       NavDestination.logs => const LogsScreen(),
@@ -214,6 +236,7 @@ class _RootShellState extends State<RootShell> {
         lightTheme: widget.lightTheme,
         onThemeChanged: widget.onThemeChanged,
         fonts: widget.fonts,
+        settings: widget.settings,
       ),
       NavDestination.forwards => const ForwardsScreen(),
       NavDestination.snippets => SnippetsScreen(

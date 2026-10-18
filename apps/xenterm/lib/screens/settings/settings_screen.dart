@@ -1,18 +1,18 @@
-/// Settings — rebuilt to Termius's desktop settings window:
+/// Settings — Termius's desktop settings window. Every control here changes a
+/// real value: terminal rendering reads the core settings live, font choices are
+/// persisted by [AppFonts], the SFTP download folder is used by the file browser,
+/// and "Save session logs" controls the core transcript writer.
 ///
 /// - header 80px, "Settings" 700, --dark-grey-3, 1px bottom border
-/// - 220px tab sidebar (Account / Terminal / SFTP / Logs / Shortcuts) with
-///   36px entries, 10px radius, selected --dark-grey-5
-/// - content --dark-grey-2, centred cards max-width 700, 30px apart, 20px
-///   padding, 10px radius, --card-a
-/// - rows: switch items (12px/500 label + 14px secondary description),
-///   dropdown values (plain text + chevron), and the Text Size stepper
-///   (36px buttons around a 51px centred field) — all from the settings
-///   source's own SettingsSwitch / SettingsSection / SettingsText styles.
+/// - 220px tab sidebar (Terminal / SFTP / Logs / Shortcuts) with 36px entries
+/// - content --dark-grey-2, centred cards max-width 700, 30px apart
 library;
 
+import 'package:file_selector/file_selector.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../bridge/native_bridge.dart' show CoreSettings;
+import '../../terminal/core_settings.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/termius_theme.dart';
 
@@ -27,12 +27,18 @@ class SettingsScreen extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
   final AppFonts fonts;
+  final CoreSettingsController settings;
+
+  /// Test/alternate persistence hook; defaults to the shared controller.
+  final Future<String?> Function(Map<String, dynamic> values)? saveSettings;
 
   const SettingsScreen({
     super.key,
     required this.lightTheme,
     required this.onThemeChanged,
     required this.fonts,
+    required this.settings,
+    this.saveSettings,
   });
 
   @override
@@ -40,27 +46,51 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const _tabs = [
-    'Terminal',
-    'SFTP',
-    'Logs',
-    'Shortcuts',
-  ];
+  static const _tabs = ['Terminal', 'SFTP', 'Logs', 'Shortcuts'];
 
-  int _tab = 0; // Terminal holds the functional settings.
+  int _tab = 0;
+  String? _saveError;
+  bool _saving = false;
 
-  // Preview-only toggles (backend integration pending, as before).
-  final Map<String, bool> _toggles = {
-    'autoreconnect': true,
-    'import_shell_history': true,
-    'copy_on_select': true,
-    'bell_sound': false,
-    'bright_bold': false,
-    'hotkeys': false,
-    'custom_keyboard': false,
-  };
+  @override
+  void initState() {
+    super.initState();
+    widget.settings.addListener(_changed);
+    if (!widget.settings.loaded) widget.settings.load();
+  }
 
-  String _commandModifier = 'Ctrl';
+  @override
+  void dispose() {
+    widget.settings.removeListener(_changed);
+    super.dispose();
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  CoreSettings get _core => widget.settings.settings;
+
+  Future<void> _save(Map<String, dynamic> values) async {
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    final error =
+        await (widget.saveSettings?.call(values) ??
+            widget.settings.update(values));
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _saveError = error;
+    });
+  }
+
+  Future<void> _chooseDownloadFolder() async {
+    final directory = await getDirectoryPath();
+    if (directory == null || directory.isEmpty) return;
+    await _save({'download_dir': directory});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +100,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Header: 80px, "Settings" 700, hairline underneath ──────────
           Container(
             height: 80,
             padding: const EdgeInsets.fromLTRB(20, 25, 20, 0),
@@ -78,13 +107,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               border: Border(bottom: BorderSide(color: _hairline)),
             ),
             alignment: Alignment.topLeft,
-            child: Text(
-              'Settings',
-              style: theme.typography.bold.copyWith(
-                fontSize: 24,
-                height: 45 / 24,
-                color: theme.colorScheme.foreground,
-              ),
+            child: Row(
+              children: [
+                Text(
+                  'Settings',
+                  style: theme.typography.bold.copyWith(
+                    fontSize: 24,
+                    height: 45 / 24,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+                const Spacer(),
+                if (_saving)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+              ],
             ),
           ),
           Expanded(
@@ -101,7 +141,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: _page,
                     child: ListView(
                       padding: const EdgeInsets.only(bottom: 60),
-                      children: _contentFor(_tab),
+                      children: [
+                        if (_saveError != null)
+                          _SectionCard(
+                            children: [
+                              _SettingsText(
+                                _saveError!,
+                                color: theme.colorScheme.destructive,
+                              ),
+                            ],
+                          ),
+                        ..._contentFor(_tab),
+                      ],
                     ),
                   ),
                 ),
@@ -114,48 +165,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<Widget> _contentFor(int tab) => switch (tab) {
-        0 => _terminalTab(),
-        1 => _sftpTab(),
-        2 => _logsTab(),
-        _ => _shortcutsTab(),
-      };
-
-  // ── Tab pages ─────────────────────────────────────────────────────────
+    0 => _terminalTab(),
+    1 => _sftpTab(),
+    2 => _logsTab(),
+    _ => _shortcutsTab(),
+  };
 
   List<Widget> _terminalTab() {
     final fonts = widget.fonts;
+    final core = _core;
     return [
       _SectionCard(
         title: 'Terminal settings',
         children: [
-          _SwitchRow(
-            label: 'Autoreconnect',
-            value: _toggles['autoreconnect']!,
-            onChanged: (v) => setState(() => _toggles['autoreconnect'] = v),
+          _DropdownRow(
+            label: 'Cursor style',
+            value: switch (core.cursorStyle) {
+              'bar' => 'Bar',
+              'underline' => 'Underline',
+              _ => 'Block',
+            },
+            options: const ['Block', 'Bar', 'Underline'],
+            onSelected: (value) => _save({
+              'cursor_style': switch (value) {
+                'Bar' => 'bar',
+                'Underline' => 'underline',
+                _ => 'block',
+              },
+            }),
+          ),
+          _DropdownRow(
+            label: 'Line spacing',
+            value: switch (core.lineSpacing) {
+              <= 0.92 => 'Compact',
+              >= 1.08 => 'Relaxed',
+              _ => 'Normal',
+            },
+            options: const ['Compact', 'Normal', 'Relaxed'],
+            onSelected: (value) => _save({
+              'line_spacing': switch (value) {
+                'Compact' => 0.85,
+                'Relaxed' => 1.15,
+                _ => 1.0,
+              },
+            }),
           ),
           _SwitchRow(
-            label: 'Import shell history',
-            description:
-                'Required for autocomplete and command history',
-            value: _toggles['import_shell_history']!,
-            onChanged: (v) =>
-                setState(() => _toggles['import_shell_history'] = v),
+            key: const ValueKey('setting-padding'),
+            label: 'Inset terminal text',
+            description: 'Keep a small margin around the character grid',
+            value: core.padding,
+            onChanged: (value) => _save({'padding': value}),
           ),
           _SwitchRow(
-            label: 'Select text to copy & Right click to paste',
-            value: _toggles['copy_on_select']!,
-            onChanged: (v) =>
-                setState(() => _toggles['copy_on_select'] = v),
-          ),
-          _SwitchRow(
-            label: 'Bell sound',
-            value: _toggles['bell_sound']!,
-            onChanged: (v) => setState(() => _toggles['bell_sound'] = v),
-          ),
-          _SwitchRow(
-            label: 'Use bright colours for bold text',
-            value: _toggles['bright_bold']!,
-            onChanged: (v) => setState(() => _toggles['bright_bold'] = v),
+            key: const ValueKey('setting-bold'),
+            label: 'Use a bold face for terminal text',
+            value: core.bold,
+            onChanged: (value) => _save({'bold': value}),
           ),
         ],
       ),
@@ -167,8 +233,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? 'Default'
                 : _familyLabel(fonts.terminalFamily),
             options: _fontOptions(fonts),
-            onSelected: (v) => setState(() {
-              fonts.setTerminalFamily(v == 'Default' ? '' : _familyValue(v));
+            onSelected: (value) => setState(() {
+              fonts.setTerminalFamily(
+                value == 'Default' ? '' : _familyValue(value),
+              );
             }),
           ),
           _StepperRow(
@@ -188,7 +256,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             label: 'Theme',
             value: widget.lightTheme ? 'Light' : 'Dark',
             options: const ['Dark', 'Light'],
-            onSelected: (v) => widget.onThemeChanged(v == 'Light'),
+            onSelected: (value) => widget.onThemeChanged(value == 'Light'),
           ),
         ],
       ),
@@ -197,10 +265,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _DropdownRow(
             label: 'Font',
-            value: fonts.uiFamily.isEmpty ? 'Default' : _familyLabel(fonts.uiFamily),
+            value: fonts.uiFamily.isEmpty
+                ? 'Default'
+                : _familyLabel(fonts.uiFamily),
             options: _fontOptions(fonts),
-            onSelected: (v) => setState(() {
-              fonts.setUiFamily(v == 'Default' ? '' : _familyValue(v));
+            onSelected: (value) => setState(() {
+              fonts.setUiFamily(value == 'Default' ? '' : _familyValue(value));
             }),
           ),
           _StepperRow(
@@ -233,59 +303,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<Widget> _sftpTab() => [
-        _SectionCard(
-          title: 'SFTP settings',
-          children: const [
-            _SettingsText(
-              'SFTP preferences (double-click behaviour, editor, downloads) '
-              'arrive with the file browser.',
-            ),
-          ],
+    _SectionCard(
+      title: 'SFTP settings',
+      children: [
+        _SwitchRow(
+          key: const ValueKey('setting-sftp-follow'),
+          label: 'Follow the terminal directory',
+          description: 'Open the file browser at the shell\'s current folder when supported',
+          value: _core.sftpFollowCd,
+          onChanged: (value) => _save({'sftp_follow_cd': value}),
         ),
-      ];
+        _PathRow(
+          label: 'Download folder',
+          value: _core.downloadDir.isEmpty
+              ? 'Ask for a folder each time'
+              : _core.downloadDir,
+          onChoose: _chooseDownloadFolder,
+        ),
+        if (_core.downloadDir.isNotEmpty)
+          _DestinationRow(
+            label: 'Clear download folder',
+            onTap: () => _save({'download_dir': ''}),
+          ),
+        const _SettingsText(
+          'Downloaded files are written to this folder; the picker appears when '
+          'no folder is set.',
+        ),
+      ],
+    ),
+  ];
 
   List<Widget> _logsTab() => [
-        _SectionCard(
-          title: 'Logs',
-          children: const [
-            _SettingsText(
-              'Session logs are not available on the current plan.',
-            ),
-          ],
+    _SectionCard(
+      title: 'Session logs',
+      children: [
+        _SwitchRow(
+          key: const ValueKey('setting-session-logs'),
+          label: 'Save session logs',
+          description:
+              'Record new terminal sessions as text transcripts. Existing '
+              'sessions are not recorded retroactively.',
+          value: _core.sessionLogs,
+          onChanged: (value) => _save({'session_logs': value}),
         ),
-      ];
+        const _SettingsText(
+          'Transcripts are stored in the app data folder and appear in Logs, '
+          'where they can be opened or deleted. Nothing is uploaded.',
+        ),
+      ],
+    ),
+  ];
 
-  List<Widget> _shortcutsTab() => [
-        _SectionCard(
-          title: 'Keyboard shortcuts',
-          children: [
-            _SwitchRow(
-              label: 'Keyboard shortcuts',
-              value: _toggles['hotkeys']!,
-              onChanged: (v) => setState(() => _toggles['hotkeys'] = v),
-            ),
-            _DropdownRow(
-              label: 'Command modifier',
-              value: _commandModifier,
-              options: const ['Ctrl', 'Alt', 'Off'],
-              onSelected: (v) => setState(() => _commandModifier = v),
-            ),
-            _SwitchRow(
-              label: 'Custom keyboard',
-              description: 'Pressed keys control the terminal on mobile',
-              value: _toggles['custom_keyboard']!,
-              onChanged: (v) =>
-                  setState(() => _toggles['custom_keyboard'] = v),
-            ),
-          ],
+  List<Widget> _shortcutsTab() => const [
+    _SectionCard(
+      title: 'Keyboard shortcuts',
+      children: [
+        _ShortcutRow(
+          keys: 'Ctrl+Shift+F',
+          action: 'Search the terminal buffer',
         ),
-      ];
+        _ShortcutRow(
+          keys: 'Ctrl+L',
+          action: 'Clear the screen (sent to the shell)',
+        ),
+        _ShortcutRow(keys: 'Ctrl+C', action: 'Interrupt the running command'),
+        _ShortcutRow(keys: 'Shift+Tab', action: 'Backtab'),
+        _ShortcutRow(
+          keys: 'Home / End / PgUp / PgDn',
+          action: 'Move through the terminal buffer',
+        ),
+        _ShortcutRow(keys: 'Enter', action: 'Run the command'),
+      ],
+    ),
+  ];
 
   // Font families are stored as family identifiers; show their display names.
   List<String> _fontOptions(AppFonts fonts) => [
-        'Default',
-        for (final f in fonts.imported) f.name,
-      ];
+    'Default',
+    for (final f in fonts.imported) f.name,
+  ];
 
   String _familyLabel(String family) {
     for (final f in widget.fonts.imported) {
@@ -398,6 +494,105 @@ class _TabItemState extends State<_TabItem> {
   }
 }
 
+/// A read-only path with a real folder picker.
+class _PathRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final VoidCallback onChoose;
+
+  const _PathRow({
+    required this.label,
+    required this.value,
+    required this.onChoose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.typography.medium.copyWith(
+                    fontSize: 12,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.typography.normal.copyWith(
+                    fontSize: 13,
+                    color: _labelGrey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Button(
+            style: const ButtonStyle.outline(),
+            onPressed: onChoose,
+            child: const Text('Choose…'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One accurate shortcut entry (no fake alternative key bindings).
+class _ShortcutRow extends StatelessWidget {
+  final String keys;
+  final String action;
+
+  const _ShortcutRow({required this.keys, required this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _selected,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              keys,
+              style: theme.typography.medium.copyWith(
+                fontSize: 12,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              action,
+              style: theme.typography.normal.copyWith(
+                fontSize: 13,
+                color: _labelGrey,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── Section card: max-width 700, 20 padding, --card-a, radius 10 ────────
 class _SectionCard extends StatelessWidget {
   final String? title;
@@ -448,6 +643,7 @@ class _SwitchRow extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   const _SwitchRow({
+    super.key,
     required this.label,
     required this.value,
     required this.onChanged,
@@ -593,16 +789,16 @@ class _DropdownRowState extends State<_DropdownRow> {
                     ),
                   ),
                   const SizedBox(width: 5),
-                  const Icon(LucideIcons.chevronDown,
-                      size: 12, color: _labelGrey),
+                  const Icon(
+                    LucideIcons.chevronDown,
+                    size: 12,
+                    color: _labelGrey,
+                  ),
                 ],
               ),
             ),
           ),
-          OverlayPortal(
-            controller: _menu,
-            overlayChildBuilder: _overlay,
-          ),
+          OverlayPortal(controller: _menu, overlayChildBuilder: _overlay),
         ],
       ),
     );
@@ -711,8 +907,11 @@ class _MenuOptionState extends State<_MenuOption> {
                 ),
               ),
               if (widget.selected)
-                Icon(LucideIcons.check,
-                    size: 14, color: theme.colorScheme.foreground),
+                Icon(
+                  LucideIcons.check,
+                  size: 14,
+                  color: theme.colorScheme.foreground,
+                ),
             ],
           ),
         ),
@@ -846,8 +1045,7 @@ class _DestinationRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(LucideIcons.chevronRight,
-                  size: 15, color: _labelGrey),
+              const Icon(LucideIcons.chevronRight, size: 15, color: _labelGrey),
             ],
           ),
         ),

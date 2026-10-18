@@ -51,7 +51,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       expect(find.text('SFTP · gateway-test02'), findsOneWidget);
-      expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.text('SFTP · gateway-test02'), findsOneWidget);
       expect(find.byKey(const ValueKey('terminal-view')), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
@@ -62,7 +62,7 @@ void main() {
       expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
-      expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.text('SFTP · gateway-test02'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();

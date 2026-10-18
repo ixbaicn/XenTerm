@@ -110,6 +110,10 @@ pub struct ConfigFile {
     /// Preset SFTP download directory. Empty = ask each time.
     #[serde(default)]
     pub download_dir: String,
+    /// Opt-in session transcripts under `<data dir>/session_logs` (JSONL:
+    /// a meta line, output chunks, an end line).
+    #[serde(default)]
+    pub session_logs: bool,
     /// UI language code: "zh" (default) or "en".
     #[serde(default)]
     pub language: String,
