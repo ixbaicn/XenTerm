@@ -17,6 +17,7 @@ seeded into the app profile's known_hosts for a prompt-free connect.
 import os
 import socket
 import threading
+import time
 
 import paramiko
 
@@ -137,16 +138,71 @@ class _Handle(paramiko.SFTPHandle):
         return paramiko.SFTPAttributes.from_stat(os.fstat(self._file.fileno()))
 
 
+def monitor_block(tick):
+    """One `/proc`-style sample in the format the core's parser expects."""
+    user = 1200 + tick * 220
+    system = 400 + tick * 60
+    idle = 9000 + tick * 260
+    rx = 100_000 + tick * 40_000
+    tx = 50_000 + tick * 18_000
+    return (
+        f"cpu  {user} 0 {system} {idle} 20 0 0 0\n"
+        "MemTotal:       2048000 kB\n"
+        "MemAvailable:   1024000 kB\n"
+        "Buffers:          20000 kB\n"
+        "Cached:          300000 kB\n"
+        "SwapTotal:       512000 kB\n"
+        "SwapFree:        256000 kB\n"
+        "Inter-|   Receive                                                |  Transmit\n"
+        " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n"
+        f"  eth0: {rx} 10 0 0 0 0 0 0 {tx} 10 0 0 0 0 0 0\n"
+        "__DF__\n"
+        "Filesystem     1024-blocks    Used Available Capacity Mounted on\n"
+        "/dev/sda1        1000000  400000    600000      40% /\n"
+        "__GPU__\n"
+        "__GPU_NOSMI__\n"
+        "__MSTICK__\n"
+    )
+
+
+def monitor_stream(channel):
+    tick = 0
+    try:
+        while not channel.closed:
+            tick += 1
+            channel.sendall(monitor_block(tick).encode())
+            time.sleep(2)
+    except Exception:
+        pass
+
+
+def process_stream(channel):
+    try:
+        while not channel.closed:
+            channel.sendall(
+                (
+                    "__ME__\n"
+                    "demo\n"
+                    "__PS__\n"
+                    "  PID USER      %CPU %MEM COMMAND\n"
+                    "  101 demo       3.5  1.2 python\n"
+                    "  202 demo       1.0  0.4 sshd\n"
+                    "__PSTICK__\n"
+                ).encode()
+            )
+            time.sleep(2)
+    except Exception:
+        pass
+
+
 class Server(paramiko.ServerInterface):
     def __init__(self):
         self.direct_requests = {}
 
     def check_auth_password(self, username, password):
-        return (
-            paramiko.AUTH_SUCCESSFUL
-            if username == "demo" and password == "demo"
-            else paramiko.AUTH_FAILED
-        )
+        ok = username == "demo" and password == "demo"
+        print("auth password", username, repr(password), ok, flush=True)
+        return paramiko.AUTH_SUCCESSFUL if ok else paramiko.AUTH_FAILED
 
     def check_auth_publickey(self, username, key):
         print("auth publickey", username, flush=True)
@@ -170,6 +226,45 @@ class Server(paramiko.ServerInterface):
         return True
 
     def check_channel_pty_request(self, channel, *args):
+        return True
+
+    def check_channel_exec_request(self, channel, command):
+        """Serve the core's auxiliary monitor channels.
+
+        The resource monitor opens a separate exec channel running a small
+        `/proc` loop, and the process monitor does the same with `ps`. Both are
+        answered here with fixture samples so the Flutter resource panel can be
+        accepted end to end.
+        """
+        text = (
+            command.decode("utf-8", "replace")
+            if isinstance(command, (bytes, bytearray))
+            else str(command)
+        )
+        print("exec request", text[:48], flush=True)
+        if "__MSTICK__" in text and "while :" in text and "__DF__" in text:
+            threading.Thread(target=monitor_stream, args=(channel,), daemon=True).start()
+            return True
+        if "__PSTICK__" in text:
+            threading.Thread(target=process_stream, args=(channel,), daemon=True).start()
+            return True
+        if "__SYS__" in text:
+            channel.sendall(
+                (
+                    "MemTotal:       2048000 kB\n"
+                    "MemAvailable:   1024000 kB\n"
+                    "__SYS__\n"
+                    "OS=XenTerm test host\n"
+                    "KERNEL=Linux\n"
+                    "__MSTICK__\n"
+                ).encode()
+            )
+            channel.send_exit_status(0)
+            channel.close()
+            return True
+        channel.send("XenTerm SFTP test server\r\n")
+        channel.send_exit_status(0)
+        channel.close()
         return True
 
     def check_channel_subsystem_request(self, channel, name):

@@ -23,6 +23,10 @@ typedef _FreeFnC = Void Function(Pointer<Utf8>);
 typedef _FreeFn = void Function(Pointer<Utf8>);
 typedef _StrFnC = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _StrFn = Pointer<Utf8> Function(Pointer<Utf8>);
+typedef _TwoStrFnC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef _TwoStrFn = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef _StrBoolFnC = Pointer<Utf8> Function(Pointer<Utf8>, Uint8);
+typedef _StrBoolFn = Pointer<Utf8> Function(Pointer<Utf8>, int);
 typedef _StartC = Pointer<Utf8> Function(Pointer<Utf8>, Uint32, Uint32);
 typedef _Start = Pointer<Utf8> Function(Pointer<Utf8>, int, int);
 typedef _VersionC = Uint64 Function(Uint64);
@@ -114,6 +118,26 @@ class NativeBridge {
   late final _StrFn _delete = _lib.lookupFunction<_StrFnC, _StrFn>(
     'xenterm_session_delete',
   );
+  late final _PtrFn _groups = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_groups_json',
+  );
+  late final _StrFn _groupCreate = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_group_create',
+  );
+  late final _TwoStrFn _groupRename = _lib.lookupFunction<_TwoStrFnC, _TwoStrFn>(
+    'xenterm_group_rename',
+  );
+  late final _StrFn _groupDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_group_delete',
+  );
+  late final _StrBoolFn _groupCollapse = _lib.lookupFunction<_StrBoolFnC, _StrBoolFn>(
+    'xenterm_group_collapse',
+  );
+  late final _TwoStrFn _sessionMoveGroup = _lib
+      .lookupFunction<_TwoStrFnC, _TwoStrFn>('xenterm_session_move_group');
+  late final _StrFn _importSshConfig = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_import_ssh_config',
+  );
   late final _Start _start = _lib.lookupFunction<_StartC, _Start>(
     'xenterm_session_start',
   );
@@ -184,6 +208,8 @@ class NativeBridge {
   late final _Close _sftpRefresh = _lib.lookupFunction<_CloseC, _Close>(
     'xenterm_sftp_refresh',
   );
+  late final _HandlePath _sftpToggleTree = _lib
+      .lookupFunction<_HandlePathC, _HandlePath>('xenterm_sftp_toggle_tree');
   late final _HandleTwoPaths _sftpDownload = _lib
       .lookupFunction<_HandleTwoPathsC, _HandleTwoPaths>(
         'xenterm_sftp_download',
@@ -243,6 +269,60 @@ class NativeBridge {
 
   Map<String, dynamic> deleteSession(String id) =>
       jsonDecode(_callWith(_delete, id)) as Map<String, dynamic>;
+
+  // ── Host groups ────────────────────────────────────────────────────────
+
+  /// Named host groups as JSON (`name` + persisted `collapsed`), or null.
+  String? groupsJson() {
+    final pointer = _groups();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> createGroup(String name) =>
+      jsonDecode(_callWith(_groupCreate, name)) as Map<String, dynamic>;
+
+  Map<String, dynamic> renameGroup(String old, String next) {
+    final first = old.toNativeUtf8();
+    final second = next.toNativeUtf8();
+    try {
+      return jsonDecode(_take(_groupRename(first, second)))
+          as Map<String, dynamic>;
+    } finally {
+      malloc.free(first);
+      malloc.free(second);
+    }
+  }
+
+  Map<String, dynamic> deleteGroup(String name) =>
+      jsonDecode(_callWith(_groupDelete, name)) as Map<String, dynamic>;
+
+  Map<String, dynamic> collapseGroup(String name, bool collapsed) {
+    final pointer = name.toNativeUtf8();
+    try {
+      return jsonDecode(_take(_groupCollapse(pointer, collapsed ? 1 : 0)))
+          as Map<String, dynamic>;
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  Map<String, dynamic> moveSessionToGroup(String id, String group) {
+    final first = id.toNativeUtf8();
+    final second = group.toNativeUtf8();
+    try {
+      return jsonDecode(_take(_sessionMoveGroup(first, second)))
+          as Map<String, dynamic>;
+    } finally {
+      malloc.free(first);
+      malloc.free(second);
+    }
+  }
+
+  /// Imports OpenSSH config text; empty text reads `~/.ssh/config`.
+  Map<String, dynamic> importSshConfig(String text) =>
+      jsonDecode(_callWith(_importSshConfig, jsonEncode({'text': text})))
+          as Map<String, dynamic>;
 
   // ── Terminal sessions ──────────────────────────────────────────────────
 
@@ -316,6 +396,9 @@ class NativeBridge {
   bool sftpList(int handle, String path) => _withPath(_sftpList, handle, path);
 
   bool sftpRefresh(int handle) => _sftpRefresh(handle) == 1;
+
+  bool sftpToggleTree(int handle, String path) =>
+      _withPath(_sftpToggleTree, handle, path);
 
   bool sftpDownload(int handle, String remote, String localDir) {
     final remotePtr = remote.toNativeUtf8();
@@ -628,6 +711,31 @@ class SftpEntry {
   }
 }
 
+/// One folder in the remote tree (the root is "/").
+class SftpTreeNode {
+  final String path;
+  final String name;
+  final int depth;
+  final bool expanded;
+  final bool hasChildren;
+
+  const SftpTreeNode({
+    required this.path,
+    required this.name,
+    required this.depth,
+    required this.expanded,
+    required this.hasChildren,
+  });
+
+  factory SftpTreeNode.fromCoreJson(Map<String, dynamic> json) => SftpTreeNode(
+    path: (json['path'] as String?) ?? '',
+    name: (json['name'] as String?) ?? '',
+    depth: (json['depth'] as num?)?.toInt() ?? 0,
+    expanded: json['expanded'] as bool? ?? false,
+    hasChildren: json['has_children'] as bool? ?? false,
+  );
+}
+
 class SftpTransfer {
   final String id;
   final String name;
@@ -668,6 +776,7 @@ class SftpSnapshot {
   final String? closed;
   final List<SftpTransfer> transfers;
   final Map<String, dynamic>? prompt;
+  final List<SftpTreeNode> tree;
 
   const SftpSnapshot({
     this.path = '.',
@@ -678,6 +787,7 @@ class SftpSnapshot {
     this.closed,
     this.transfers = const [],
     this.prompt,
+    this.tree = const [],
   });
 
   factory SftpSnapshot.fromCoreJson(Map<String, dynamic> json) => SftpSnapshot(
@@ -695,6 +805,10 @@ class SftpSnapshot {
         .map(SftpTransfer.fromCoreJson)
         .toList(),
     prompt: (json['prompt'] as Map?)?.cast<String, dynamic>(),
+    tree: ((json['tree'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(SftpTreeNode.fromCoreJson)
+        .toList(),
   );
 }
 
@@ -1194,6 +1308,7 @@ Future<CoreWriteResult> saveSessionToCore({
       'username': username,
       'group': group,
       'kind': kind,
+      'private_key_path': keyPath,
     });
     return CoreWriteResult(
       ok: result['ok'] == true,
@@ -1215,6 +1330,156 @@ Future<CoreWriteResult> deleteSessionFromCore(String id) {
     final result = bridge.deleteSession(id);
     return CoreWriteResult(
       ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+/// One named host group and its persisted open/closed state.
+class HostGroup {
+  final String name;
+  final bool collapsed;
+
+  const HostGroup({required this.name, required this.collapsed});
+
+  factory HostGroup.fromCoreJson(Map<String, dynamic> json) => HostGroup(
+    name: (json['name'] as String?) ?? '',
+    collapsed: json['collapsed'] == true,
+  );
+}
+
+/// Named host groups from the core (explicit folders ∪ groups in use).
+Future<List<HostGroup>> loadGroupsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.groupsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load host groups');
+    }
+    return (jsonDecode(raw) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(HostGroup.fromCoreJson)
+        .toList();
+  });
+}
+
+Future<CoreWriteResult> createGroupInCore(String name) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.createGroup(name);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> renameGroupInCore(String old, String next) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.renameGroup(old, next);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> deleteGroupFromCore(String name) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteGroup(name);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> collapseGroupInCore(String name, bool collapsed) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.collapseGroup(name, collapsed);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+Future<CoreWriteResult> moveSessionToGroupInCore(String id, String group) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.moveSessionToGroup(id, group);
+    return CoreWriteResult(
+      ok: result['ok'] == true,
+      error: result['error'] as String?,
+    );
+  });
+}
+
+/// Outcome of an OpenSSH config import.
+class ImportResult {
+  final bool ok;
+  final int added;
+  final int skipped;
+  final String message;
+  final String? error;
+
+  const ImportResult({
+    required this.ok,
+    this.added = 0,
+    this.skipped = 0,
+    this.message = '',
+    this.error,
+  });
+}
+
+/// Imports hosts from OpenSSH config text (empty = `~/.ssh/config`).
+Future<ImportResult> importSshConfigToCore({String text = ''}) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.importSshConfig(text);
+    return ImportResult(
+      ok: result['ok'] == true,
+      added: (result['added'] as num?)?.toInt() ?? 0,
+      skipped: (result['skipped'] as num?)?.toInt() ?? 0,
+      message: (result['message'] as String?) ?? '',
       error: result['error'] as String?,
     );
   });

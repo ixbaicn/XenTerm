@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 
 use crate::config::{ConfigStore, SessionKind};
 use crate::session::protocol::{
-    CredentialReply, CredentialResponder, HostKeyResponder, MfaResponder, SessionEvent,
-    SessionHandle,
+    CredentialReply, CredentialResponder, HostKeyResponder, MfaResponder,
+    ResourceMonitorState, SessionEvent, SessionHandle,
 };
 use crate::terminal::{TerminalCell, TerminalColor, TerminalEngine};
 
@@ -121,6 +121,20 @@ pub struct TerminalSession {
     prompt: Mutex<Option<PromptEntry>>,
     prompt_seq: AtomicU64,
     log: Mutex<Option<SessionLog>>,
+    /// Latest remote resource sample (SSH monitor channel) and its lifecycle.
+    resource: Mutex<Option<Value>>,
+    resource_state: Mutex<String>,
+}
+
+fn resource_state_name(state: ResourceMonitorState) -> &'static str {
+    match state {
+        ResourceMonitorState::Waiting => "waiting",
+        ResourceMonitorState::Available => "available",
+        ResourceMonitorState::Unavailable => "unavailable",
+        ResourceMonitorState::Stale => "stale",
+        ResourceMonitorState::Paused => "paused",
+        ResourceMonitorState::Unsupported => "unsupported",
+    }
 }
 
 fn color_json(color: TerminalColor) -> Value {
@@ -246,6 +260,8 @@ impl TerminalSession {
             prompt: Mutex::new(None),
             prompt_seq: AtomicU64::new(1),
             log: Mutex::new(log),
+            resource: Mutex::new(None),
+            resource_state: Mutex::new("waiting".into()),
         });
 
         let pump = session.clone();
@@ -334,6 +350,65 @@ impl TerminalSession {
                                 responder,
                             });
                         }
+                        SessionEvent::ResourceStats {
+                            cpu_sampled,
+                            cpu_percent,
+                            mem_used_kib,
+                            mem_total_kib,
+                            swap_used_kib,
+                            swap_total_kib,
+                            net,
+                            disks,
+                            gpus,
+                            gpu_unsupported,
+                            current_user,
+                            procs,
+                            ..
+                        } => {
+                            let sample = json!({
+                                "cpu_sampled": cpu_sampled,
+                                "cpu_percent": cpu_percent,
+                                "mem_used_kib": mem_used_kib,
+                                "mem_total_kib": mem_total_kib,
+                                "swap_used_kib": swap_used_kib,
+                                "swap_total_kib": swap_total_kib,
+                                "net": net.iter().map(|(name, rx, tx)| json!({
+                                    "name": name, "rx": rx, "tx": tx
+                                })).collect::<Vec<_>>(),
+                                "disks": disks.iter().map(|(path, available, total)| json!({
+                                    "path": path, "available": available, "total": total
+                                })).collect::<Vec<_>>(),
+                                "gpus": gpus.iter().map(|gpu| json!({
+                                    "name": gpu.name,
+                                    "util_percent": gpu.util_percent,
+                                    "mem_used_mib": gpu.mem_used_mib,
+                                    "mem_total_mib": gpu.mem_total_mib,
+                                    "temp_c": gpu.temp_c,
+                                })).collect::<Vec<_>>(),
+                                "gpu_unsupported": gpu_unsupported,
+                                "user": current_user,
+                                "procs": procs.iter().map(|proc| json!({
+                                    "pid": proc.pid,
+                                    "user": proc.user,
+                                    "cpu": proc.cpu,
+                                    "mem": proc.mem,
+                                    "command": proc.command,
+                                })).collect::<Vec<_>>(),
+                            });
+                            if let Ok(mut slot) = pump.resource.lock() {
+                                *slot = Some(sample);
+                            }
+                            if let Ok(mut state) = pump.resource_state.lock() {
+                                *state = "available".into();
+                            }
+                            pump.version.fetch_add(1, Ordering::SeqCst);
+                        }
+                        SessionEvent::ResourceMonitorStatus { state } => {
+                            if let Ok(mut slot) = pump.resource_state.lock() {
+                                *slot = resource_state_name(state).into();
+                            }
+                            pump.version.fetch_add(1, Ordering::SeqCst);
+                        }
                         _ => {}
                     }
                 }
@@ -417,6 +492,12 @@ impl TerminalSession {
             .map(|slot| slot.clone())
             .unwrap_or_default();
         let closed = self.closed.lock().ok().and_then(|slot| slot.clone());
+        let resource = self.resource.lock().ok().and_then(|slot| slot.clone());
+        let resource_state = self
+            .resource_state
+            .lock()
+            .map(|slot| slot.clone())
+            .unwrap_or_else(|_| "waiting".into());
         json!({
             "rows": out_rows,
             "cols": cols,
@@ -428,6 +509,8 @@ impl TerminalSession {
             "status": status,
             "closed": closed,
             "prompt": prompt,
+            "resource": resource,
+            "resourceState": resource_state,
         })
         .to_string()
     }
@@ -516,6 +599,52 @@ pub fn known_hosts() -> Vec<KnownHostInfo> {
 /// Forgets one `host:port` entry. Returns whether anything was removed.
 pub fn forget_known_host(id: &str) -> Result<bool, String> {
     crate::ssh::known_hosts::forget(id).map_err(|error| error.to_string())
+}
+
+/// What one SSH-config import changed.
+pub struct ImportSummary {
+    pub added: usize,
+    pub skipped: usize,
+    pub message: String,
+}
+
+fn apply_import(
+    store: &mut ConfigStore,
+    hosts: Vec<crate::ssh::ImportedHost>,
+) -> Result<ImportSummary, String> {
+    let fresh = crate::core::ssh_import::sessions_to_add(store.sessions(), &hosts);
+    let added = fresh.len();
+    let skipped = hosts.len().saturating_sub(added);
+    for session in fresh {
+        store.upsert(session);
+    }
+    if added > 0 {
+        store.save().map_err(|error| error.to_string())?;
+    }
+    Ok(ImportSummary {
+        added,
+        skipped,
+        message: if added == 0 {
+            "No new hosts to import".into()
+        } else {
+            format!("Imported {added} host{}", if added == 1 { "" } else { "s" })
+        },
+    })
+}
+
+/// Imports hosts from OpenSSH config text (the caller supplies the file).
+pub fn import_ssh_config_text(
+    store: &mut ConfigStore,
+    text: &str,
+) -> Result<ImportSummary, String> {
+    let home = crate::ssh::ssh_config::home_dir().unwrap_or_default();
+    let hosts = crate::ssh::ssh_config::parse_str(text, &home);
+    apply_import(store, hosts)
+}
+
+/// Imports the user's `~/.ssh/config`, if it exists.
+pub fn import_ssh_config_default(store: &mut ConfigStore) -> Result<ImportSummary, String> {
+    apply_import(store, crate::ssh::ssh_config::parse_default())
 }
 
 /// One SSH key credential referenced by a saved session. Key material never
@@ -802,6 +931,7 @@ struct SftpState {
     status: String,
     closed: Option<String>,
     transfers: Vec<TransferInfo>,
+    tree: Vec<crate::session::protocol::RemoteTreeNode>,
 }
 
 struct TransferInfo {
@@ -842,12 +972,15 @@ impl SftpSession {
                 status: String::new(),
                 closed: None,
                 transfers: Vec::new(),
+                tree: Vec::new(),
             }),
             version: AtomicU64::new(1),
             prompt: Mutex::new(None),
             prompt_seq: AtomicU64::new(1),
         });
         session.handle.list_dir(".".into());
+        // Seed the folder tree with the remote root expanded.
+        session.handle.toggle_tree_node("/".into());
 
         let pump = session.clone();
         std::thread::Builder::new()
@@ -869,6 +1002,9 @@ impl SftpSession {
                             SessionEvent::SftpError(error) => {
                                 state.error = Some(error);
                                 state.loading = false;
+                            }
+                            SessionEvent::SftpTreeUpdate(nodes) => {
+                                state.tree = nodes;
                             }
                             SessionEvent::SftpTransfer {
                                 id,
@@ -1055,6 +1191,19 @@ impl SftpSession {
                 })
             })
             .collect();
+        let tree: Vec<Value> = state
+            .tree
+            .iter()
+            .map(|node| {
+                json!({
+                    "path": node.path,
+                    "name": node.name,
+                    "depth": node.depth,
+                    "expanded": node.expanded,
+                    "has_children": node.has_children,
+                })
+            })
+            .collect();
         let prompt = self
             .prompt
             .lock()
@@ -1063,6 +1212,7 @@ impl SftpSession {
         json!({
             "path": state.path,
             "entries": entries,
+            "tree": tree,
             "loading": state.loading,
             "error": state.error,
             "status": state.status,
@@ -1093,6 +1243,10 @@ impl SftpSession {
         }
         self.version.fetch_add(1, Ordering::SeqCst);
         self.handle.refresh_dir(path);
+    }
+
+    pub fn toggle_tree(&self, path: String) {
+        self.handle.toggle_tree_node(path);
     }
 
     pub fn download(&self, remote: String, local_dir: String) {

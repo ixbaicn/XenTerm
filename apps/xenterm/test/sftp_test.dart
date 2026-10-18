@@ -109,6 +109,43 @@ void main() {
     expect(created, 'backups');
   });
 
+  testWidgets('the folder tree expands and opens directories', (tester) async {
+    String? opened;
+    String? toggled;
+    await tester.pumpWidget(
+      _app(
+        SftpTree(
+          nodes: const [
+            SftpTreeNode(
+              path: '/',
+              name: '/',
+              depth: 0,
+              expanded: true,
+              hasChildren: true,
+            ),
+            SftpTreeNode(
+              path: '/docs',
+              name: 'docs',
+              depth: 1,
+              expanded: false,
+              hasChildren: true,
+            ),
+          ],
+          onOpen: (path) => opened = path,
+          onToggle: (path) => toggled = path,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('docs'), findsOneWidget);
+    await tester.tap(find.text('docs'));
+    await tester.pumpAndSettle();
+    expect(opened, '/docs');
+    await tester.tap(find.byIcon(LucideIcons.chevronRight));
+    await tester.pumpAndSettle();
+    expect(toggled, '/docs');
+  });
+
   testWidgets('errors and empty folders are explicit', (tester) async {
     await tester.pumpWidget(
       _app(

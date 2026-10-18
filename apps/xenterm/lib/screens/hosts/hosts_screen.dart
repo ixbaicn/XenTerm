@@ -27,6 +27,13 @@ typedef HostSaver = Future<CoreWriteResult> Function({
   String keyPath,
 });
 typedef HostDeleter = Future<CoreWriteResult> Function(String id);
+typedef GroupLoader = Future<List<HostGroup>> Function();
+typedef GroupCreator = Future<CoreWriteResult> Function(String name);
+typedef GroupRenamer = Future<CoreWriteResult> Function(String old, String next);
+typedef GroupDeleter = Future<CoreWriteResult> Function(String name);
+typedef GroupCollapser =
+    Future<CoreWriteResult> Function(String name, bool collapsed);
+typedef HostImporter = Future<ImportResult> Function();
 
 class HostsScreen extends StatefulWidget {
   final ValueChanged<Host>? onConnect;
@@ -41,6 +48,16 @@ class HostsScreen extends StatefulWidget {
   final HostSaver? saveSession;
   final HostDeleter? deleteSession;
 
+  /// Folder (group) source and mutations; production uses the FFI bridge.
+  final GroupLoader? loadGroups;
+  final GroupCreator? createGroup;
+  final GroupRenamer? renameGroup;
+  final GroupDeleter? deleteGroup;
+  final GroupCollapser? collapseGroup;
+
+  /// OpenSSH config importer; production reads `~/.ssh/config` through the core.
+  final HostImporter? importHosts;
+
   const HostsScreen({
     super.key,
     this.onConnect,
@@ -48,6 +65,12 @@ class HostsScreen extends StatefulWidget {
     this.newHostRequest,
     this.saveSession,
     this.deleteSession,
+    this.loadGroups,
+    this.createGroup,
+    this.renameGroup,
+    this.deleteGroup,
+    this.collapseGroup,
+    this.importHosts,
   });
 
   @override
@@ -61,8 +84,23 @@ class _HostsScreenState extends State<HostsScreen> {
   bool _drawerOpen = false;
   String _query = '';
   List<Host> _hosts = const [];
+  List<HostGroup> _groups = const [];
   bool _loading = true;
   String? _loadError;
+
+  /// Inline group editor: null = closed; `renaming == null` = create.
+  bool _groupEditorOpen = false;
+  String? _renaming;
+  final TextEditingController _groupName = TextEditingController();
+  String? _groupError;
+
+  /// Group awaiting delete confirmation.
+  String? _deletingGroup;
+
+  /// Result banner for the OpenSSH config import.
+  String? _importNotice;
+  bool _importError = false;
+  bool _importing = false;
 
   @override
   void initState() {
@@ -93,9 +131,17 @@ class _HostsScreenState extends State<HostsScreen> {
     }
     try {
       final hosts = await (widget.loadHosts ?? loadHostsFromCore)();
+      // Widget tests inject only the host loader; don't reach for the FFI
+      // group store unless production wiring (or a group seam) is present.
+      final groups = widget.loadGroups != null
+          ? await widget.loadGroups!()
+          : widget.loadHosts != null
+          ? const <HostGroup>[]
+          : await loadGroupsFromCore();
       if (!mounted) return;
       setState(() {
         _hosts = hosts;
+        _groups = groups;
         _loading = false;
       });
     } catch (error) {
@@ -111,6 +157,7 @@ class _HostsScreenState extends State<HostsScreen> {
   void dispose() {
     widget.newHostRequest?.removeListener(_onNewHostRequest);
     _search.dispose();
+    _groupName.dispose();
     super.dispose();
   }
 
@@ -181,6 +228,7 @@ class _HostsScreenState extends State<HostsScreen> {
     String address = '',
     int port = 22,
     String username = '',
+    String group = '',
   }) async {
     try {
       final result = await (widget.saveSession ?? saveSessionToCore)(
@@ -189,7 +237,7 @@ class _HostsScreenState extends State<HostsScreen> {
         address: address,
         port: port,
         username: username,
-        group: '',
+        group: group,
         kind: kind,
       );
       if (!result.ok) {
@@ -291,6 +339,134 @@ class _HostsScreenState extends State<HostsScreen> {
 
   /// Collapse the slider; the panel content stays mounted for the next open.
   void _closeDrawer() => setState(() => _drawerOpen = false);
+
+  // ── Groups (folders) ───────────────────────────────────────────────────
+
+  void _openGroupEditor({String? rename}) {
+    setState(() {
+      _groupEditorOpen = true;
+      _renaming = rename;
+      _groupName.text = rename ?? '';
+      _groupError = null;
+      _deletingGroup = null;
+    });
+  }
+
+  void _closeGroupEditor() => setState(() {
+    _groupEditorOpen = false;
+    _renaming = null;
+    _groupError = null;
+  });
+
+  Future<void> _saveGroup() async {
+    final name = _groupName.text.trim();
+    if (name.isEmpty) {
+      setState(() => _groupError = 'Enter a group name');
+      return;
+    }
+    final renaming = _renaming;
+    try {
+      final result = renaming == null
+          ? await (widget.createGroup ?? createGroupInCore)(name)
+          : await (widget.renameGroup ?? renameGroupInCore)(renaming, name);
+      if (!result.ok) {
+        setState(() => _groupError = result.error ?? 'Could not save the group');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _groupEditorOpen = false;
+        _renaming = null;
+        _groupError = null;
+      });
+      await _reload(silent: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _groupError = '$error');
+    }
+  }
+
+  Future<void> _deleteGroupNamed(String name) async {
+    try {
+      final result = await (widget.deleteGroup ?? deleteGroupFromCore)(name);
+      if (!result.ok) {
+        setState(
+          () => _loadError = result.error ?? 'Could not delete the group',
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _deletingGroup = null);
+      await _reload(silent: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadError = '$error');
+    }
+  }
+
+  Future<void> _toggleGroup(HostGroup group) async {
+    final collapsed = !group.collapsed;
+    setState(() {
+      _groups = [
+        for (final g in _groups)
+          g.name == group.name
+              ? HostGroup(name: g.name, collapsed: collapsed)
+              : g,
+      ];
+    });
+    try {
+      final result = await (widget.collapseGroup ?? collapseGroupInCore)(
+        group.name,
+        collapsed,
+      );
+      if (!result.ok && mounted) {
+        await _reload(silent: true);
+      }
+    } catch (_) {
+      if (mounted) await _reload(silent: true);
+    }
+  }
+
+  Future<void> _newHostInGroup(String group) async {
+    final host = await _createSessionFor(
+      kind: 'ssh',
+      label: 'New Host',
+      group: group,
+    );
+    if (host == null || !mounted) return;
+    setState(() {
+      _drawerHost = host;
+      _drawerOpen = true;
+    });
+  }
+
+  /// Imports `~/.ssh/config` through the core; the result stays in a banner.
+  Future<void> _importHosts() async {
+    setState(() {
+      _importing = true;
+      _importNotice = null;
+      _importError = false;
+    });
+    try {
+      final result = await (widget.importHosts ?? importSshConfigToCore)();
+      if (!mounted) return;
+      setState(() {
+        _importing = false;
+        _importError = !result.ok;
+        _importNotice = result.ok
+            ? result.message
+            : (result.error ?? 'Import failed');
+      });
+      if (result.ok && result.added > 0) await _reload(silent: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _importing = false;
+        _importError = true;
+        _importNotice = '$error';
+      });
+    }
+  }
 
   /// A plain card click connects immediately — the desktop fast path.
   void _onCardTap(Host host) => _connect(host);
@@ -399,6 +575,18 @@ class _HostsScreenState extends State<HostsScreen> {
                             label: 'New host',
                             icon: LucideIcons.plus,
                             onPressed: _createSession,
+                            menuItems: [
+                              SplitMenuEntry(
+                                icon: LucideIcons.folderPlus,
+                                label: 'New group',
+                                onTap: _openGroupEditor,
+                              ),
+                              SplitMenuEntry(
+                                icon: LucideIcons.import,
+                                label: 'Import hosts',
+                                onTap: _importHosts,
+                              ),
+                            ],
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
@@ -453,17 +641,12 @@ class _HostsScreenState extends State<HostsScreen> {
                   ],
                 ),
               ),
-              // ── Section title + cards ───────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 15, 0, 12),
-                child: Text(
-                  'Hosts',
-                  style: theme.typography.bold.copyWith(
-                    fontSize: 18,
-                    color: theme.colorScheme.foreground,
-                  ),
-                ),
-              ),
+              // ── Inline group editor / import result ─────────────────────
+              if (_groupEditorOpen) _groupEditorBar(theme),
+              if (_importNotice != null) _importBanner(theme),
+              // ── Section titles + cards ──────────────────────────────────
+              if (_groups.isEmpty || _query.trim().isNotEmpty)
+                _sectionTitle('Hosts', theme),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
@@ -476,11 +659,15 @@ class _HostsScreenState extends State<HostsScreen> {
                         )
                       : _loadError != null
                       ? _ErrorState(message: _loadError!, onRetry: _reload)
-                      : hosts.isEmpty
+                      : hosts.isEmpty && _groups.isEmpty
                       ? const _EmptyState()
-                      : _layout == HostsLayout.cards
-                      ? _cardGrid(hosts)
-                      : _rowList(hosts),
+                      : _groups.isEmpty || _query.trim().isNotEmpty
+                      ? (hosts.isEmpty
+                            ? const _EmptyState()
+                            : _layout == HostsLayout.cards
+                            ? _cardGrid(hosts)
+                            : _rowList(hosts))
+                      : _groupedList(theme),
                 ),
               ),
             ],
@@ -509,8 +696,285 @@ class _HostsScreenState extends State<HostsScreen> {
     );
   }
 
-  Widget _cardGrid(List<Host> hosts) {
+  Widget _groupEditorBar(ThemeData theme) {
+    final renaming = _renaming;
+    return Container(
+      color: const Color(0xFF282B3D),
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                renaming == null ? LucideIcons.folderPlus : LucideIcons.pencil,
+                size: 16,
+                color: theme.colorScheme.foreground,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                renaming == null ? 'New group' : 'Rename group',
+                style: theme.typography.medium.copyWith(
+                  fontSize: 14,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const ValueKey('group-name'),
+                  controller: _groupName,
+                  autofocus: true,
+                  onSubmitted: (_) => _saveGroup(),
+                  border: Border.all(color: Colors.transparent),
+                  borderRadius: BorderRadius.circular(TermiusRadius.field),
+                  decoration: BoxDecoration(
+                    color: TermiusMetrics.searchFieldFill,
+                    borderRadius: BorderRadius.circular(TermiusRadius.field),
+                  ),
+                  placeholder: const Text(
+                    'Group name (for example: Production)',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF8D91A5)),
+                  ),
+                  style: theme.typography.normal.copyWith(
+                    fontSize: 13,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Button(
+                key: const ValueKey('group-save'),
+                onPressed: _saveGroup,
+                style: const ButtonStyle.primary(),
+                child: const Text('Save'),
+              ),
+              const SizedBox(width: 8),
+              GhostButton(
+                key: const ValueKey('group-cancel'),
+                onPressed: _closeGroupEditor,
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+          if (_groupError != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _groupError!,
+              style: theme.typography.normal.copyWith(
+                fontSize: 12,
+                color: theme.colorScheme.destructive,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _importBanner(ThemeData theme) {
+    return Container(
+      key: const ValueKey('import-banner'),
+      color: _importError ? const Color(0xFF3A2028) : const Color(0xFF1F2C24),
+      padding: const EdgeInsets.fromLTRB(18, 8, 10, 8),
+      child: Row(
+        children: [
+          Icon(
+            _importing
+                ? LucideIcons.loader
+                : _importError
+                ? LucideIcons.circleAlert
+                : LucideIcons.circleCheck,
+            size: 15,
+            color: _importError
+                ? theme.colorScheme.destructive
+                : const Color(0xFF21B568),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _importNotice!,
+              style: theme.typography.normal.copyWith(
+                fontSize: 12,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+          ),
+          GestureDetector(
+            key: const ValueKey('import-dismiss'),
+            onTap: () => setState(() => _importNotice = null),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(
+                LucideIcons.x,
+                size: 14,
+                color: theme.colorScheme.mutedForeground,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 15, 0, 12),
+      child: Text(
+        title,
+        style: theme.typography.bold.copyWith(
+          fontSize: 18,
+          color: theme.colorScheme.foreground,
+        ),
+      ),
+    );
+  }
+
+  /// Named groups plus the ungrouped bucket, in core display order.
+  List<_HostSection> get _sections {
+    final byGroup = <String, List<Host>>{};
+    final ungrouped = <Host>[];
+    for (final host in _hosts) {
+      final group = host.group.trim();
+      final reserved =
+          group.toLowerCase() == 'default' || group.toLowerCase() == 'system';
+      if (group.isEmpty || reserved) {
+        ungrouped.add(host);
+      } else {
+        byGroup.putIfAbsent(group, () => []).add(host);
+      }
+    }
+    final known = <String>{
+      for (final group in _groups) group.name.toLowerCase(),
+    };
+    final names = <String>[
+      for (final group in _groups) group.name,
+      for (final name in byGroup.keys)
+        if (!known.contains(name.toLowerCase())) name,
+    ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return [
+      if (ungrouped.isNotEmpty || names.isEmpty)
+        _HostSection(
+          name: null,
+          collapsed: false,
+          hosts: ungrouped,
+        ),
+      for (final name in names)
+        _HostSection(
+          name: name,
+          collapsed: _groups.any((g) => g.name == name && g.collapsed),
+          hosts: byGroup[name] ?? const [],
+        ),
+    ];
+  }
+
+  Widget _groupedList(ThemeData theme) {
+    final sections = _sections;
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        for (final section in sections) ...[
+          if (section.name == null)
+            _sectionTitle('Hosts', theme)
+          else
+            _deletingGroup == section.name
+                ? _deleteGroupBar(section.name!, theme)
+                : _GroupHeader(
+                    key: ValueKey('group-header-${section.name}'),
+                    name: section.name!,
+                    count: section.hosts.length,
+                    collapsed: section.collapsed,
+                    theme: theme,
+                    onToggle: () => _toggleGroup(
+                      HostGroup(
+                        name: section.name!,
+                        collapsed: section.collapsed,
+                      ),
+                    ),
+                    onRename: () => _openGroupEditor(rename: section.name),
+                    onDelete: () => setState(
+                      () => _deletingGroup = section.name,
+                    ),
+                    onAdd: () => _newHostInGroup(section.name!),
+                  ),
+          if (section.name == null || !section.collapsed)
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                section.name == null ? 0 : 12,
+                0,
+                0,
+                section.name == null ? 0 : 14,
+              ),
+              child: section.hosts.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'No hosts in this group yet.',
+                        style: theme.typography.normal.copyWith(
+                          fontSize: 12,
+                          color: theme.colorScheme.mutedForeground,
+                        ),
+                      ),
+                    )
+                  : _layout == HostsLayout.cards
+                  ? _cardGrid(section.hosts, shrinkWrap: true)
+                  : _rowList(section.hosts, shrinkWrap: true),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _deleteGroupBar(String name, ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF282B3D),
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            LucideIcons.triangleAlert,
+            size: 16,
+            color: theme.colorScheme.destructive,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Delete “$name”? Its hosts move to Hosts.',
+              style: theme.typography.normal.copyWith(
+                fontSize: 13,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+          ),
+          Button(
+            key: const ValueKey('group-delete-confirm'),
+            onPressed: () => _deleteGroupNamed(name),
+            style: const ButtonStyle.primary(),
+            child: const Text('Delete'),
+          ),
+          const SizedBox(width: 8),
+          GhostButton(
+            onPressed: () => setState(() => _deletingGroup = null),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cardGrid(List<Host> hosts, {bool shrinkWrap = false}) {
     return GridView.builder(
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+      padding: EdgeInsets.zero,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         // Original: 3 columns at a 1280-wide window, cards ≈347×60 logical,
         // 10px gaps — measured from the reference screenshot (520×90 physical
@@ -533,8 +997,11 @@ class _HostsScreenState extends State<HostsScreen> {
     );
   }
 
-  Widget _rowList(List<Host> hosts) {
+  Widget _rowList(List<Host> hosts, {bool shrinkWrap = false}) {
     return ListView.builder(
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+      padding: EdgeInsets.zero,
       itemCount: hosts.length,
       itemBuilder: (context, index) {
         final host = hosts[index];
@@ -548,6 +1015,166 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _HostSection {
+  final String? name;
+  final bool collapsed;
+  final List<Host> hosts;
+
+  const _HostSection({
+    required this.name,
+    required this.collapsed,
+    required this.hosts,
+  });
+}
+
+/// Folder header: chevron + folder glyph + name + count, with hover actions.
+class _GroupHeader extends StatefulWidget {
+  final String name;
+  final int count;
+  final bool collapsed;
+  final ThemeData theme;
+  final VoidCallback onToggle;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+  final VoidCallback onAdd;
+
+  const _GroupHeader({
+    super.key,
+    required this.name,
+    required this.count,
+    required this.collapsed,
+    required this.theme,
+    required this.onToggle,
+    required this.onRename,
+    required this.onDelete,
+    required this.onAdd,
+  });
+
+  @override
+  State<_GroupHeader> createState() => _GroupHeaderState();
+}
+
+class _GroupHeaderState extends State<_GroupHeader> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onToggle,
+        child: Container(
+          height: 38,
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.only(left: 4, right: 4),
+          child: Row(
+            children: [
+              AnimatedRotation(
+                turns: widget.collapsed ? -0.25 : 0,
+                duration: TermiusMotion.micro,
+                curve: TermiusMotion.easeOut,
+                child: Icon(
+                  LucideIcons.chevronDown,
+                  size: 16,
+                  color: theme.colorScheme.mutedForeground,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                widget.collapsed ? LucideIcons.folder : LucideIcons.folderOpen,
+                size: 16,
+                color: const Color(0xFF8D91A5),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                widget.name,
+                style: theme.typography.semiBold.copyWith(
+                  fontSize: 15,
+                  color: theme.colorScheme.foreground,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${widget.count}',
+                style: theme.typography.normal.copyWith(
+                  fontSize: 12,
+                  color: theme.colorScheme.mutedForeground,
+                ),
+              ),
+              const Spacer(),
+              AnimatedOpacity(
+                opacity: _hovering ? 1 : 0,
+                duration: TermiusMotion.micro,
+                child: Row(
+                  children: [
+                    _HeaderAction(
+                      key: ValueKey('group-add-${widget.name}'),
+                      icon: LucideIcons.plus,
+                      tooltip: 'New host in ${widget.name}',
+                      onTap: widget.onAdd,
+                    ),
+                    _HeaderAction(
+                      key: ValueKey('group-rename-${widget.name}'),
+                      icon: LucideIcons.pencil,
+                      tooltip: 'Rename group',
+                      onTap: widget.onRename,
+                    ),
+                    _HeaderAction(
+                      key: ValueKey('group-delete-${widget.name}'),
+                      icon: LucideIcons.trash2,
+                      tooltip: 'Delete group',
+                      onTap: widget.onDelete,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderAction extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _HeaderAction({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      tooltip: (_) => Text(tooltip),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 28,
+          height: 28,
+          margin: const EdgeInsets.only(left: 2),
+          alignment: Alignment.center,
+          child: Icon(
+            icon,
+            size: 15,
+            color: theme.colorScheme.mutedForeground,
+          ),
+        ),
+      ),
     );
   }
 }

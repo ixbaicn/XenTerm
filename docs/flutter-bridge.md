@@ -98,4 +98,22 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   download_dir，界面显示 uploaded/downloaded 进度条）。同一工具还提供
   direct-tcpip 转发与本地回显端口：实测保存的 Local 规则在宿主连接后监听
   127.0.0.1:18080，经隧道回显 127.0.0.1:18081，收发字节一致。
-- 未实现：资源采样/系统信息面板、分组管理与导入、远端目录树（左树）。
+- SFTP 远端目录树：`xenterm_sftp_toggle_tree` + 快照 `tree`，左树只显示
+  目录、按层缩进、可展开/收起并跳转；根节点 `/` 在连接后自动展开。
+- 分组（文件夹）管理：`xenterm_groups_json/create/rename/delete/collapse`
+  与 `xenterm_session_move_group` 全部落在 ConfigStore 的 groups /
+  collapsed_session_groups 上。Hosts 屏按分组渲染可折叠的段落，新建分组
+  走 New host ▾ → New group，组头的 hover 动作提供新建主机/重命名/删除
+  （删除前内联确认，组内主机退回 Hosts）；收起状态持久化。
+- 导入：`xenterm_import_ssh_config`（`{"text": "…"}`，空文本读取
+  `~/.ssh/config`）复用核心 `core::ssh_import` 的去重规则，只新增未保存的
+  alias / user@host；结果进入 Hosts 顶部横幅。
+- 资源采样：终端泵线程转发 `SessionEvent::ResourceStats` /
+  `ResourceMonitorStatus`，快照新增 `resource`（CPU/内存/swap/网卡/磁盘/
+  GPU/进程）与 `resourceState`（waiting/available/unavailable/stale/
+  paused/unsupported）。SSH 会话连接后自动开启核心已有的辅助监控通道；
+  Flutter 右侧工具面板的 SYSTEM 区域绘制实时 CPU/内存/磁盘/网络/GPU 条，
+  不可用状态会明确写出而不是隐藏。`apps/xenterm/tool/sftp_test_server.py`
+  同时应答资源/进程 exec 通道，提供固定样本供端到端验收。
+- 测试补充：`cargo test -p xenterm-bridge` 覆盖分组往返与 SSH 配置导入；
+  `flutter test` 覆盖分组折叠/新建/重命名/删除、导入横幅与资源面板渲染。

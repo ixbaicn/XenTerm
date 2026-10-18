@@ -93,6 +93,13 @@ class TerminalToolsPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
+          const _PanelLabel('SYSTEM'),
+          const SizedBox(height: 8),
+          _ResourceSection(
+            state: screen?['resourceState'] as String?,
+            sample: screen?['resource'] as Map<String, dynamic>?,
+          ),
+          const SizedBox(height: 18),
           const _PanelLabel('TERMINAL'),
           const SizedBox(height: 8),
           Row(
@@ -232,6 +239,201 @@ class _PanelAction extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Live remote resource sample from the SSH monitor channel.
+///
+/// Every state is stated rather than hidden: `waiting` while the auxiliary
+/// channel starts, `unsupported`/`unavailable` for hosts whose probe cannot
+/// answer, `stale` when a previously-good sample stopped updating.
+class _ResourceSection extends StatelessWidget {
+  final String? state;
+  final Map<String, dynamic>? sample;
+
+  const _ResourceSection({required this.state, required this.sample});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.mutedForeground;
+    final message = switch (state) {
+      'unsupported' => 'Not available on this host',
+      'unavailable' => 'No /proc stats from this host',
+      'paused' => 'Sampling paused',
+      'stale' => 'Last sample is stale',
+      'waiting' => 'Measuring…',
+      _ when sample == null => 'Measuring…',
+      _ => null,
+    };
+    if (message != null) {
+      return Text(
+        message,
+        key: const ValueKey('terminal-resource-empty'),
+        style: TextStyle(fontSize: 12, color: muted),
+      );
+    }
+    final data = sample!;
+    final cpu = (data['cpu_percent'] as num?)?.toDouble() ?? 0;
+    final cpuSampled = data['cpu_sampled'] == true;
+    final memUsed = ((data['mem_used_kib'] as num?)?.toDouble() ?? 0) / 1024;
+    final memTotal = ((data['mem_total_kib'] as num?)?.toDouble() ?? 0) / 1024;
+    final memFrac = memTotal <= 0 ? 0.0 : (memUsed / memTotal).clamp(0.0, 1.0);
+    final disks = (data['disks'] as List?) ?? const [];
+    final net = (data['net'] as List?) ?? const [];
+    final gpus = (data['gpus'] as List?) ?? const [];
+    final user = (data['user'] as String?) ?? '';
+
+    var rx = 0.0;
+    var tx = 0.0;
+    for (final row in net) {
+      if (row is Map) {
+        rx += (row['rx'] as num?)?.toDouble() ?? 0;
+        tx += (row['tx'] as num?)?.toDouble() ?? 0;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (user.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              user,
+              style: TextStyle(fontSize: 12, color: muted),
+            ),
+          ),
+        _ResourceMeter(
+          key: const ValueKey('terminal-resource-cpu'),
+          label: 'CPU',
+          value: cpuSampled ? '${(cpu * 100).clamp(0, 100).round()}%' : '—',
+          fraction: cpuSampled ? cpu.clamp(0.0, 1.0) : 0,
+        ),
+        const SizedBox(height: 8),
+        _ResourceMeter(
+          key: const ValueKey('terminal-resource-memory'),
+          label: 'Memory',
+          value: memTotal > 0
+              ? '${_formatMib(memUsed)} / ${_formatMib(memTotal)}'
+              : '—',
+          fraction: memFrac,
+        ),
+        if (disks.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Builder(
+            builder: (context) {
+              final disk = disks.first as Map;
+              final total = (disk['total'] as num?)?.toDouble() ?? 0;
+              final available = (disk['available'] as num?)?.toDouble() ?? 0;
+              final frac = total <= 0
+                  ? 0.0
+                  : ((total - available) / total).clamp(0.0, 1.0);
+              return _ResourceMeter(
+                key: const ValueKey('terminal-resource-disk'),
+                label: (disk['path'] as String?) ?? 'Disk',
+                value: '${(frac * 100).round()}%',
+                fraction: frac,
+              );
+            },
+          ),
+        ],
+        if (net.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _ResourceMeter(
+            key: const ValueKey('terminal-resource-net'),
+            label: 'Network',
+            value: '↓ ${_formatRate(rx)}  ↑ ${_formatRate(tx)}',
+            fraction: 0,
+          ),
+        ],
+        if (gpus.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final gpu in gpus.take(2))
+            Padding(
+              key: const ValueKey('terminal-resource-gpu'),
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _ResourceMeter(
+                label: ((gpu as Map)['name'] as String?) ?? 'GPU',
+                value:
+                    '${(((gpu['util_percent'] as num?)?.toDouble() ?? 0)).round()}%'
+                    '${gpu['temp_c'] != null ? ' · ${gpu['temp_c']}°C' : ''}',
+                fraction:
+                    (((gpu['util_percent'] as num?)?.toDouble() ?? 0) / 100).clamp(
+                      0.0,
+                      1.0,
+                    ),
+              ),
+            ),
+        ] else if (data['gpu_unsupported'] == true) ...[
+          const SizedBox(height: 8),
+          Text(
+            'GPU: unavailable',
+            style: TextStyle(fontSize: 11, color: muted),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+String _formatMib(double mib) => mib >= 1024
+    ? '${(mib / 1024).toStringAsFixed(1)} GiB'
+    : '${mib.round()} MiB';
+
+String _formatRate(double bytes) => bytes >= 1024 * 1024
+    ? '${(bytes / 1024 / 1024).toStringAsFixed(1)} MiB/s'
+    : bytes >= 1024
+    ? '${(bytes / 1024).toStringAsFixed(1)} KiB/s'
+    : '${bytes.round()} B/s';
+
+class _ResourceMeter extends StatelessWidget {
+  final String label;
+  final String value;
+  final double fraction;
+
+  const _ResourceMeter({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.fraction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.mutedForeground;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+            ),
+            Text(
+              value,
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.foreground),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: fraction.clamp(0.0, 1.0),
+            minHeight: 4,
+            backgroundColor: const Color(0xFF2B2F44),
+            color: const Color(0xFF21B568),
+          ),
+        ),
+      ],
     );
   }
 }

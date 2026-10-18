@@ -47,6 +47,10 @@ class _SftpViewState extends State<SftpView> {
   bool _starting = true;
   int _lastVersion = 0;
 
+  /// The core seeds the root open, but its first listing can race that
+  /// command; expand `/` once here so the tree never opens bare.
+  bool _autoExpandedRoot = false;
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +108,16 @@ class _SftpViewState extends State<SftpView> {
     );
     if (!mounted) return;
     setState(() => _snapshot = snapshot);
+    if (!_autoExpandedRoot && snapshot.tree.isNotEmpty) {
+      _autoExpandedRoot = true;
+      final root = snapshot.tree.firstWhere(
+        (node) => node.path == '/',
+        orElse: () => snapshot.tree.first,
+      );
+      if (!root.expanded) {
+        bridge.sftpToggleTree(handle, root.path);
+      }
+    }
   }
 
   @override
@@ -124,6 +138,7 @@ class _SftpViewState extends State<SftpView> {
       _error = null;
       _starting = true;
       _lastVersion = 0;
+      _autoExpandedRoot = false;
     });
     _start();
   }
@@ -181,74 +196,200 @@ class _SftpViewState extends State<SftpView> {
             ),
           ),
           Expanded(
-            child: Stack(
+            child: Row(
               children: [
-                Positioned.fill(
-                  child: _error != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'SFTP unavailable\n$_error',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF8D91A5),
+                SizedBox(
+                  width: 220,
+                  child: SftpTree(
+                    nodes: _snapshot.tree,
+                    onOpen: (path) => _bridge?.sftpList(_handle!, path),
+                    onToggle: (path) => _bridge?.sftpToggleTree(_handle!, path),
+                  ),
+                ),
+                Container(width: 1, color: const Color(0xFF262A3D)),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: _error != null
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'SFTP unavailable\n$_error',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF8D91A5),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Button(
+                                        style: const ButtonStyle.outline(),
+                                        onPressed: _retry,
+                                        child: const Text('Retry'),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(height: 12),
-                                Button(
-                                  style: const ButtonStyle.outline(),
-                                  onPressed: _retry,
-                                  child: const Text('Retry'),
-                                ),
-                              ],
-                            ),
+                              )
+                            : SftpBrowser(
+                                snapshot: _snapshot,
+                                onOpenDirectory: (path) =>
+                                    _bridge?.sftpList(_handle!, path),
+                                onRefresh: () => _bridge?.sftpRefresh(_handle!),
+                                onDownload: _download,
+                                onUpload: _upload,
+                                onCreateFolder: (name) =>
+                                    _bridge?.sftpMkdir(_handle!, name),
+                                onDelete: (entry) =>
+                                    _bridge?.sftpDelete(_handle!, entry.path),
+                              ),
+                      ),
+                      if (_snapshot.prompt != null && _error == null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          top: 12,
+                          child: ConnectionPromptBanner(
+                            prompt: _snapshot.prompt!,
+                            onAnswer: (accept, {username, password, text}) {
+                              final handle = _handle;
+                              if (handle == null) return;
+                              final promptId =
+                                  (_snapshot.prompt?['id'] as num?)?.toInt() ??
+                                  0;
+                              _bridge?.answerSftpPrompt(
+                                handle,
+                                promptId,
+                                accept: accept,
+                                username: username,
+                                password: password,
+                                text: text,
+                              );
+                            },
                           ),
-                        )
-                      : SftpBrowser(
-                          snapshot: _snapshot,
-                          onOpenDirectory: (path) =>
-                              _bridge?.sftpList(_handle!, path),
-                          onRefresh: () => _bridge?.sftpRefresh(_handle!),
-                          onDownload: _download,
-                          onUpload: _upload,
-                          onCreateFolder: (name) =>
-                              _bridge?.sftpMkdir(_handle!, name),
-                          onDelete: (entry) =>
-                              _bridge?.sftpDelete(_handle!, entry.path),
                         ),
-                ),
-                if (_snapshot.prompt != null && _error == null)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    top: 12,
-                    child: ConnectionPromptBanner(
-                      prompt: _snapshot.prompt!,
-                      onAnswer: (accept, {username, password, text}) {
-                        final handle = _handle;
-                        if (handle == null) return;
-                        final promptId =
-                            (_snapshot.prompt?['id'] as num?)?.toInt() ?? 0;
-                        _bridge?.answerSftpPrompt(
-                          handle,
-                          promptId,
-                          accept: accept,
-                          username: username,
-                          password: password,
-                          text: text,
-                        );
-                      },
-                    ),
+                    ],
                   ),
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The remote folder tree (directories only), rooted at "/".
+class SftpTree extends StatelessWidget {
+  final List<SftpTreeNode> nodes;
+  final ValueChanged<String>? onOpen;
+  final ValueChanged<String>? onToggle;
+
+  const SftpTree({super.key, required this.nodes, this.onOpen, this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFF161A2C),
+      child: nodes.isEmpty
+          ? const Center(
+              child: Text(
+                'Folders',
+                style: TextStyle(fontSize: 11, color: Color(0xFF5A5F73)),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: nodes.length,
+              itemBuilder: (context, index) {
+                final node = nodes[index];
+                return _TreeRow(
+                  key: ValueKey('sftp-tree-${node.path}'),
+                  node: node,
+                  onOpen: () => onOpen?.call(node.path),
+                  onToggle: () => onToggle?.call(node.path),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _TreeRow extends StatefulWidget {
+  final SftpTreeNode node;
+  final VoidCallback onOpen;
+  final VoidCallback onToggle;
+
+  const _TreeRow({
+    super.key,
+    required this.node,
+    required this.onOpen,
+    required this.onToggle,
+  });
+
+  @override
+  State<_TreeRow> createState() => _TreeRowState();
+}
+
+class _TreeRowState extends State<_TreeRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final node = widget.node;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onOpen,
+        child: Container(
+          height: 28,
+          color: _hover ? const Color(0xFF282B3D) : Colors.transparent,
+          padding: EdgeInsets.only(left: 6.0 + node.depth * 14),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: node.hasChildren ? widget.onToggle : null,
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: node.hasChildren
+                      ? Icon(
+                          node.expanded
+                              ? LucideIcons.chevronDown
+                              : LucideIcons.chevronRight,
+                          size: 13,
+                          color: const Color(0xFF8D91A5),
+                        )
+                      : null,
+                ),
+              ),
+              const Icon(
+                LucideIcons.folder,
+                size: 14,
+                color: Color(0xFFF8AA4B),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  node.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: Color(0xFFC7CBD6),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

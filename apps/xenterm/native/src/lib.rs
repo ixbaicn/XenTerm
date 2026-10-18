@@ -214,6 +214,190 @@ pub extern "C" fn xenterm_session_delete(id: *const c_char) -> *mut c_char {
     }
 }
 
+/// Display-only groups owned by the core's built-in shells; they must never
+/// surface as user folders (`config::is_reserved_session_group` is crate
+/// private, so the bridge mirrors the predicate).
+fn is_reserved_group(name: &str) -> bool {
+    let name = name.trim();
+    name.is_empty()
+        || name.eq_ignore_ascii_case("default")
+        || name.eq_ignore_ascii_case("system")
+}
+
+/// Named host groups as a JSON array of `{"name", "collapsed"}`: explicit
+/// folders ∪ the groups sessions are filed under, sorted case-insensitively.
+#[no_mangle]
+pub extern "C" fn xenterm_groups_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut names: Vec<String> = store
+            .groups()
+            .iter()
+            .filter(|g| !is_reserved_group(g))
+            .cloned()
+            .chain(
+                store
+                    .sessions()
+                    .iter()
+                    .filter(|s| !is_reserved_group(&s.group))
+                    .map(|s| s.group.clone()),
+            )
+            .collect();
+        names.sort_by_key(|g| g.to_lowercase());
+        names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        let collapsed = store.collapsed_session_groups().unwrap_or(&[]);
+        let rows: Vec<serde_json::Value> = names
+            .iter()
+            .map(|name| {
+                serde_json::json!({
+                    "name": name,
+                    "collapsed": collapsed.iter().any(|c| c == name),
+                })
+            })
+            .collect();
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Create an empty group. Returns `{"ok":true}` or `{"ok":false,"error"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_group_create(name: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let name = unsafe { take_c(name) }.trim().to_string();
+        if is_reserved_group(&name) {
+            return Err("that name is reserved".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        if store.session_group_exists(&name) {
+            return Err("a group with that name already exists".into());
+        }
+        store.add_group(name);
+        store.save().map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Rename a group and move its sessions along.
+#[no_mangle]
+pub extern "C" fn xenterm_group_rename(
+    old: *const c_char,
+    new: *const c_char,
+) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let old = unsafe { take_c(old) }.trim().to_string();
+        let new = unsafe { take_c(new) }.trim().to_string();
+        if is_reserved_group(&old) {
+            return Err("that group no longer exists".into());
+        }
+        if is_reserved_group(&new) {
+            return Err("the name cannot be empty".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        if !store.session_group_exists(&old) {
+            return Err("that group no longer exists".into());
+        }
+        if !new.eq_ignore_ascii_case(&old) && store.session_group_exists(&new) {
+            return Err("a group with that name already exists".into());
+        }
+        store.rename_group(&old, new);
+        store.save().map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Delete a group; its sessions fall back to ungrouped.
+#[no_mangle]
+pub extern "C" fn xenterm_group_delete(name: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let name = unsafe { take_c(name) }.trim().to_string();
+        if is_reserved_group(&name) {
+            return Err("that group no longer exists".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        if !store.session_group_exists(&name) {
+            return Err("that group no longer exists".into());
+        }
+        store.remove_group(&name);
+        store.save().map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Remember a group's collapsed state (`collapsed` != 0 folds it).
+#[no_mangle]
+pub extern "C" fn xenterm_group_collapse(
+    name: *const c_char,
+    collapsed: u8,
+) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let name = unsafe { take_c(name) }.trim().to_string();
+        if is_reserved_group(&name) {
+            return Err("that group no longer exists".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        store.set_session_group_collapsed(&name, collapsed != 0);
+        store.save().map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Move one saved session into `group` (empty = ungrouped).
+#[no_mangle]
+pub extern "C" fn xenterm_session_move_group(
+    id: *const c_char,
+    group: *const c_char,
+) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        let id = unsafe { take_c(id) };
+        let group = unsafe { take_c(group) }.trim().to_string();
+        if id.is_empty() {
+            return Err("empty session id".into());
+        }
+        // An empty group means "ungrouped", which the UI offers explicitly.
+        if !group.is_empty() && is_reserved_group(&group) {
+            return Err("that group no longer exists".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        if !group.is_empty() && !store.session_group_exists(&group) {
+            return Err("that group no longer exists".into());
+        }
+        let Some(mut session) = store.sessions().iter().find(|s| s.id == id).cloned()
+        else {
+            return Err("session no longer exists".into());
+        };
+        session.group = group;
+        store
+            .upsert_and_save(session)
+            .map_err(|e| format!("save failed: {e}"))
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
 /// Starts a saved session and returns `{"ok":true,"handle":N}` or
 /// `{"ok":false,"error":"…"}`.
 #[no_mangle]
@@ -337,6 +521,43 @@ pub extern "C" fn xenterm_session_answer_prompt(
             1
         }
         None => 0,
+    }
+}
+
+/// Import hosts from OpenSSH config text (`{"text": "..."}`); an empty text
+/// imports `~/.ssh/config`. Returns `{"ok", "added", "skipped", "message"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_import_ssh_config(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let raw = unsafe { take_c(json) };
+        let text = serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let summary = if text.trim().is_empty() {
+            xenterm::frontend::import_ssh_config_default(&mut store)
+        } else {
+            xenterm::frontend::import_ssh_config_text(&mut store, &text)
+        }
+        .map_err(|error| format!("import failed: {error}"))?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "added": summary.added,
+            "skipped": summary.skipped,
+            "message": summary.message,
+        })
+        .to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
     }
 }
 
@@ -837,6 +1058,17 @@ pub extern "C" fn xenterm_sftp_list(handle: u64, path: *const c_char) -> i32 {
     match sftp(handle) {
         Some(session) => {
             session.list(unsafe { take_c(path) });
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_sftp_toggle_tree(handle: u64, path: *const c_char) -> i32 {
+    match sftp(handle) {
+        Some(session) => {
+            session.toggle_tree(unsafe { take_c(path) });
             1
         }
         None => 0,
