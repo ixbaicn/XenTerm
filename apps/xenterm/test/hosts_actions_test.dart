@@ -134,7 +134,7 @@ void main() {
     expect(find.text('Host Details'), findsOneWidget);
   });
 
-  testWidgets('the Serial action opens the serial modal and connects', (
+  testWidgets('the Serial action opens the serial drawer and connects', (
     tester,
   ) async {
     var hosts = <Host>[];
@@ -199,7 +199,7 @@ void main() {
 
     await tester.tap(find.text('Serial'));
     await tester.pumpAndSettle();
-    expect(find.text('Serial connection'), findsOne);
+    expect(find.text('Serial Connection'), findsOne);
     expect(
       tester
           .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))

@@ -2,23 +2,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
-import 'package:xenterm_app/screens/hosts/serial_connect_dialog.dart';
+import 'package:xenterm_app/screens/hosts/serial_details_panel.dart';
 import 'package:xenterm_app/theme/termius_field.dart';
 import 'package:xenterm_app/theme/termius_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
   theme: ThemeData(colorScheme: termiusDarkScheme()),
-  home: Scaffold(child: SizedBox(width: 1000, height: 900, child: child)),
+  home: Scaffold(child: SizedBox(width: 360, height: 900, child: child)),
 );
 
 void main() {
-  testWidgets('the serial dialog collects port, line settings and login', (
+  testWidgets('the serial panel collects port, line settings and login', (
     tester,
   ) async {
     SerialDraft? submitted;
     await tester.pumpWidget(
       _app(
-        SerialConnectDialog(
+        SerialDetailsPanel(
           loadPorts: () async => const [
             SerialPortInfo(name: 'COM3', kind: 'USB · FTDI'),
             SerialPortInfo(name: 'COM7', kind: 'Serial'),
@@ -91,7 +91,7 @@ void main() {
     SerialDraft? submitted;
     await tester.pumpWidget(
       _app(
-        SerialConnectDialog(
+        SerialDetailsPanel(
           host: const Host(
             id: 'serial-1',
             label: 'Switch console',
@@ -113,7 +113,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit serial connection'), findsOne);
+    expect(find.text('Serial Details'), findsOne);
     expect(find.text('9600'), findsOne);
     await tester.tap(find.byKey(const ValueKey('serial-advanced')));
     await tester.pumpAndSettle();
@@ -136,7 +136,7 @@ void main() {
     SerialDraft? submitted;
     await tester.pumpWidget(
       _app(
-        SerialConnectDialog(
+        SerialDetailsPanel(
           loadPorts: () async => const [
             SerialPortInfo(name: 'COM3', kind: 'USB'),
           ],

@@ -14,7 +14,7 @@ import '../../theme/termius_theme.dart';
 import '../../widgets/toolbar.dart';
 import 'host_card.dart';
 import 'host_details_panel.dart';
-import 'serial_connect_dialog.dart';
+import 'serial_details_panel.dart';
 
 enum HostsLayout { cards, rows }
 
@@ -116,7 +116,7 @@ class _HostsScreenState extends State<HostsScreen> {
   String? _deletingGroup;
 
   /// Serial modal: null host creates, non-null edits that session.
-  bool _serialOpen = false;
+  bool _serialPanelOpen = false;
   Host? _serialHost;
   String? _serialError;
 
@@ -330,7 +330,9 @@ class _HostsScreenState extends State<HostsScreen> {
     setState(() {
       _serialHost = null;
       _serialError = null;
-      _serialOpen = true;
+      _drawerHost = null;
+      _serialPanelOpen = true;
+      _drawerOpen = true;
     });
   }
 
@@ -390,7 +392,10 @@ class _HostsScreenState extends State<HostsScreen> {
       setState(() => _serialError = 'Could not save the serial connection');
       return;
     }
-    setState(() => _serialOpen = false);
+    setState(() {
+      _serialPanelOpen = false;
+      _drawerOpen = false;
+    });
     _connect(target);
   }
 
@@ -434,6 +439,11 @@ class _HostsScreenState extends State<HostsScreen> {
 
   /// Collapse the slider; the panel content stays mounted for the next open.
   void _closeDrawer() => setState(() => _drawerOpen = false);
+
+  void _closeSerialPanel() => setState(() {
+    _serialPanelOpen = false;
+    _drawerOpen = false;
+  });
 
   // ── Groups (folders) ───────────────────────────────────────────────────
 
@@ -575,11 +585,14 @@ class _HostsScreenState extends State<HostsScreen> {
       setState(() {
         _serialHost = host;
         _serialError = null;
-        _serialOpen = true;
+        _drawerHost = null;
+        _serialPanelOpen = true;
+        _drawerOpen = true;
       });
       return;
     }
     setState(() {
+      _serialPanelOpen = false;
       _drawerHost = host;
       _drawerOpen = true;
     });
@@ -750,7 +763,15 @@ class _HostsScreenState extends State<HostsScreen> {
         // the whole content height; the hosts column reflows beside it.
         _DrawerSlider(
           open: _drawerOpen,
-          child: _drawerHost == null
+          child: _serialPanelOpen
+              ? SerialDetailsPanel(
+                  host: _serialHost,
+                  loadPorts: widget.loadSerialPorts,
+                  error: _serialError,
+                  onSubmit: _submitSerial,
+                  onClose: _closeSerialPanel,
+                )
+              : _drawerHost == null
               ? const SizedBox.shrink()
               : HostDetailsPanel(
                   host: _drawerHost!,
@@ -766,22 +787,7 @@ class _HostsScreenState extends State<HostsScreen> {
         ),
       ],
     );
-
-    return Stack(
-      children: [
-        Positioned.fill(child: content),
-        if (_serialOpen)
-          Positioned.fill(
-            child: SerialConnectDialog(
-              host: _serialHost,
-              loadPorts: widget.loadSerialPorts,
-              error: _serialError,
-              onSubmit: _submitSerial,
-              onClose: () => setState(() => _serialOpen = false),
-            ),
-          ),
-      ],
-    );
+    return content;
   }
 
   Widget _groupEditorBar(ThemeData theme) {

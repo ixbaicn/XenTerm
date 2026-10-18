@@ -1,7 +1,7 @@
-/// The serial connection dialog: pick a detected port (or type one), set the
-/// line parameters, and optionally store the console login some serial
-/// servers ask for. Mirrors Termius's modal Serial form rather than reusing the
-/// SSH host drawer, whose fields have no baud/parity/flow controls.
+/// Serial connection details in the right-hand host drawer: pick a detected
+/// port (or type one), set the line parameters, and optionally store the
+/// console login some serial servers ask for. This is the same drawer the SSH
+/// host editor uses — no modal — matching the original Termius flow.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -11,7 +11,7 @@ import '../../data/hosts.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
 
-/// The values the dialog hands back; the screen owns persistence.
+/// The values the panel hands back; the screen owns persistence.
 class SerialDraft {
   final String label;
   final String port;
@@ -40,18 +40,18 @@ class SerialDraft {
 
 typedef SerialPortLoader = Future<List<SerialPortInfo>> Function();
 
-class SerialConnectDialog extends StatefulWidget {
+class SerialDetailsPanel extends StatefulWidget {
   /// Existing serial host when editing; null creates a new session.
   final Host? host;
   final SerialPortLoader? loadPorts;
   final ValueChanged<SerialDraft> onSubmit;
   final VoidCallback onClose;
 
-  /// Persistence error from the screen; shown inside the modal so the typed
+  /// Persistence error from the screen; shown in the panel so the typed
   /// values are not lost when a save fails.
   final String? error;
 
-  const SerialConnectDialog({
+  const SerialDetailsPanel({
     super.key,
     this.host,
     this.loadPorts,
@@ -61,10 +61,10 @@ class SerialConnectDialog extends StatefulWidget {
   });
 
   @override
-  State<SerialConnectDialog> createState() => _SerialConnectDialogState();
+  State<SerialDetailsPanel> createState() => _SerialDetailsPanelState();
 }
 
-class _SerialConnectDialogState extends State<SerialConnectDialog> {
+class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
   static const _baudRates = [
     1200,
     2400,
@@ -164,338 +164,268 @@ class _SerialConnectDialogState extends State<SerialConnectDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final editing = widget.host != null;
-    return GestureDetector(
-      key: const ValueKey('serial-barrier'),
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onClose,
-      child: ColoredBox(
-        color: const Color(0xB3000000),
-        child: Center(
-          child: GestureDetector(
-            onTap: () {},
-            child: Container(
-              width: 540,
-              constraints: const BoxConstraints(maxHeight: 720),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1D2033),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF3E4257)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66000000),
-                    blurRadius: 30,
-                    offset: Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 14, 10, 12),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          LucideIcons.usb,
-                          size: 18,
-                          color: Color(0xFFC7CBD6),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          editing
-                              ? 'Edit serial connection'
-                              : 'Serial connection',
-                          style: theme.typography.semiBold.copyWith(
-                            fontSize: 16,
-                            color: theme.colorScheme.foreground,
-                          ),
-                        ),
-                        const Spacer(),
-                        GestureDetector(
-                          key: const ValueKey('serial-cancel'),
-                          onTap: widget.onClose,
-                          child: Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: Icon(
-                              LucideIcons.x,
-                              size: 16,
-                              color: theme.colorScheme.mutedForeground,
-                            ),
-                          ),
-                        ),
-                      ],
+    return Container(
+      color: const Color(0xFF1D2033),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 56,
+            padding: const EdgeInsets.only(left: 15, right: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFF282B3D),
+              border: Border(bottom: BorderSide(color: Color(0xFF32364A))),
+            ),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.usb, size: 16, color: Color(0xFF8D91A5)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    editing ? 'Serial Details' : 'Serial Connection',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.semiBold.copyWith(
+                      fontSize: 16,
+                      color: const Color(0xFF8D91A5),
                     ),
                   ),
-                  const Divider(height: 1, color: Color(0xFF3E4257)),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _labelText('NAME', theme),
-                          const SizedBox(height: 6),
-                          TermiusField(
-                            key: const ValueKey('serial-label'),
-                            controller: _label,
-                            placeholder: 'Serial',
-                          ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(child: _labelText('PORT', theme)),
-                              GestureDetector(
-                                key: const ValueKey('serial-refresh'),
-                                onTap: _refreshPorts,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      LucideIcons.refreshCw,
-                                      size: 13,
+                ),
+                GestureDetector(
+                  key: const ValueKey('serial-cancel'),
+                  onTap: widget.onClose,
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(
+                      LucideIcons.arrowRightToLine,
+                      size: 16,
+                      color: Color(0xFF8D91A5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(15, 15, 15, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(15, 15, 15, 18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF282B3D),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _labelText('NAME', theme),
+                        const SizedBox(height: 6),
+                        TermiusField(
+                          key: const ValueKey('serial-label'),
+                          controller: _label,
+                          placeholder: 'Serial',
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(child: _labelText('PORT', theme)),
+                            GestureDetector(
+                              key: const ValueKey('serial-refresh'),
+                              onTap: _refreshPorts,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    LucideIcons.refreshCw,
+                                    size: 12,
+                                    color: theme.colorScheme.mutedForeground,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _loadingPorts ? 'Scanning…' : 'Refresh',
+                                    style: TextStyle(
+                                      fontSize: 11,
                                       color: theme.colorScheme.mutedForeground,
                                     ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      _loadingPorts ? 'Scanning…' : 'Refresh',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color:
-                                            theme.colorScheme.mutedForeground,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        // Dropdown + free input: picking a detected port fills
+                        // the field, but any device path can still be typed.
+                        _PortComboField(
+                          controller: _port,
+                          ports: _ports,
+                          loading: _loadingPorts,
+                          onRefresh: _refreshPorts,
+                        ),
+                        const SizedBox(height: 14),
+                        _labelText('BAUD RATE', theme),
+                        const SizedBox(height: 6),
+                        _ChoiceField<int>(
+                          key: const ValueKey('serial-baud'),
+                          value: _baud,
+                          options: {
+                            for (final rate in _baudRates) rate: '$rate',
+                          },
+                          onChanged: (value) => setState(() => _baud = value),
+                        ),
+                        const SizedBox(height: 14),
+                        GestureDetector(
+                          key: const ValueKey('serial-advanced'),
+                          onTap: () => setState(() => _advanced = !_advanced),
+                          behavior: HitTestBehavior.opaque,
+                          child: Row(
+                            children: [
+                              AnimatedRotation(
+                                turns: _advanced ? 0.25 : 0,
+                                duration: TermiusMotion.micro,
+                                child: Icon(
+                                  LucideIcons.chevronRight,
+                                  size: 15,
+                                  color: theme.colorScheme.mutedForeground,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Advanced',
+                                style: theme.typography.medium.copyWith(
+                                  fontSize: 13,
+                                  color: theme.colorScheme.foreground,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '$_dataBits${_parityLetter(_parity)}$_stopBits',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.mutedForeground,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 6),
-                          // Dropdown + free input: picking a detected port
-                          // fills the field, but any device path can still be
-                          // typed (network serial servers, unusual drivers).
-                          _PortComboField(
-                            controller: _port,
-                            ports: _ports,
-                            loading: _loadingPorts,
-                            onRefresh: _refreshPorts,
-                          ),
+                        ),
+                        if (_advanced) ...[
                           const SizedBox(height: 14),
-                          _labelText('BAUD RATE', theme),
+                          _labelText('DATA BITS', theme),
                           const SizedBox(height: 6),
                           _ChoiceField<int>(
-                            key: const ValueKey('serial-baud'),
-                            value: _baud,
-                            options: {
-                              for (final rate in _baudRates) rate: '$rate',
+                            key: const ValueKey('serial-data-bits'),
+                            value: _dataBits,
+                            options: const {5: '5', 6: '6', 7: '7', 8: '8'},
+                            onChanged: (value) =>
+                                setState(() => _dataBits = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _labelText('STOP BITS', theme),
+                          const SizedBox(height: 6),
+                          _ChoiceField<int>(
+                            key: const ValueKey('serial-stop-bits'),
+                            value: _stopBits,
+                            options: const {1: '1', 2: '2'},
+                            onChanged: (value) =>
+                                setState(() => _stopBits = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _labelText('PARITY', theme),
+                          const SizedBox(height: 6),
+                          _ChoiceField<String>(
+                            key: const ValueKey('serial-parity'),
+                            value: _parity,
+                            options: const {
+                              'none': 'None',
+                              'even': 'Even',
+                              'odd': 'Odd',
                             },
-                            onChanged: (value) => setState(() => _baud = value),
+                            onChanged: (value) =>
+                                setState(() => _parity = value),
                           ),
                           const SizedBox(height: 12),
-                          GestureDetector(
-                            key: const ValueKey('serial-advanced'),
-                            onTap: () => setState(() => _advanced = !_advanced),
-                            behavior: HitTestBehavior.opaque,
-                            child: Row(
-                              children: [
-                                AnimatedRotation(
-                                  turns: _advanced ? 0.25 : 0,
-                                  duration: TermiusMotion.micro,
-                                  child: Icon(
-                                    LucideIcons.chevronRight,
-                                    size: 15,
-                                    color: theme.colorScheme.mutedForeground,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Advanced',
-                                  style: theme.typography.medium.copyWith(
-                                    fontSize: 13,
-                                    color: theme.colorScheme.foreground,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '$_dataBits${_parityLetter(_parity)}$_stopBits · '
-                                  '${_flowLabel(_flow)}',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.colorScheme.mutedForeground,
-                                  ),
-                                ),
-                              ],
+                          _labelText('FLOW CONTROL', theme),
+                          const SizedBox(height: 6),
+                          _ChoiceField<String>(
+                            key: const ValueKey('serial-flow'),
+                            value: _flow,
+                            options: const {
+                              'none': 'None',
+                              'hardware': 'RTS/CTS',
+                              'software': 'XON/XOFF',
+                            },
+                            onChanged: (value) => setState(() => _flow = value),
+                          ),
+                          const SizedBox(height: 18),
+                          _labelText('CONSOLE LOGIN (OPTIONAL)', theme),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Some serial servers ask for a login before the '
+                            'shell. When set, the app answers those prompts.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.colorScheme.mutedForeground,
                             ),
                           ),
-                          if (_advanced) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      _labelText('DATA BITS', theme),
-                                      const SizedBox(height: 6),
-                                      _ChoiceField<int>(
-                                        key: const ValueKey('serial-data-bits'),
-                                        value: _dataBits,
-                                        options: const {
-                                          5: '5',
-                                          6: '6',
-                                          7: '7',
-                                          8: '8',
-                                        },
-                                        onChanged: (value) =>
-                                            setState(() => _dataBits = value),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      _labelText('STOP BITS', theme),
-                                      const SizedBox(height: 6),
-                                      _ChoiceField<int>(
-                                        key: const ValueKey('serial-stop-bits'),
-                                        value: _stopBits,
-                                        options: const {1: '1', 2: '2'},
-                                        onChanged: (value) =>
-                                            setState(() => _stopBits = value),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(height: 8),
+                          TermiusField(
+                            key: const ValueKey('serial-user'),
+                            controller: _user,
+                            placeholder: 'Username',
+                            leading: const Icon(
+                              LucideIcons.user,
+                              size: 14,
+                              color: Color(0xFF8D91A5),
                             ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      _labelText('PARITY', theme),
-                                      const SizedBox(height: 6),
-                                      _ChoiceField<String>(
-                                        key: const ValueKey('serial-parity'),
-                                        value: _parity,
-                                        options: const {
-                                          'none': 'None',
-                                          'even': 'Even',
-                                          'odd': 'Odd',
-                                        },
-                                        onChanged: (value) =>
-                                            setState(() => _parity = value),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      _labelText('FLOW CONTROL', theme),
-                                      const SizedBox(height: 6),
-                                      _ChoiceField<String>(
-                                        key: const ValueKey('serial-flow'),
-                                        value: _flow,
-                                        options: const {
-                                          'none': 'None',
-                                          'hardware': 'RTS/CTS',
-                                          'software': 'XON/XOFF',
-                                        },
-                                        onChanged: (value) =>
-                                            setState(() => _flow = value),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                          ),
+                          const SizedBox(height: 8),
+                          TermiusField(
+                            key: const ValueKey('serial-password'),
+                            controller: _password,
+                            obscure: true,
+                            placeholder: widget.host?.hasPassword == true
+                                ? 'Password stored — leave blank to keep'
+                                : 'Password (optional)',
+                            leading: const Icon(
+                              LucideIcons.keyRound,
+                              size: 14,
+                              color: Color(0xFF8D91A5),
                             ),
-                            const SizedBox(height: 18),
-                            _labelText('CONSOLE LOGIN (OPTIONAL)', theme),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Some serial servers ask for a login before the '
-                              'shell. When set, the app answers those prompts.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.mutedForeground,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TermiusField(
-                              key: const ValueKey('serial-user'),
-                              controller: _user,
-                              placeholder: 'Username',
-                              leading: const Icon(
-                                LucideIcons.user,
-                                size: 14,
-                                color: Color(0xFF8D91A5),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TermiusField(
-                              key: const ValueKey('serial-password'),
-                              controller: _password,
-                              obscure: true,
-                              placeholder: widget.host?.hasPassword == true
-                                  ? 'Password stored — leave blank to keep'
-                                  : 'Password (optional)',
-                              leading: const Icon(
-                                LucideIcons.keyRound,
-                                size: 14,
-                                color: Color(0xFF8D91A5),
-                              ),
-                            ),
-                          ],
-                          if (_error != null || widget.error != null) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              _error ?? widget.error!,
-                              style: theme.typography.normal.copyWith(
-                                fontSize: 12,
-                                color: theme.colorScheme.destructive,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
+                          ),
                         ],
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        GhostButton(
-                          onPressed: widget.onClose,
-                          child: const Text('Cancel'),
-                        ),
-                        const SizedBox(width: 10),
-                        Button(
-                          key: const ValueKey('serial-connect'),
-                          style: const ButtonStyle.primary(),
-                          onPressed: _submit,
-                          child: Text(editing ? 'Save & connect' : 'Connect'),
-                        ),
                       ],
                     ),
                   ),
+                  if (_error != null || widget.error != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _error ?? widget.error!,
+                      style: theme.typography.normal.copyWith(
+                        fontSize: 12,
+                        color: theme.colorScheme.destructive,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 10, 15, 15),
+            child: SizedBox(
+              width: double.infinity,
+              height: 36,
+              child: Button(
+                key: const ValueKey('serial-connect'),
+                style: const ButtonStyle.primary(),
+                onPressed: _submit,
+                child: Text(editing ? 'Save & connect' : 'Connect'),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -518,11 +448,6 @@ class _SerialConnectDialogState extends State<SerialConnectDialog> {
     _ => 'N',
   };
 
-  static String _flowLabel(String flow) => switch (flow) {
-    'hardware' => 'RTS/CTS',
-    'software' => 'XON/XOFF',
-    _ => 'No flow',
-  };
 }
 
 /// Editable port field with a dropdown of detected devices.
