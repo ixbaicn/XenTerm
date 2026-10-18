@@ -52,7 +52,29 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   NavDestination _active = NavDestination.hosts;
-  Host? _terminalHost;
+  final List<Host> _openHosts = <Host>[];
+  String? _activeHostId;
+
+  Host? get _activeHost {
+    for (final host in _openHosts) {
+      if (host.id == _activeHostId) return host;
+    }
+    return null;
+  }
+
+  void _openHost(Host host) {
+    setState(() {
+      if (!_openHosts.any((h) => h.id == host.id)) _openHosts.add(host);
+      _activeHostId = host.id;
+    });
+  }
+
+  void _closeHost(String id) {
+    setState(() {
+      _openHosts.removeWhere((h) => h.id == id);
+      if (_activeHostId == id) _activeHostId = null;
+    });
+  }
 
   static const double _navRailWidth = 182;
 
@@ -73,25 +95,38 @@ class _RootShellState extends State<RootShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const TitleBar(),
+          TitleBar(
+            openHosts: _openHosts,
+            activeHostId: _activeHostId,
+            onSelectHost: (id) => setState(() => _activeHostId = id),
+            onCloseHost: _closeHost,
+            onNewTab: () => setState(() => _activeHostId = null),
+          ),
           Expanded(
-            child: _terminalHost != null
-                ? TerminalScreen(
-                    host: _terminalHost!,
-                    onClose: () => setState(() => _terminalHost = null),
-                    fonts: widget.fonts,
-                  )
-                : Row(
-                    children: [
-                      _NavRail(
-                        width: _navRailWidth,
-                        active: _active,
-                        destinations: _destinations,
-                        onSelect: (d) => setState(() => _active = d),
-                      ),
-                      Expanded(child: _screenFor(_active)),
-                    ],
-                  ),
+            child: Row(
+              children: [
+                _NavRail(
+                  width: _navRailWidth,
+                  active: _active,
+                  destinations: _destinations,
+                  onSelect: (d) => setState(() {
+                    _active = d;
+                    // Choosing a screen in the rail parks the session tabs;
+                    // clicking a tab in the title bar brings them back.
+                    _activeHostId = null;
+                  }),
+                ),
+                Expanded(
+                  child: _activeHost != null
+                      ? TerminalScreen(
+                          host: _activeHost!,
+                          onClose: () => _closeHost(_activeHost!.id),
+                          fonts: widget.fonts,
+                        )
+                      : _screenFor(_active),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -101,7 +136,7 @@ class _RootShellState extends State<RootShell> {
   Widget _screenFor(NavDestination destination) {
     return switch (destination) {
       NavDestination.hosts => HostsScreen(
-        onConnect: (host) => setState(() => _terminalHost = host),
+        onConnect: _openHost,
         loadHosts: widget.hostsLoader,
       ),
       NavDestination.keys => const KeychainScreen(),

@@ -13,10 +13,26 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../data/hosts.dart';
 import '../theme/termius_theme.dart';
 
 class TitleBar extends StatelessWidget {
-  const TitleBar({super.key});
+  /// Open terminal sessions, rendered as tabs in the ONE title bar — the
+  /// original never stacks a second tab strip inside the terminal.
+  final List<Host> openHosts;
+  final String? activeHostId;
+  final ValueChanged<String>? onSelectHost;
+  final ValueChanged<String>? onCloseHost;
+  final VoidCallback? onNewTab;
+
+  const TitleBar({
+    super.key,
+    this.openHosts = const [],
+    this.activeHostId,
+    this.onSelectHost,
+    this.onCloseHost,
+    this.onNewTab,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -55,16 +71,19 @@ class TitleBar extends StatelessWidget {
                   child: Icon(LucideIcons.list,
                       size: 14, color: Color(0xFF8D91A5)),
                 ),
-                const SizedBox(width: 5),
-                const _TitlePill(
-                  icon: Icon(LucideIcons.folderOpen,
-                      size: 15, color: Color(0xFF8D91A5)),
-                  label: 'SFTP',
-                ),
+                for (final host in openHosts) ...[
+                  const SizedBox(width: 5),
+                  _SessionTab(
+                    host: host,
+                    active: host.id == activeHostId,
+                    onSelect: () => onSelectHost?.call(host.id),
+                    onClose: () => onCloseHost?.call(host.id),
+                  ),
+                ],
                 const SizedBox(width: 5),
                 _PillButton(
                   icon: LucideIcons.plus,
-                  onPressed: () {},
+                  onPressed: onNewTab ?? () {},
                 ),
                 const Spacer(),
                 const Padding(
@@ -83,55 +102,81 @@ class TitleBar extends StatelessWidget {
   }
 }
 
-/// One titlebar tab pill: icon + label, gap 8, height 30, radius 10. The
-/// active tab (Vaults) is a filled --dark-grey-4 chip; the inactive one is
-/// transparent until hover.
-class _TitlePill extends StatefulWidget {
-  final Widget icon;
-  final String label;
+/// One open session tab, styled from the original's terminal-tab state:
+/// 30px tall, radius 10, 5/8 padding, 14px icon; the active tab uses the
+/// terminal accent (green) on --dark-grey-3, inactive tabs stay quiet.
+class _SessionTab extends StatefulWidget {
+  final Host host;
+  final bool active;
+  final VoidCallback onSelect;
+  final VoidCallback onClose;
 
-  const _TitlePill({
-    required this.icon,
-    required this.label,
+  const _SessionTab({
+    required this.host,
+    required this.active,
+    required this.onSelect,
+    required this.onClose,
   });
 
   @override
-  State<_TitlePill> createState() => _TitlePillState();
+  State<_SessionTab> createState() => _SessionTabState();
 }
 
-class _TitlePillState extends State<_TitlePill> {
+class _SessionTabState extends State<_SessionTab> {
+  static const _accent = Color(0xFF21B568);
+  static const _activeFill = Color(0xFF153A37);
+
   bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fg = _hovering
-        ? theme.colorScheme.foreground
-        : theme.colorScheme.mutedForeground;
+    final fg = widget.active
+        ? _accent
+        : (_hovering ? theme.colorScheme.foreground : _muted);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
+        key: ValueKey('tab-${widget.host.id}'),
         behavior: HitTestBehavior.opaque,
-        onTap: () {},
+        onTap: widget.onSelect,
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
           height: 30,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          constraints: const BoxConstraints(maxWidth: 190),
+          padding: const EdgeInsets.only(left: 5, right: 6),
           decoration: BoxDecoration(
-            color: _hovering ? const Color(0xFF2C2F3F) : Colors.transparent,
+            color: widget.active
+                ? _activeFill
+                : (_hovering ? const Color(0xFF2C2F3F) : Colors.transparent),
             borderRadius: BorderRadius.circular(TermiusRadius.field),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              widget.icon,
-              const SizedBox(width: 8),
-              Text(widget.label,
+              Icon(LucideIcons.terminal, size: 14, color: fg),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  widget.host.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.typography.normal
-                      .copyWith(fontSize: 14, color: fg)),
+                      .copyWith(fontSize: 13, color: fg),
+                ),
+              ),
+              if (widget.active) ...[
+                const SizedBox(width: 6),
+                GestureDetector(
+                  key: ValueKey('tab-close-${widget.host.id}'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onClose,
+                  child: Icon(LucideIcons.x, size: 12, color: fg),
+                ),
+              ],
             ],
           ),
         ),
@@ -139,6 +184,8 @@ class _TitlePillState extends State<_TitlePill> {
     );
   }
 }
+
+const _muted = Color(0xFF8D91A5);
 
 /// A square icon-only pill (the new-tab +).
 class _PillButton extends StatefulWidget {

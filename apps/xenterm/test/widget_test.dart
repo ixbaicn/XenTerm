@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart' as material;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xenterm_app/data/hosts.dart';
@@ -24,7 +23,6 @@ void main() {
     await tester.tap(find.text('gateway-test02'));
     await tester.pumpAndSettle();
     expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-    expect(find.text('Vault'), findsOneWidget);
     final keysList = find.byType(ListView).last;
     await tester.scrollUntilVisible(
       find.text('^P'),
@@ -38,7 +36,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('terminal-snippets-tab')));
     await tester.pumpAndSettle();
     expect(find.text('apt update'), findsWidgets);
-    await tester.tap(find.byIcon(material.Icons.close).first);
+    // The session tab lives in the title bar; its × closes the terminal.
+    await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
     await tester.pumpAndSettle();
     expect(find.text('New host'), findsWidgets);
   });
@@ -56,7 +55,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('open-sftp')));
+      await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       expect(find.text('SFTP · gateway-test02'), findsOneWidget);
@@ -67,7 +66,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.byKey(const ValueKey('open-sftp')));
+      await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('terminal-tab')));
@@ -77,16 +76,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
 
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('sftp-tab')),
-          matching: find.byIcon(material.Icons.close),
-        ),
-      );
+      await tester.tap(find.byKey(const ValueKey('terminal-tab')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('sftp-tab')), findsNothing);
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-      await tester.tap(find.byIcon(material.Icons.close).first);
+      // The session tab's × in the title bar ends the whole workspace.
+      await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
       await tester.pumpAndSettle();
       expect(find.text('New host'), findsWidgets);
     },

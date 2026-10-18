@@ -28,7 +28,6 @@ class TerminalScreen extends StatefulWidget {
 
 class _TerminalScreenState extends State<TerminalScreen> {
   bool _showTools = true;
-  bool _showSftp = false;
   bool _sftpActive = false;
 
   @override
@@ -38,85 +37,30 @@ class _TerminalScreenState extends State<TerminalScreen> {
       color: scheme.background,
       child: Column(
         children: [
+          // In-pane controls only: Terminal/SFTP view switch + tools panel.
+          // Session tabs live in the title bar (the original's single strip).
           Container(
-            height: 56,
+            height: 40,
             padding: const EdgeInsets.symmetric(horizontal: 18),
-            color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
             child: Row(
               children: [
-                _tab(context, LucideIcons.cloud, 'Vault', false, null),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: _tab(
-                    context,
-                    LucideIcons.terminal,
-                    widget.host.label,
-                    !_sftpActive,
-                    widget.onClose,
-                    onSelect: () => setState(() => _sftpActive = false),
-                    tabKey: const ValueKey('terminal-tab'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                if (_showSftp) ...[
-                  Flexible(
-                    child: _tab(
-                      context,
-                      material.Icons.folder_open,
-                      widget.host.label,
-                      _sftpActive,
-                      () => setState(() {
-                        _showSftp = false;
-                        _sftpActive = false;
-                      }),
-                      onSelect: () => setState(() => _sftpActive = true),
-                      tabKey: const ValueKey('sftp-tab'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Icon(
-                  LucideIcons.plus,
-                  size: 20,
-                  color: scheme.mutedForeground,
-                ),
                 const Spacer(),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    key: const ValueKey('open-sftp'),
-                    onTap: () => setState(() {
-                      _showSftp = true;
-                      _sftpActive = true;
-                    }),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.card,
-                        borderRadius: BorderRadius.circular(TermiusRadius.card),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            material.Icons.folder_open,
-                            size: 16,
-                            color: scheme.mutedForeground,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'SFTP',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.mutedForeground,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                _viewChip(
+                  context,
+                  material.Icons.terminal,
+                  'Terminal',
+                  !_sftpActive,
+                  const ValueKey('terminal-tab'),
+                  () => setState(() => _sftpActive = false),
+                ),
+                const SizedBox(width: 6),
+                _viewChip(
+                  context,
+                  material.Icons.folder_open,
+                  'SFTP',
+                  _sftpActive,
+                  const ValueKey('sftp-tab'),
+                  () => setState(() => _sftpActive = true),
                 ),
                 const SizedBox(width: 8),
                 _toolIcon(
@@ -135,7 +79,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 return Row(
                   children: [
                     Expanded(
-                      child: _sftpActive && _showSftp
+                      child: _sftpActive
                           ? SftpPreview(host: widget.host)
                           : Container(
                               color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
@@ -190,60 +134,39 @@ class _TerminalScreenState extends State<TerminalScreen> {
     );
   }
 
-  Widget _tab(
+  Widget _viewChip(
     BuildContext context,
     IconData icon,
     String label,
-    bool active,
-    VoidCallback? onClose, {
-    VoidCallback? onSelect,
-    Key? tabKey,
-  }) {
+    bool selected,
+    Key key,
+    VoidCallback onTap,
+  ) {
     final scheme = Theme.of(context).colorScheme;
-    final tab = Container(
-      constraints: BoxConstraints(maxWidth: active ? 340 : 130),
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFF153A37) : scheme.card,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: active ? const Color(0xFF21B568) : scheme.mutedForeground,
-          ),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 14,
-                color: active
-                    ? const Color(0xFF21B568)
-                    : scheme.mutedForeground,
-              ),
-            ),
-          ),
-          if (onClose != null) ...[
-            const SizedBox(width: 10),
-            _toolIcon(context, material.Icons.close, false, onClose),
-          ],
-        ],
-      ),
-    );
-    if (onSelect == null) return tab;
+    final fg = selected ? scheme.foreground : scheme.mutedForeground;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        key: tabKey,
+        key: key,
         behavior: HitTestBehavior.opaque,
-        onTap: onSelect,
-        child: tab,
+        onTap: onTap,
+        child: Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: selected ? const Color(0xFF3E4257) : Colors.transparent,
+            borderRadius: BorderRadius.circular(TermiusRadius.card),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: fg),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(fontSize: 12, color: fg)),
+            ],
+          ),
+        ),
       ),
     );
   }
