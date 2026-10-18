@@ -275,10 +275,17 @@ class _NavRail extends StatelessWidget {
           for (final (destination, title, icon) in destinations)
             _RailItem(
               icon: icon,
-              glyphBuilder: destination == NavDestination.knownHosts
-                  ? (size, color) =>
-                        FingerprintPatternIcon(size: size, color: color)
-                  : null,
+              glyphBuilder: switch (destination) {
+                NavDestination.knownHosts => (
+                  size,
+                  color,
+                ) => FingerprintPatternIcon(size: size, color: color),
+                NavDestination.logs => (size, color) => ClipboardClockIcon(
+                  size: size,
+                  color: color,
+                ),
+                _ => null,
+              },
               label: title,
               selected: destination == active,
               onTap: () => onSelect(destination),

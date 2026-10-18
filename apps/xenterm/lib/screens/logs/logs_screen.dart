@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../widgets/lucide_extra_icons.dart';
 import '../../widgets/toolbar.dart';
 
 typedef LogLoader = Future<List<SessionLogEntry>> Function();
@@ -224,8 +225,7 @@ class _LogsScreenState extends State<LogsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              LucideIcons.scrollText,
+            ClipboardClockIcon(
               size: 30,
               color: theme.colorScheme.mutedForeground,
             ),
