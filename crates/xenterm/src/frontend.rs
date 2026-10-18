@@ -411,6 +411,30 @@ impl TerminalSession {
     }
 }
 
+/// One remembered SSH host key, projected for the frontend.
+pub struct KnownHostInfo {
+    pub id: String,
+    pub key_type: String,
+    pub fingerprint: String,
+}
+
+/// Every stored host key (TOFU `known_hosts`).
+pub fn known_hosts() -> Vec<KnownHostInfo> {
+    crate::ssh::known_hosts::entries()
+        .into_iter()
+        .map(|entry| KnownHostInfo {
+            id: entry.id,
+            key_type: entry.key_type,
+            fingerprint: entry.fingerprint,
+        })
+        .collect()
+}
+
+/// Forgets one `host:port` entry. Returns whether anything was removed.
+pub fn forget_known_host(id: &str) -> Result<bool, String> {
+    crate::ssh::known_hosts::forget(id).map_err(|error| error.to_string())
+}
+
 /// Convenience for a frontend that keeps a registry of sessions.
 pub type SessionRegistry = HashMap<u64, Arc<TerminalSession>>;
 

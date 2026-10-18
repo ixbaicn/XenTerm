@@ -136,6 +136,12 @@ class NativeBridge {
   late final _StrFn _quickUpsert = _lib.lookupFunction<_StrFnC, _StrFn>(
     'xenterm_quick_command_upsert',
   );
+  late final _PtrFn _knownHosts = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_known_hosts_json',
+  );
+  late final _StrFn _knownHostDelete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_known_host_delete',
+  );
   late final _IndexDelete _quickDelete = _lib
       .lookupFunction<_IndexDeleteC, _IndexDelete>(
         'xenterm_quick_command_delete',
@@ -219,6 +225,17 @@ class NativeBridge {
       _resize(handle, cols, rows) == 1;
 
   bool closeSession(int handle) => _close(handle) == 1;
+
+  // ── Known hosts ───────────────────────────────────────────────────────
+
+  String? knownHostsJson() {
+    final pointer = _knownHosts();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> deleteKnownHost(String id) =>
+      jsonDecode(_callWith(_knownHostDelete, id)) as Map<String, dynamic>;
 
   // ── Snippets (quick commands) ──────────────────────────────────────────
 
@@ -374,6 +391,73 @@ Future<CoreWriteResult> deleteQuickCommandFromCore(int index) {
       );
     }
     return const CoreWriteResult(ok: true);
+  });
+}
+
+/// One remembered SSH host key (`known_hosts`, TOFU).
+class KnownHost {
+  final String id;
+  final String keyType;
+  final String fingerprint;
+
+  const KnownHost({
+    required this.id,
+    required this.keyType,
+    required this.fingerprint,
+  });
+
+  factory KnownHost.fromCoreJson(Map<String, dynamic> json) => KnownHost(
+    id: (json['id'] as String?) ?? '',
+    keyType: (json['key_type'] as String?) ?? '',
+    fingerprint: (json['fingerprint'] as String?) ?? '',
+  );
+
+  String get host {
+    final at = id.lastIndexOf(':');
+    return at > 0 ? id.substring(0, at) : id;
+  }
+
+  String get port =>
+      id.lastIndexOf(':') > 0 ? id.substring(id.lastIndexOf(':') + 1) : '';
+}
+
+/// Reads the remembered host keys from the core off the UI thread.
+Future<List<KnownHost>> loadKnownHostsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.knownHostsJson();
+    if (raw == null) {
+      throw const NativeBridgeError('The core could not load known hosts');
+    }
+    return (jsonDecode(raw) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(KnownHost.fromCoreJson)
+        .toList();
+  });
+}
+
+/// Forgets one `host:port` entry in the core's TOFU store.
+Future<CoreWriteResult> deleteKnownHostFromCore(String id) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteKnownHost(id);
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not remove the host key',
+      );
+    }
+    return CoreWriteResult(ok: true, id: id);
   });
 }
 

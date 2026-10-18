@@ -447,6 +447,35 @@ pub extern "C" fn xenterm_quick_command_delete(index: i64) -> *mut c_char {
     }
 }
 
+/// Remembered SSH host keys (TOFU store) as a JSON array.
+#[no_mangle]
+pub extern "C" fn xenterm_known_hosts_json() -> *mut c_char {
+    let rows: Vec<serde_json::Value> = xenterm::frontend::known_hosts()
+        .into_iter()
+        .map(|entry| {
+            serde_json::json!({
+                "id": entry.id,
+                "key_type": entry.key_type,
+                "fingerprint": entry.fingerprint,
+            })
+        })
+        .collect();
+    match serde_json::to_string(&rows) {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Forgets one known-host entry by its `host:port` id.
+#[no_mangle]
+pub extern "C" fn xenterm_known_host_delete(id: *const c_char) -> *mut c_char {
+    let id = unsafe { take_c(id) };
+    match xenterm::frontend::forget_known_host(&id) {
+        Ok(removed) => to_c(serde_json::json!({"ok": true, "removed": removed}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
 /// Release a string this bridge returned.
 #[no_mangle]
 pub extern "C" fn xenterm_string_free(ptr: *mut c_char) {
