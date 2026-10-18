@@ -8,9 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   testWidgets('the shell mounts with the hosts screen showing', (tester) async {
     await tester.pumpWidget(const XenTermApp());
-    expect(find.text('主机'), findsWidgets);
+    expect(find.text('Hosts'), findsWidgets);
     // The toolbar's button and the grid's tail card both say it.
-    expect(find.text('新建主机'), findsWidgets);
+    expect(find.text('New Host'), findsWidgets);
   });
 
   testWidgets('a host opens the terminal preview and can be closed', (
@@ -40,7 +40,7 @@ void main() {
     expect(find.text('apt update'), findsWidgets);
     await tester.tap(find.byIcon(material.Icons.close).first);
     await tester.pumpAndSettle();
-    expect(find.text('新建主机'), findsWidgets);
+    expect(find.text('New Host'), findsWidgets);
   });
 
   testWidgets(
@@ -85,7 +85,7 @@ void main() {
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
       await tester.tap(find.byIcon(material.Icons.close).first);
       await tester.pumpAndSettle();
-      expect(find.text('新建主机'), findsWidgets);
+      expect(find.text('New Host'), findsWidgets);
     },
   );
 

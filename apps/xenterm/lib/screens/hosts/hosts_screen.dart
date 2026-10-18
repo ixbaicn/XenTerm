@@ -72,157 +72,167 @@ class _HostsScreenState extends State<HostsScreen> {
     final theme = Theme.of(context);
     final hosts = _filtered;
 
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Search + Connect (inside the field) ─────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Container(
-            height: 40,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.secondary,
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-            ),
-            padding: const EdgeInsets.only(left: 12, right: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _search,
-                    border: Border.all(color: Colors.transparent),
-                    borderRadius: BorderRadius.circular(TermiusRadius.field),
-                    placeholder: Text(
-                      '查找主机或 ssh user@hostname…',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: theme.colorScheme.mutedForeground,
-                      ),
-                    ),
-                    onChanged: (v) => setState(() => _query = v),
-                    style: theme.typography.normal.copyWith(
-                      fontSize: 14,
-                      color: theme.colorScheme.foreground,
-                    ),
-                  ),
-                ),
-                // Connect lives INSIDE the field; the original keeps it a
-                // muted text button in every state (the blue Connect is the
-                // drawer's).
-                GhostButton(
-                  density: ButtonDensity.compact,
-                  onPressed: _drawerOpen ? null : () => _connect(_drawerHost),
-                  child: Text(
-                    '连接',
-                    style: theme.typography.normal.copyWith(
-                      fontSize: 13,
-                      color: _drawerOpen
-                          ? theme.colorScheme.foreground
-                          : theme.colorScheme.mutedForeground,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        // ── Toolbar row ─────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-          child: Row(
-            children: [
-              SplitButton(
-                label: '新建主机',
-                icon: BootstrapIcons.plus,
-                onPressed: () {},
-                onDropdown: () {},
-              ),
-              const SizedBox(width: 20),
-              GhostAction(
-                icon: BootstrapIcons.terminal,
-                label: '终端',
-                onPressed: () {},
-              ),
-              const SizedBox(width: 20),
-              GhostAction(
-                icon: BootstrapIcons.usbPlug,
-                label: '串口',
-                onPressed: () {},
-              ),
-              const Spacer(),
-              IconToggleButton(
-                icon: _layout == HostsLayout.cards
-                    ? BootstrapIcons.grid
-                    : BootstrapIcons.list,
-                onPressed: () => setState(
-                  () => _layout = _layout == HostsLayout.cards
-                      ? HostsLayout.rows
-                      : HostsLayout.cards,
-                ),
-              ),
-              const SizedBox(width: 6),
-              IconToggleButton(icon: BootstrapIcons.tag, onPressed: () {}),
-              const SizedBox(width: 6),
-              IconToggleButton(icon: BootstrapIcons.keyboard, onPressed: () {}),
-              const SizedBox(width: 10),
-              Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF21B568),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF21B568).withValues(alpha: 0.5),
-                    width: 2,
-                  ),
-                ),
-                child: const Text(
-                  'B',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF21B568),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFF21B568).withValues(alpha: 0.5),
-                    width: 2,
-                  ),
-                ),
-                child: const Icon(
-                  BootstrapIcons.plus,
-                  size: 14,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // ── Section title + cards ───────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
-          child: Text(
-            '主机',
-            style: theme.typography.bold.copyWith(
-              fontSize: 18,
-              color: theme.colorScheme.foreground,
-            ),
-          ),
-        ),
+        // The hosts content: search row, toolbar, section title, grid. The
+        // drawer is its SIBLING, so it spans the full content height from the
+        // title bar down — exactly the original's RelativeSlider, whose
+        // header sits level with the search row instead of below the toolbar.
         Expanded(
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // ── Search + Connect (inside the field) ─────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.secondary,
+                    borderRadius: BorderRadius.circular(TermiusRadius.field),
+                  ),
+                  padding: const EdgeInsets.only(left: 12, right: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _search,
+                          border: Border.all(color: Colors.transparent),
+                          borderRadius:
+                              BorderRadius.circular(TermiusRadius.field),
+                          placeholder: Text(
+                            'Search hosts or ssh user@hostname…',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: theme.colorScheme.mutedForeground,
+                            ),
+                          ),
+                          onChanged: (v) => setState(() => _query = v),
+                          style: theme.typography.normal.copyWith(
+                            fontSize: 14,
+                            color: theme.colorScheme.foreground,
+                          ),
+                        ),
+                      ),
+                      // Connect lives INSIDE the field; the original keeps it
+                      // a muted text button in every state (the blue Connect
+                      // is the drawer's).
+                      GhostButton(
+                        density: ButtonDensity.compact,
+                        onPressed:
+                            _drawerOpen ? null : () => _connect(_drawerHost),
+                        child: Text(
+                          'Connect',
+                          style: theme.typography.normal.copyWith(
+                            fontSize: 13,
+                            color: _drawerOpen
+                                ? theme.colorScheme.foreground
+                                : theme.colorScheme.mutedForeground,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // ── Toolbar row ─────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Row(
+                  children: [
+                    SplitButton(
+                      label: 'New Host',
+                      icon: BootstrapIcons.plus,
+                      onPressed: () {},
+                      onDropdown: () {},
+                    ),
+                    const SizedBox(width: 20),
+                    GhostAction(
+                      icon: BootstrapIcons.terminal,
+                      label: 'Terminal',
+                      onPressed: () {},
+                    ),
+                    const SizedBox(width: 20),
+                    GhostAction(
+                      icon: BootstrapIcons.usbPlug,
+                      label: 'Serial',
+                      onPressed: () {},
+                    ),
+                    const Spacer(),
+                    IconToggleButton(
+                      icon: _layout == HostsLayout.cards
+                          ? BootstrapIcons.grid
+                          : BootstrapIcons.list,
+                      onPressed: () => setState(
+                        () => _layout = _layout == HostsLayout.cards
+                            ? HostsLayout.rows
+                            : HostsLayout.cards,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconToggleButton(
+                        icon: BootstrapIcons.tag, onPressed: () {}),
+                    const SizedBox(width: 6),
+                    IconToggleButton(
+                        icon: BootstrapIcons.keyboard, onPressed: () {}),
+                    const SizedBox(width: 10),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF21B568),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF21B568)
+                              .withValues(alpha: 0.5),
+                          width: 2,
+                        ),
+                      ),
+                      child: const Text(
+                        'B',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF21B568),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF21B568)
+                              .withValues(alpha: 0.5),
+                          width: 2,
+                        ),
+                      ),
+                      child: const Icon(
+                        BootstrapIcons.plus,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Section title + cards ───────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
+                child: Text(
+                  'Hosts',
+                  style: theme.typography.bold.copyWith(
+                    fontSize: 18,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+              ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -231,21 +241,19 @@ class _HostsScreenState extends State<HostsScreen> {
                       : _rowList(hosts),
                 ),
               ),
-              // The details drawer: a 340px-panel revealed from the right
-              // exactly like Termius's RelativeSlider (min-width 0→340,
-              // 200ms). The grid reflows while the panel pushes in, and the
-              // panel itself keeps its own width so its contents don't
-              // squash mid-animation.
-              _DrawerSlider(
-                open: _drawerOpen,
-                child: HostDetailsPanel(
-                  host: _drawerHost ?? kSampleHosts.first,
-                  onClose: _closeDrawer,
-                  onConnect: () => _connect(_drawerHost),
-                  onEditAll: () {},
-                ),
-              ),
             ],
+          ),
+        ),
+        // The details drawer: a 340px panel revealed from the right exactly
+        // like Termius's RelativeSlider (min-width 0→340, 200ms). It spans
+        // the whole content height; the hosts column reflows beside it.
+        _DrawerSlider(
+          open: _drawerOpen,
+          child: HostDetailsPanel(
+            host: _drawerHost ?? kSampleHosts.first,
+            onClose: _closeDrawer,
+            onConnect: () => _connect(_drawerHost),
+            onEditAll: () {},
           ),
         ),
       ],
