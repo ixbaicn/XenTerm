@@ -8,6 +8,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../theme/termius_field.dart';
 import '../../theme/termius_theme.dart';
+import '../../widgets/lucide_extra_icons.dart';
 import '../../widgets/toolbar.dart';
 
 typedef KnownHostLoader = Future<List<KnownHost>> Function();
@@ -191,8 +192,7 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
         padding: const EdgeInsets.all(32),
         child: Column(
           children: [
-            Icon(
-              LucideIcons.shieldCheck,
+            FingerprintPatternIcon(
               size: 30,
               color: theme.colorScheme.mutedForeground,
             ),

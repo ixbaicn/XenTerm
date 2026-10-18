@@ -11,6 +11,7 @@ import 'title_bar.dart';
 import '../screens/hosts/hosts_screen.dart';
 import '../screens/forwards/forwards_screen.dart';
 import '../screens/known_hosts/known_hosts_screen.dart';
+import '../widgets/lucide_extra_icons.dart';
 import '../screens/snippets/snippets_screen.dart';
 import '../screens/keychain/keychain_screen.dart';
 import '../screens/logs/logs_screen.dart';
@@ -274,6 +275,10 @@ class _NavRail extends StatelessWidget {
           for (final (destination, title, icon) in destinations)
             _RailItem(
               icon: icon,
+              glyphBuilder: destination == NavDestination.knownHosts
+                  ? (size, color) =>
+                        FingerprintPatternIcon(size: size, color: color)
+                  : null,
               label: title,
               selected: destination == active,
               onTap: () => onSelect(destination),
@@ -295,12 +300,16 @@ class _NavRail extends StatelessWidget {
 
 class _RailItem extends StatefulWidget {
   final IconData icon;
+
+  /// Overrides the font glyph (for icons newer than the bundled set).
+  final Widget Function(double size, Color color)? glyphBuilder;
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
   const _RailItem({
     required this.icon,
+    this.glyphBuilder,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -342,7 +351,8 @@ class _RailItemState extends State<_RailItem> {
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 16, color: foreground),
+              widget.glyphBuilder?.call(16, foreground) ??
+                  Icon(widget.icon, size: 16, color: foreground),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
