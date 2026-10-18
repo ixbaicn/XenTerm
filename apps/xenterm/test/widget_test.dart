@@ -98,12 +98,13 @@ void main() {
     await tester.pumpWidget(XenTermApp(fonts: fonts));
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    expect(find.text('界面字体'), findsOneWidget);
-    expect(find.text('SSH 界面字体'), findsOneWidget);
-    expect(find.text('导入字体（TTF/OTF）'), findsOneWidget);
-    await tester.ensureVisible(find.text('SSH 界面字体'));
+    expect(find.text('Terminal settings'), findsOneWidget);
+    expect(find.text('Font'), findsWidgets);
+    expect(find.text('Text Size'), findsWidgets);
+    final plus = find.byKey(const ValueKey('terminal-plus'));
+    await tester.ensureVisible(plus);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('+').last);
+    await tester.tap(plus);
     await tester.pumpAndSettle();
     expect(fonts.terminalSize, 16);
     expect(fonts.uiSize, 14);
