@@ -696,30 +696,6 @@ class _HostsScreenState extends State<HostsScreen> {
                                   : HostsLayout.cards,
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          GestureDetector(
-                            key: const ValueKey('new-host-fab'),
-                            onTap: _createSession,
-                            child: Container(
-                              width: 28,
-                              height: 28,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF21B568),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: const Color(0xFF21B568)
-                                      .withValues(alpha: 0.5),
-                                  width: 2,
-                                ),
-                              ),
-                              child: const Icon(
-                                LucideIcons.plus,
-                                size: 14,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                     ),
