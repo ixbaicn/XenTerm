@@ -22,20 +22,10 @@ void main() {
     // A plain card click connects immediately.
     await tester.tap(find.text('gateway-test02'));
     await tester.pumpAndSettle();
-    expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-    final keysList = find.byType(ListView).last;
-    await tester.scrollUntilVisible(
-      find.text('^P'),
-      180,
-      scrollable: find
-          .descendant(of: keysList, matching: find.byType(Scrollable))
-          .first,
-    );
-    expect(find.text('^X'), findsOneWidget);
-    expect(find.text('^P'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('terminal-snippets-tab')));
-    await tester.pumpAndSettle();
-    expect(find.text('apt update'), findsWidgets);
+    expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
+    // The desktop tools panel is live: search + session controls.
+    expect(find.byKey(const ValueKey('terminal-search')), findsOneWidget);
+    expect(find.byKey(const ValueKey('terminal-size-up')), findsOneWidget);
     // The session tab lives in the title bar; its × closes the terminal.
     await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
     await tester.pumpAndSettle();
@@ -45,8 +35,10 @@ void main() {
   testWidgets(
     'SFTP preview opens once, switches tabs, and closes independently',
     (tester) async {
-      await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        XenTermApp(hostsLoader: () async => kSampleHosts),
+      );
+      await tester.pumpAndSettle();
       // The hover pencil opens the details drawer (edit path).
       await tester.tap(find.byKey(const ValueKey('edit-gw2')));
       await tester.pumpAndSettle();
@@ -54,31 +46,27 @@ void main() {
       await tester.tap(find.text('Connect').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       expect(find.text('SFTP · gateway-test02'), findsOneWidget);
       expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('terminal-snippets-tab')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('terminal-view')), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
       // The session tab's × in the title bar ends the whole workspace.
       await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
       await tester.pumpAndSettle();
@@ -92,10 +80,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final fonts = AppFonts();
     addTearDown(fonts.dispose);
-    await tester.pumpWidget(XenTermApp(
-      fonts: fonts,
-      hostsLoader: () async => kSampleHosts,
-    ));
+    await tester.pumpWidget(
+      XenTermApp(fonts: fonts, hostsLoader: () async => kSampleHosts),
+    );
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     expect(find.text('Terminal settings'), findsOneWidget);

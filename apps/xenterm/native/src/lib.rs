@@ -11,8 +11,12 @@
 //! carries only the fields the hosts list draws (docs/features.md §1 —
 //! reveal-permission policy lives in the core's editor, not here).
 
+use std::collections::HashMap;
 use std::ffi::{c_char, CStr, CString};
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use xenterm::frontend::TerminalSession;
 
 /// The core, initialized exactly once per process (the bridge outlives
 /// individual screens; ConfigStore::load is cheap after the first). The
@@ -28,6 +32,38 @@ fn store() -> Result<&'static Mutex<xenterm::config::ConfigStore>, String> {
         Ok(store) => Ok(store),
         Err(error) => Err(error.clone()),
     }
+}
+
+/// The tokio runtime the session workers run on (same crate/version as the
+/// core's dependency; Cargo unifies it).
+static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+
+fn runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    match RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+/// Live terminal sessions, keyed by the handle returned to Dart.
+static SESSIONS: OnceLock<Arc<Mutex<HashMap<u64, Arc<TerminalSession>>>>> = OnceLock::new();
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
+
+fn sessions() -> &'static Arc<Mutex<HashMap<u64, Arc<TerminalSession>>>> {
+    SESSIONS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
+fn session(handle: u64) -> Option<Arc<TerminalSession>> {
+    sessions()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&handle).cloned())
 }
 
 /// SAFETY (callers): `ptr` must have come from Dart's `toNativeUtf8`.
@@ -163,6 +199,132 @@ pub extern "C" fn xenterm_session_delete(id: *const c_char) -> *mut c_char {
     match result {
         Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
         Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Starts a saved session and returns `{"ok":true,"handle":N}` or
+/// `{"ok":false,"error":"…"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_session_start(
+    id: *const c_char,
+    cols: u32,
+    rows: u32,
+) -> *mut c_char {
+    let result = (|| -> Result<u64, String> {
+        let id = unsafe { take_c(id) };
+        if id.is_empty() {
+            return Err("empty session id".into());
+        }
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let runtime = runtime()?;
+        let terminal = TerminalSession::start(
+            runtime.handle(),
+            &store,
+            &id,
+            cols.clamp(1, 1000) as u16,
+            rows.clamp(1, 1000) as u16,
+            4000,
+        )?;
+        let handle = NEXT_HANDLE.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut map) = sessions().lock() {
+            map.insert(handle, terminal);
+        }
+        Ok(handle)
+    })();
+    match result {
+        Ok(handle) => to_c(serde_json::json!({"ok": true, "handle": handle}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Cheap change counter for a running terminal; 0 when the handle is unknown.
+#[no_mangle]
+pub extern "C" fn xenterm_session_version(handle: u64) -> u64 {
+    session(handle).map(|s| s.version()).unwrap_or(0)
+}
+
+/// Compact JSON screen snapshot (rows/runs/cursor/modes/prompt), or null when
+/// the handle is unknown.
+#[no_mangle]
+pub extern "C" fn xenterm_session_snapshot(handle: u64) -> *mut c_char {
+    match session(handle) {
+        Some(session) => to_c(session.snapshot_json()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Sends raw bytes (encoded keys/paste) to the session PTY.
+#[no_mangle]
+pub extern "C" fn xenterm_session_input(
+    handle: u64,
+    bytes: *const u8,
+    len: usize,
+) -> i32 {
+    if bytes.is_null() || len == 0 {
+        return 0;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bytes, len) };
+    match session(handle) {
+        Some(session) => {
+            session.send_input(slice);
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_session_resize(handle: u64, cols: u32, rows: u32) -> i32 {
+    match session(handle) {
+        Some(session) => {
+            session.resize(cols.clamp(1, 1000) as u16, rows.clamp(1, 1000) as u16);
+            1
+        }
+        None => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn xenterm_session_close(handle: u64) -> i32 {
+    match sessions().lock() {
+        Ok(mut map) => match map.remove(&handle) {
+            Some(session) => {
+                session.close();
+                1
+            }
+            None => 0,
+        },
+        Err(_) => 0,
+    }
+}
+
+/// Answers the session's current prompt. Returns 1 when it was delivered.
+#[no_mangle]
+pub extern "C" fn xenterm_session_answer_prompt(
+    handle: u64,
+    prompt_id: u64,
+    accept: i32,
+    username: *const c_char,
+    password: *const c_char,
+    text: *const c_char,
+) -> i32 {
+    let opt = |ptr: *const c_char| -> Option<String> {
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { take_c(ptr) })
+        }
+    };
+    let user = opt(username);
+    let pass = opt(password);
+    let text = opt(text);
+    match session(handle) {
+        Some(session) => {
+            session.answer_prompt(prompt_id, accept != 0, user, pass, text);
+            1
+        }
+        None => 0,
     }
 }
 

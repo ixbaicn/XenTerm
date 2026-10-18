@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
@@ -22,6 +23,34 @@ typedef _FreeFnC = Void Function(Pointer<Utf8>);
 typedef _FreeFn = void Function(Pointer<Utf8>);
 typedef _StrFnC = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef _StrFn = Pointer<Utf8> Function(Pointer<Utf8>);
+typedef _StartC = Pointer<Utf8> Function(Pointer<Utf8>, Uint32, Uint32);
+typedef _Start = Pointer<Utf8> Function(Pointer<Utf8>, int, int);
+typedef _VersionC = Uint64 Function(Uint64);
+typedef _Version = int Function(int);
+typedef _SnapC = Pointer<Utf8> Function(Uint64);
+typedef _Snap = Pointer<Utf8> Function(int);
+typedef _InputC = Int32 Function(Uint64, Pointer<Uint8>, UintPtr);
+typedef _Input = int Function(int, Pointer<Uint8>, int);
+typedef _ResizeC = Int32 Function(Uint64, Uint32, Uint32);
+typedef _Resize = int Function(int, int, int);
+typedef _CloseC = Int32 Function(Uint64);
+typedef _Close = int Function(int);
+typedef _AnswerC = Int32 Function(
+  Uint64,
+  Uint64,
+  Int32,
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+);
+typedef _Answer = int Function(
+  int,
+  int,
+  int,
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+  Pointer<Utf8>,
+);
 
 class NativeBridgeError implements Exception {
   final String message;
@@ -64,16 +93,41 @@ class NativeBridge {
     return 'libxenterm_bridge.so';
   }
 
-  late final _PtrFn _version =
-      _lib.lookupFunction<_PtrFnC, _PtrFn>('xenterm_core_version');
-  late final _PtrFn _sessions =
-      _lib.lookupFunction<_PtrFnC, _PtrFn>('xenterm_sessions_json');
-  late final _FreeFn _free =
-      _lib.lookupFunction<_FreeFnC, _FreeFn>('xenterm_string_free');
-  late final _StrFn _upsert =
-      _lib.lookupFunction<_StrFnC, _StrFn>('xenterm_session_upsert');
-  late final _StrFn _delete =
-      _lib.lookupFunction<_StrFnC, _StrFn>('xenterm_session_delete');
+  late final _PtrFn _version = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_core_version',
+  );
+  late final _PtrFn _sessions = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_sessions_json',
+  );
+  late final _FreeFn _free = _lib.lookupFunction<_FreeFnC, _FreeFn>(
+    'xenterm_string_free',
+  );
+  late final _StrFn _upsert = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_session_upsert',
+  );
+  late final _StrFn _delete = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_session_delete',
+  );
+  late final _Start _start = _lib.lookupFunction<_StartC, _Start>(
+    'xenterm_session_start',
+  );
+  late final _Version _terminalVersion = _lib
+      .lookupFunction<_VersionC, _Version>('xenterm_session_version');
+  late final _Snap _snapshot = _lib.lookupFunction<_SnapC, _Snap>(
+    'xenterm_session_snapshot',
+  );
+  late final _Input _input = _lib.lookupFunction<_InputC, _Input>(
+    'xenterm_session_input',
+  );
+  late final _Resize _resize = _lib.lookupFunction<_ResizeC, _Resize>(
+    'xenterm_session_resize',
+  );
+  late final _Close _close = _lib.lookupFunction<_CloseC, _Close>(
+    'xenterm_session_close',
+  );
+  late final _Answer _answer = _lib.lookupFunction<_AnswerC, _Answer>(
+    'xenterm_session_answer_prompt',
+  );
 
   String _take(Pointer<Utf8> pointer) {
     try {
@@ -110,6 +164,79 @@ class NativeBridge {
 
   Map<String, dynamic> deleteSession(String id) =>
       jsonDecode(_callWith(_delete, id)) as Map<String, dynamic>;
+
+  // ── Terminal sessions ──────────────────────────────────────────────────
+
+  /// Starts a saved session; returns its bridge handle or throws.
+  int startSession(String id, int cols, int rows) {
+    final pointer = id.toNativeUtf8();
+    try {
+      final raw = _take(_start(pointer, cols, rows));
+      final result = jsonDecode(raw) as Map<String, dynamic>;
+      if (result['ok'] != true) {
+        throw NativeBridgeError(
+          (result['error'] as String?) ?? 'Could not start the session',
+        );
+      }
+      return (result['handle'] as num).toInt();
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  int sessionVersion(int handle) => _terminalVersion(handle);
+
+  String? sessionSnapshot(int handle) {
+    final pointer = _snapshot(handle);
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  bool sendInput(int handle, Uint8List bytes) {
+    if (bytes.isEmpty) return true;
+    final pointer = malloc.allocate<Uint8>(bytes.length);
+    try {
+      pointer.asTypedList(bytes.length).setAll(0, bytes);
+      return _input(handle, pointer, bytes.length) == 1;
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  bool resizeSession(int handle, int cols, int rows) =>
+      _resize(handle, cols, rows) == 1;
+
+  bool closeSession(int handle) => _close(handle) == 1;
+
+  /// Answers the current prompt: host-key uses [accept], credentials use
+  /// [username]/[password], MFA uses [text].
+  bool answerPrompt(
+    int handle,
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  }) {
+    final userPtr = username?.toNativeUtf8() ?? nullptr;
+    final passPtr = password?.toNativeUtf8() ?? nullptr;
+    final textPtr = text?.toNativeUtf8() ?? nullptr;
+    try {
+      return _answer(
+            handle,
+            promptId,
+            accept ? 1 : 0,
+            userPtr,
+            passPtr,
+            textPtr,
+          ) ==
+          1;
+    } finally {
+      if (userPtr != nullptr) malloc.free(userPtr);
+      if (passPtr != nullptr) malloc.free(passPtr);
+      if (textPtr != nullptr) malloc.free(textPtr);
+    }
+  }
 }
 
 /// Result of a core write: `ok`, the affected session id, or the error text.

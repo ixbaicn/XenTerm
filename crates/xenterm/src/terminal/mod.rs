@@ -3,7 +3,9 @@ mod state;
 
 #[path = "impls/engine.rs"]
 mod engine;
-pub(crate) use engine::{MouseProtocolEncoding, MouseProtocolMode, TerminalColor, TerminalEngine};
+pub(crate) use engine::{
+    MouseProtocolEncoding, MouseProtocolMode, TerminalCell, TerminalColor, TerminalEngine,
+};
 
 #[path = "impls/charset.rs"]
 mod charset;

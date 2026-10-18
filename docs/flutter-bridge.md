@@ -1,11 +1,11 @@
 # Flutter 前端与 Rust 核心桥接方案
 
-## 决策：进程内 FFI（flutter_rust_bridge）
+## 决策：进程内 FFI（当前为手写 C ABI）
 
 iOS 禁止应用派生子进程，因此"Rust 侧车进程 + JSON-RPC"在移动端不可行；
-唯一全平台可行的形态是**进程内 FFI**。选 [flutter_rust_bridge](https://pub.dev/packages/flutter_rust_bridge)
-（v2）作为代码生成器：Rust 侧写一次 API，Dart 侧得到类型安全的绑定，
-流（终端输出、资源采样、传输进度）以 `Stream` 暴露。
+唯一全平台可行的形态是**进程内 FFI**。当前阶段用最小 C ABI + `dart:ffi`
+直连，便于逐条审计、不引入代码生成与重复异步栈；API 面稳定后再评估
+[flutter_rust_bridge](https://pub.dev/packages/flutter_rust_bridge) 生成类型绑定。
 
 ## 布局
 
@@ -57,4 +57,16 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   `DefaultTextEditingShortcuts`。
 - 构建与放置：`apps/xenterm/tool/build_native.ps1`（Windows）或
   `build_native.sh`，产物需与 Flutter 可执行文件同目录。
-- 未实现：连接生命周期、终端输出流、SFTP 与资源采样（下一步）。
+- 终端流已打通（第二步）：`crates/xenterm/src/frontend.rs` 是唯一公开的
+  会话门面——按会话 id 启动真实传输（SSH/Serial/Telnet/Local），泵线程把
+  `SessionEvent::Output` 喂给 rio-vt，并用版本计数器让前端廉价轮询。
+  C ABI 新增 `xenterm_session_start/version/snapshot/input/resize/close/
+  answer_prompt`；快照为紧凑 JSON（`rows[].runs[{t,c,s}]`、cursor、模式位、
+  status、closed、prompt）。输入按 xterm 约定编码后以原始字节送入 PTY；
+  缩放同时调整 rio-vt 屏幕与传输端；主机密钥/账号/MFA 提示通过 responder
+  回传，不经过 UI 线程阻塞。
+- Dart 侧 `TerminalView` 每 50ms 比较版本号、仅在变化时取快照，用
+  Consolas/Menlo 等真实等宽字体（`monospace` 在 Windows 会回退到 Segoe UI）
+  按 run 绘制并叠加块状光标；工具面板提供可见缓冲搜索（高亮+计数）、
+  复制、清屏（Ctrl+L）、字号与重连，全部作用于真实会话。
+- 未实现：SFTP 列表/传输、资源采样、分组/导入（下一步）。

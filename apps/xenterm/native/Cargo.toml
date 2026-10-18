@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # knowledge of any frontend (arch_guards enforces that boundary).
 xenterm = { path = "../../../crates/xenterm" }
 serde_json = "1"
+# The bridge owns the tokio runtime the session workers run on. Same crate and
+# version as the core's dependency (Cargo unifies), not a second async stack.
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
-[profile.release]
-lto = "thin"
-strip = "symbols"
