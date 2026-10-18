@@ -178,7 +178,11 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
             ),
             child: Row(
               children: [
-                const Icon(LucideIcons.usb, size: 16, color: Color(0xFF8D91A5)),
+                const Icon(
+                  LucideIcons.ethernetPort,
+                  size: 16,
+                  color: Color(0xFF8D91A5),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -447,7 +451,6 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
     'even' => 'E',
     _ => 'N',
   };
-
 }
 
 /// Editable port field with a dropdown of detected devices.
@@ -510,7 +513,7 @@ class _PortComboFieldState extends State<_PortComboField> {
               controller: widget.controller,
               placeholder: 'COM3 or /dev/ttyUSB0',
               leading: const Icon(
-                LucideIcons.usb,
+                LucideIcons.ethernetPort,
                 size: 14,
                 color: Color(0xFF8D91A5),
               ),

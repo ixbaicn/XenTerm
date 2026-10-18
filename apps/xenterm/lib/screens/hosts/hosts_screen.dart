@@ -681,7 +681,7 @@ class _HostsScreenState extends State<HostsScreen> {
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
-                            icon: LucideIcons.usb,
+                            icon: LucideIcons.ethernetPort,
                             label: 'Serial',
                             onPressed: _quickSerial,
                           ),
