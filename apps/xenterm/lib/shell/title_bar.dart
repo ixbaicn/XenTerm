@@ -21,68 +21,80 @@ class TitleBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // DragToMoveArea wraps the entire bar: drag anywhere that is not an
-    // interactive child, double-click toggles maximize — the native
-    // titlebar's two gestures, re-provided.
-    return DragToMoveArea(
-      child: GestureDetector(
-        onDoubleTap: () async {
-          if (await windowManager.isMaximized()) {
-            await windowManager.unmaximize();
-          } else {
-            await windowManager.maximize();
-          }
-        },
-        child: Container(
-          height: 50,
-          color: termiusTitleBarColor(theme.colorScheme.brightness),
-          padding: const EdgeInsets.fromLTRB(10, 0, 0, 0),
-          child: Row(
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6),
-                child: Icon(BootstrapIcons.list,
-                    size: 14, color: Color(0xFF8D91A5)),
-              ),
-              const SizedBox(width: 5),
-              const _TitlePill(
-                icon: Icon(BootstrapIcons.safe,
-                    size: 15, color: Color(0xFF8D91A5)),
-                label: 'Vaults',
-                filled: true,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(BootstrapIcons.cloudFill,
-                        size: 13, color: Color(0xFF8D91A5)),
-                    SizedBox(width: 6),
-                    Icon(BootstrapIcons.caretDownFill,
-                        size: 9, color: Color(0xFF8D91A5)),
-                  ],
+    // Two sibling layers, not a wrapper: the drag/double-click surface sits
+    // BEHIND the interactive row. Previously the whole bar was wrapped in a
+    // GestureDetector with onDoubleTap, so every pill/control tap had to wait
+    // for the double-tap timeout (~300ms) — the "laggy close button" bug.
+    return SizedBox(
+      height: 50,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DragToMoveArea(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onDoubleTap: () async {
+                  if (await windowManager.isMaximized()) {
+                    await windowManager.unmaximize();
+                  } else {
+                    await windowManager.maximize();
+                  }
+                },
+                child: ColoredBox(
+                  color: termiusTitleBarColor(theme.colorScheme.brightness),
                 ),
               ),
-              const SizedBox(width: 5),
-              const _TitlePill(
-                icon: Icon(BootstrapIcons.folder2Open,
-                    size: 15, color: Color(0xFF8D91A5)),
-                label: 'SFTP',
-              ),
-              const SizedBox(width: 5),
-              _PillButton(
-                icon: BootstrapIcons.plus,
-                onPressed: () {},
-              ),
-              const Spacer(),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(BootstrapIcons.bell,
-                    size: 15, color: Color(0xFF8D91A5)),
-              ),
-              const SizedBox(width: 4),
-              const _WindowControls(),
-            ],
+            ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Row(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(BootstrapIcons.list,
+                      size: 14, color: Color(0xFF8D91A5)),
+                ),
+                const SizedBox(width: 5),
+                const _TitlePill(
+                  icon: Icon(BootstrapIcons.safe,
+                      size: 15, color: Color(0xFF8D91A5)),
+                  label: 'Vaults',
+                  filled: true,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(BootstrapIcons.cloudFill,
+                          size: 13, color: Color(0xFF8D91A5)),
+                      SizedBox(width: 6),
+                      Icon(BootstrapIcons.caretDownFill,
+                          size: 9, color: Color(0xFF8D91A5)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 5),
+                const _TitlePill(
+                  icon: Icon(BootstrapIcons.folder2Open,
+                      size: 15, color: Color(0xFF8D91A5)),
+                  label: 'SFTP',
+                ),
+                const SizedBox(width: 5),
+                _PillButton(
+                  icon: BootstrapIcons.plus,
+                  onPressed: () {},
+                ),
+                const Spacer(),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Icon(BootstrapIcons.bell,
+                      size: 15, color: Color(0xFF8D91A5)),
+                ),
+                const SizedBox(width: 4),
+                const _WindowControls(),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
