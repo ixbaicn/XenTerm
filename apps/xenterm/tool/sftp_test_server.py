@@ -83,18 +83,16 @@ class SftpInterface(paramiko.SFTPServerInterface):
 
     def open(self, path, flags, attr):
         real = self._real(path)
-        mode = "rb"
-        if flags & os.O_WRONLY:
-            mode = "wb"
-        elif flags & os.O_RDWR:
-            mode = "r+b"
-        if flags & os.O_CREAT and not os.path.exists(real):
-            mode = "w+b"
+        writing = bool(flags & (os.O_WRONLY | os.O_RDWR))
+        if writing:
+            mode = "wb+" if (flags & os.O_TRUNC or not os.path.exists(real)) else "r+b"
+        else:
+            mode = "rb"
         try:
-            handle = open(real, mode)
+            fileobj = open(real, mode)
         except OSError as error:
             return paramiko.SFTPServer.convert_errno(error.errno)
-        return paramiko.SFTPHandle(flags) if False else _Handle(handle, flags)
+        return _Handle(fileobj, flags)
 
     def mkdir(self, path, attr):
         try:
@@ -125,24 +123,15 @@ class SftpInterface(paramiko.SFTPServerInterface):
             return paramiko.SFTPServer.convert_errno(error.errno)
 
 
-class _Handle:
+class _Handle(paramiko.SFTPHandle):
+    """SFTPHandle must be subclassed: the server only sends a HANDLE response
+    for SFTPHandle instances; any other object is treated as an error code."""
+
     def __init__(self, fileobj, flags):
+        super().__init__(flags)
         self._file = fileobj
-        self._flags = flags
-
-    def read(self, offset, length):
-        self._file.seek(offset)
-        return self._file.read(length)
-
-    def write(self, offset, data):
-        self._file.seek(offset)
-        self._file.write(data)
-        self._file.flush()
-        return paramiko.SFTP_OK
-
-    def close(self):
-        self._file.close()
-        return paramiko.SFTP_OK
+        self.readfile = fileobj
+        self.writefile = fileobj
 
     def stat(self):
         return paramiko.SFTPAttributes.from_stat(os.fstat(self._file.fileno()))

@@ -93,5 +93,7 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
   keys/logs/sftp 失败路径）、`flutter test`（终端/侧栏/SFTP/设置/logs/提示
   横幅的 widget 契约）。SFTP 成功路径用 `apps/xenterm/tool/sftp_test_server.py`
   （paramiko 手工验收工具）实测：主机密钥提示 → 密码提示 → 目录列表 →
-  进入子目录 → 新建目录，均在 UI 与服务端磁盘上核对。
+  进入子目录 → 新建目录；上传与下载也做了字节级验收：源文件、服务端
+  文件、下载后的文件三者 SHA-256 完全一致（下载使用核心配置的
+  download_dir，界面显示 uploaded/downloaded 进度条）。
 - 未实现：资源采样/系统信息面板、分组管理与导入、远端目录树（左树）。
