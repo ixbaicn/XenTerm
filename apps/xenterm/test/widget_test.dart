@@ -9,7 +9,7 @@ void main() {
   testWidgets('the shell mounts with the hosts screen showing', (tester) async {
     await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
     await tester.pumpAndSettle();
-    expect(find.text('Hosts'), findsWidgets);
+    expect(find.text('Home'), findsWidgets);
     // The toolbar's button and the grid's tail card both say it.
     expect(find.text('New host'), findsWidgets);
   });

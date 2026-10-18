@@ -707,7 +707,7 @@ class _HostsScreenState extends State<HostsScreen> {
               if (_importNotice != null) _importBanner(theme),
               // ── Section titles + cards ──────────────────────────────────
               if (_groups.isEmpty || _query.trim().isNotEmpty)
-                _sectionTitle('Hosts', theme),
+                _sectionTitle('Home', theme),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
@@ -932,7 +932,7 @@ class _HostsScreenState extends State<HostsScreen> {
       children: [
         for (final section in sections) ...[
           if (section.name == null)
-            _sectionTitle('Hosts', theme)
+            _sectionTitle('Home', theme)
           else
             _deletingGroup == section.name
                 ? _deleteGroupBar(section.name!, theme)
@@ -999,7 +999,7 @@ class _HostsScreenState extends State<HostsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Delete “$name”? Its hosts move to Hosts.',
+              'Delete “$name”? Its hosts become ungrouped.',
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
                 color: theme.colorScheme.foreground,

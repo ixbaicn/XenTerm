@@ -131,7 +131,7 @@ class _RootShellState extends State<RootShell> {
   static const double _navRailWidth = 182;
 
   static const List<(NavDestination, String, IconData)> _destinations = [
-    (NavDestination.hosts, 'Hosts', LucideIcons.layoutGrid),
+    (NavDestination.hosts, 'Home', LucideIcons.server),
     (NavDestination.keys, 'Keychain', LucideIcons.keyRound),
     (NavDestination.forwards, 'Port Forwarding', LucideIcons.arrowLeftRight),
     (NavDestination.snippets, 'Snippets', LucideIcons.braces),
