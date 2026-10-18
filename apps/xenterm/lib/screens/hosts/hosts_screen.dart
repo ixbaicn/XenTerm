@@ -53,19 +53,17 @@ class _HostsScreenState extends State<HostsScreen> {
     if (host != null) widget.onConnect?.call(host);
   }
 
-  /// Collapse first; AnimatedSize.onEnd unmounts the panel afterwards.
+  /// Collapse the slider; the panel content stays mounted for the next open.
   void _closeDrawer() => setState(() => _drawerOpen = false);
 
-  void _onCardTap(Host host) {
-    if (_drawerOpen && _drawerHost?.id == host.id) {
-      _connect(host);
-      return;
-    }
-    setState(() {
-      _drawerHost = host;
-      _drawerOpen = true;
-    });
-  }
+  /// A plain card click connects immediately — the desktop fast path.
+  void _onCardTap(Host host) => _connect(host);
+
+  /// The hover pencil opens the details drawer (edit path).
+  void _onEditHost(Host host) => setState(() {
+        _drawerHost = host;
+        _drawerOpen = true;
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -300,6 +298,7 @@ class _HostsScreenState extends State<HostsScreen> {
           host: host,
           selected: _drawerOpen && _drawerHost?.id == host.id,
           onTap: () => _onCardTap(host),
+          onEdit: () => _onEditHost(host),
         );
       },
     );
@@ -316,6 +315,7 @@ class _HostsScreenState extends State<HostsScreen> {
             host: host,
             selected: _drawerOpen && _drawerHost?.id == host.id,
             onTap: () => _onCardTap(host),
+            onEdit: () => _onEditHost(host),
           ),
         );
       },

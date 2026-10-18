@@ -33,6 +33,7 @@ class HostCard extends StatefulWidget {
   final Host host;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
   final bool grid;
 
   const HostCard.grid({
@@ -40,6 +41,7 @@ class HostCard extends StatefulWidget {
     required this.host,
     required this.selected,
     required this.onTap,
+    required this.onEdit,
   }) : grid = true;
 
   const HostCard.row({
@@ -47,6 +49,7 @@ class HostCard extends StatefulWidget {
     required this.host,
     required this.selected,
     required this.onTap,
+    required this.onEdit,
   }) : grid = false;
 
   @override
@@ -137,8 +140,9 @@ class _HostCardState extends State<HostCard> {
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
+                    key: ValueKey('edit-${host.id}'),
                     behavior: HitTestBehavior.opaque,
-                    onTap: () {},
+                    onTap: widget.onEdit,
                     child: Container(
                       width: 28,
                       height: 28,

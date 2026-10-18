@@ -17,11 +17,8 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const XenTermApp());
+    // A plain card click connects immediately.
     await tester.tap(find.text('gateway-test02'));
-    await tester.pumpAndSettle();
-    // The drawer's blue Connect (the search bar's ghost 连接 is disabled
-    // while the drawer is open).
-    await tester.tap(find.text('Connect').last);
     await tester.pumpAndSettle();
     expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
     expect(find.text('Vault'), findsOneWidget);
@@ -47,8 +44,10 @@ void main() {
     'SFTP preview opens once, switches tabs, and closes independently',
     (tester) async {
       await tester.pumpWidget(const XenTermApp());
-      await tester.tap(find.text('gateway-test02'));
+      // The hover pencil opens the details drawer (edit path).
+      await tester.tap(find.byKey(const ValueKey('edit-gw2')));
       await tester.pumpAndSettle();
+      expect(find.text('Host Details'), findsOneWidget);
       await tester.tap(find.text('Connect').last);
       await tester.pumpAndSettle();
 
