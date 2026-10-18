@@ -35,6 +35,8 @@ typedef _ResizeC = Int32 Function(Uint64, Uint32, Uint32);
 typedef _Resize = int Function(int, int, int);
 typedef _CloseC = Int32 Function(Uint64);
 typedef _Close = int Function(int);
+typedef _IndexDeleteC = Pointer<Utf8> Function(Int64);
+typedef _IndexDelete = Pointer<Utf8> Function(int);
 typedef _AnswerC = Int32 Function(
   Uint64,
   Uint64,
@@ -128,6 +130,16 @@ class NativeBridge {
   late final _Answer _answer = _lib.lookupFunction<_AnswerC, _Answer>(
     'xenterm_session_answer_prompt',
   );
+  late final _PtrFn _quickCommands = _lib.lookupFunction<_PtrFnC, _PtrFn>(
+    'xenterm_quick_commands_json',
+  );
+  late final _StrFn _quickUpsert = _lib.lookupFunction<_StrFnC, _StrFn>(
+    'xenterm_quick_command_upsert',
+  );
+  late final _IndexDelete _quickDelete = _lib
+      .lookupFunction<_IndexDeleteC, _IndexDelete>(
+        'xenterm_quick_command_delete',
+      );
 
   String _take(Pointer<Utf8> pointer) {
     try {
@@ -208,6 +220,21 @@ class NativeBridge {
 
   bool closeSession(int handle) => _close(handle) == 1;
 
+  // ── Snippets (quick commands) ──────────────────────────────────────────
+
+  String? quickCommandsJson() {
+    final pointer = _quickCommands();
+    if (pointer == nullptr) return null;
+    return _take(pointer);
+  }
+
+  Map<String, dynamic> upsertQuickCommand(Map<String, dynamic> payload) =>
+      jsonDecode(_callWith(_quickUpsert, jsonEncode(payload)))
+          as Map<String, dynamic>;
+
+  Map<String, dynamic> deleteQuickCommand(int index) =>
+      jsonDecode(_take(_quickDelete(index))) as Map<String, dynamic>;
+
   /// Answers the current prompt: host-key uses [accept], credentials use
   /// [username]/[password], MFA uses [text].
   bool answerPrompt(
@@ -246,6 +273,108 @@ class CoreWriteResult {
   final String? error;
 
   const CoreWriteResult({required this.ok, this.id, this.error});
+}
+
+/// One saved quick command (Snippets screen).
+class QuickCommand {
+  final int index;
+  final String name;
+  final String command;
+  final String group;
+  final bool sendEnter;
+
+  const QuickCommand({
+    required this.index,
+    required this.name,
+    required this.command,
+    this.group = '',
+    this.sendEnter = true,
+  });
+
+  factory QuickCommand.fromCoreJson(Map<String, dynamic> json) => QuickCommand(
+    index: (json['index'] as num?)?.toInt() ?? -1,
+    name: (json['name'] as String?) ?? '',
+    command: (json['command'] as String?) ?? '',
+    group: (json['group'] as String?) ?? '',
+    sendEnter: json['send_enter'] as bool? ?? true,
+  );
+}
+
+/// Reads the saved quick commands from the core off the UI thread.
+Future<List<QuickCommand>> loadQuickCommandsFromCore() {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final raw = bridge.quickCommandsJson();
+    if (raw == null) {
+      throw const NativeBridgeError(
+        'The core could not load the quick commands',
+      );
+    }
+    return (jsonDecode(raw) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(QuickCommand.fromCoreJson)
+        .toList();
+  });
+}
+
+/// Creates ([index] < 0) or updates one quick command in the core.
+Future<CoreWriteResult> saveQuickCommandToCore({
+  required int index,
+  required String name,
+  required String command,
+  required String group,
+  required bool sendEnter,
+}) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.upsertQuickCommand({
+      'index': index,
+      'name': name,
+      'command': command,
+      'group': group,
+      'send_enter': sendEnter,
+    });
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not save the snippet',
+      );
+    }
+    return CoreWriteResult(
+      ok: true,
+      id: (result['index'] as num?)?.toInt().toString(),
+    );
+  });
+}
+
+/// Deletes one quick command by its current index.
+Future<CoreWriteResult> deleteQuickCommandFromCore(int index) {
+  return Isolate.run(() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) {
+      throw const NativeBridgeError(
+        'xenterm_bridge library not found next to the app',
+      );
+    }
+    final result = bridge.deleteQuickCommand(index);
+    if (result['ok'] != true) {
+      return CoreWriteResult(
+        ok: false,
+        error: (result['error'] as String?) ?? 'Could not delete the snippet',
+      );
+    }
+    return const CoreWriteResult(ok: true);
+  });
 }
 
 /// Loads the saved sessions from the core off the UI thread and maps them to

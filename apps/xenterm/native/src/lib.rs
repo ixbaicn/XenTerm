@@ -328,6 +328,125 @@ pub extern "C" fn xenterm_session_answer_prompt(
     }
 }
 
+/// Saved quick commands (Snippets) as a JSON array.
+#[no_mangle]
+pub extern "C" fn xenterm_quick_commands_json() -> *mut c_char {
+    let result = (|| -> Result<String, String> {
+        let store = store()?;
+        let store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let rows: Vec<serde_json::Value> = store
+            .quick_commands()
+            .iter()
+            .enumerate()
+            .map(|(index, cmd)| {
+                serde_json::json!({
+                    "index": index,
+                    "name": cmd.name,
+                    "command": cmd.command,
+                    "group": cmd.group,
+                    "send_enter": cmd.send_enter,
+                })
+            })
+            .collect();
+        serde_json::to_string(&rows).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(json) => to_c(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Create (`index` < 0 or out of range) or update one quick command.
+/// Returns `{"ok":true,"index":N}` or `{"ok":false,"error"}`.
+#[no_mangle]
+pub extern "C" fn xenterm_quick_command_upsert(json: *const c_char) -> *mut c_char {
+    let result = (|| -> Result<usize, String> {
+        let raw = unsafe { take_c(json) };
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).map_err(|e| format!("invalid payload: {e}"))?;
+        let index = value.get("index").and_then(|v| v.as_i64()).unwrap_or(-1);
+        let name = value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let command = value
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let group = value
+            .get("group")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let send_enter = value
+            .get("send_enter")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if command.is_empty() {
+            return Err("the command cannot be empty".into());
+        }
+        let name = if name.is_empty() {
+            command.clone()
+        } else {
+            name
+        };
+
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut commands = store.quick_commands().to_vec();
+        let command = xenterm::config::QuickCommand {
+            name,
+            command,
+            group,
+            send_enter,
+        };
+        let position = if index >= 0 && (index as usize) < commands.len() {
+            commands[index as usize] = command;
+            index as usize
+        } else {
+            commands.push(command);
+            commands.len() - 1
+        };
+        store.set_quick_commands(commands);
+        store.save().map_err(|e| format!("save failed: {e}"))?;
+        Ok(position)
+    })();
+    match result {
+        Ok(index) => to_c(serde_json::json!({"ok": true, "index": index}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
+/// Remove one quick command by its current index.
+#[no_mangle]
+pub extern "C" fn xenterm_quick_command_delete(index: i64) -> *mut c_char {
+    let result = (|| -> Result<(), String> {
+        if index < 0 {
+            return Err("invalid index".into());
+        }
+        let store = store()?;
+        let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut commands = store.quick_commands().to_vec();
+        let at = index as usize;
+        if at >= commands.len() {
+            return Err("quick command no longer exists".into());
+        }
+        commands.remove(at);
+        store.set_quick_commands(commands);
+        store.save().map_err(|e| format!("save failed: {e}"))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => to_c(serde_json::json!({"ok": true}).to_string()),
+        Err(error) => to_c(serde_json::json!({"ok": false, "error": error}).to_string()),
+    }
+}
+
 /// Release a string this bridge returned.
 #[no_mangle]
 pub extern "C" fn xenterm_string_free(ptr: *mut c_char) {

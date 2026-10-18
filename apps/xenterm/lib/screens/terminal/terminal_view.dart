@@ -16,6 +16,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../theme/app_fonts.dart';
+import '../../terminal/terminal_command_bus.dart';
 import '../../theme/termius_theme.dart';
 import 'terminal_tools_panel.dart';
 
@@ -39,8 +40,14 @@ String _terminalFontFamily(AppFonts fonts) {
 class TerminalView extends StatefulWidget {
   final Host host;
   final AppFonts fonts;
+  final TerminalCommandBus? commandBus;
 
-  const TerminalView({super.key, required this.host, required this.fonts});
+  const TerminalView({
+    super.key,
+    required this.host,
+    required this.fonts,
+    this.commandBus,
+  });
 
   @override
   State<TerminalView> createState() => _TerminalViewState();
@@ -58,12 +65,14 @@ class _TerminalViewState extends State<TerminalView> {
   int _cols = 0;
   int _rows = 0;
   String _search = '';
+  int _lastCommand = 0;
   final FocusNode _focus = FocusNode(debugLabel: 'terminal');
 
   @override
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_globalKey);
+    widget.commandBus?.addListener(_onCommand);
     _start();
   }
 
@@ -134,7 +143,33 @@ class _TerminalViewState extends State<TerminalView> {
   }
 
   @override
+  void didUpdateWidget(TerminalView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.commandBus != widget.commandBus) {
+      oldWidget.commandBus?.removeListener(_onCommand);
+      widget.commandBus?.addListener(_onCommand);
+    }
+  }
+
+  /// Runs a snippet/command link in this PTY. The bus carries the target host
+  /// id, so background tabs never run another tab's command.
+  void _onCommand() {
+    final bus = widget.commandBus;
+    final command = bus?.last;
+    if (bus == null || command == null) return;
+    if (command.hostId != widget.host.id) return;
+    if (bus.sequence == _lastCommand) return;
+    _lastCommand = bus.sequence;
+    _send([
+      ...utf8.encode(command.text),
+      if (command.sendEnter) 13,
+    ]);
+    _focus.requestFocus();
+  }
+
+  @override
   void dispose() {
+    widget.commandBus?.removeListener(_onCommand);
     HardwareKeyboard.instance.removeHandler(_globalKey);
     _poll?.cancel();
     final handle = _handle;

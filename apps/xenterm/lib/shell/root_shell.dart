@@ -17,6 +17,8 @@ import '../screens/logs/logs_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/terminal/terminal_screen.dart';
 import '../data/hosts.dart';
+import '../bridge/native_bridge.dart';
+import '../terminal/terminal_command_bus.dart';
 import '../theme/app_fonts.dart';
 
 enum NavDestination {
@@ -56,6 +58,7 @@ class _RootShellState extends State<RootShell> {
   String? _activeHostId;
   bool _terminalSftp = false;
   bool _railOpen = true;
+  final TerminalCommandBus _commands = TerminalCommandBus();
 
   Host? get _activeHost {
     for (final host in _openHosts) {
@@ -71,6 +74,25 @@ class _RootShellState extends State<RootShell> {
       // The terminal gets the full width; the hamburger brings the rail back
       // (the original's terminal window opens with the side menu collapsed).
       _railOpen = false;
+    });
+  }
+
+  /// Runs a saved snippet in the active terminal (or the most recent one when
+  /// the rail screen is showing) and brings that session back to the front.
+  void _runSnippet(QuickCommand snippet) {
+    final target = _activeHost ?? (_openHosts.isEmpty ? null : _openHosts.last);
+    if (target == null) return;
+    setState(() {
+      _activeHostId = target.id;
+      _terminalSftp = false;
+    });
+    // Send after the offstage switch so the terminal can take focus too.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _commands.send(
+        target.id,
+        snippet.command,
+        sendEnter: snippet.sendEnter,
+      );
     });
   }
 
@@ -148,13 +170,29 @@ class _RootShellState extends State<RootShell> {
                   ),
                 ),
                 Expanded(
-                  child: _activeHost != null
-                      ? TerminalScreen(
-                          host: _activeHost!,
-                          fonts: widget.fonts,
-                          showSftp: _terminalSftp,
-                        )
-                      : _screenFor(_active),
+                  // Every open workspace stays mounted (offstage when not in
+                  // front), so switching session tabs never reconnects and
+                  // background PTYs keep running.
+                  child: Stack(
+                    children: [
+                      for (final host in _openHosts)
+                        Positioned.fill(
+                          child: Offstage(
+                            offstage: host.id != _activeHostId,
+                            child: TerminalScreen(
+                              key: ValueKey('workspace-${host.id}'),
+                              host: host,
+                              fonts: widget.fonts,
+                              showSftp:
+                                  host.id == _activeHostId && _terminalSftp,
+                              commandBus: _commands,
+                            ),
+                          ),
+                        ),
+                      if (_activeHostId == null)
+                        Positioned.fill(child: _screenFor(_active)),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -178,7 +216,9 @@ class _RootShellState extends State<RootShell> {
         fonts: widget.fonts,
       ),
       NavDestination.forwards => const ForwardsScreen(),
-      NavDestination.snippets => const SnippetsScreen(),
+      NavDestination.snippets => SnippetsScreen(
+        onRun: _openHosts.isEmpty ? null : _runSnippet,
+      ),
       NavDestination.knownHosts => const KnownHostsScreen(),
     };
   }

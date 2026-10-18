@@ -1,6 +1,7 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../terminal/terminal_command_bus.dart';
 import '../../theme/app_fonts.dart';
 import 'sftp_preview.dart';
 import 'terminal_view.dart';
@@ -13,12 +14,14 @@ class TerminalScreen extends StatefulWidget {
 
   /// SFTP view is toggled from the title bar's SFTP tab.
   final bool showSftp;
+  final TerminalCommandBus? commandBus;
 
   const TerminalScreen({
     super.key,
     required this.host,
     required this.fonts,
     this.showSftp = false,
+    this.commandBus,
   });
 
   @override
@@ -46,7 +49,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
           Positioned.fill(
             child: Offstage(
               offstage: widget.showSftp,
-              child: TerminalView(host: widget.host, fonts: widget.fonts),
+              child: TerminalView(
+                host: widget.host,
+                fonts: widget.fonts,
+                commandBus: widget.commandBus,
+              ),
             ),
           ),
           if (widget.showSftp)
