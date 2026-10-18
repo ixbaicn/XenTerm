@@ -11,32 +11,26 @@
 //! carries only the fields the hosts list draws (docs/features.md §1 —
 //! reveal-permission policy lives in the core's editor, not here).
 
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CString};
 use std::sync::OnceLock;
 
 /// The core, initialized exactly once per process (the bridge outlives
 /// individual screens; ConfigStore::load is cheap after the first).
-static STORE: OnceLock<Result<(), String>> = OnceLock::new();
+static STORE: OnceLock<Result<xenterm::config::ConfigStore, String>> = OnceLock::new();
 
 fn store() -> Result<&'static xenterm::config::ConfigStore, String> {
-    let init = STORE.get_or_init(|| {
-        xenterm::config::ConfigStore::load()
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    });
-    init.as_ref().map(|_| ()).map_err(|e| e.clone())
+    match STORE.get_or_init(|| {
+        xenterm::config::ConfigStore::load().map_err(|e| e.to_string())
+    }) {
+        Ok(store) => Ok(store),
+        Err(error) => Err(error.clone()),
+    }
 }
 
 fn to_c(s: String) -> *mut c_char {
     // A failed allocation aborts; a NUL inside `s` cannot occur in the JSON
     // we produce (serde escapes it), so unwrap is honest here.
     CString::new(s).expect("interior NUL in bridge string").into_raw()
-}
-
-/// SAFETY (callers): `ptr` must have come from this bridge and be freed
-/// exactly once.
-unsafe fn take_c(ptr: *const c_char) -> String {
-    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
 }
 
 /// The service core's version string (版本号规范 v1: `xt-…`).
@@ -58,10 +52,21 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
                 serde_json::json!({
                     "id": s.id,
                     "label": if s.name.is_empty() { &s.host } else { &s.name },
-                    "address": s.host,
+                    "address": if s.kind == xenterm::config::SessionKind::Serial {
+                        &s.serial_port
+                    } else {
+                        &s.host
+                    },
                     "port": s.port,
                     "username": s.user,
                     "group": s.group,
+                    "kind": match s.kind {
+                        xenterm::config::SessionKind::Ssh => "ssh",
+                        xenterm::config::SessionKind::Serial => "serial",
+                        xenterm::config::SessionKind::Telnet => "telnet",
+                        xenterm::config::SessionKind::Local => "local",
+                    },
+                    "last_used": s.last_used,
                     "serial": !s.serial_port.is_empty(),
                 })
             })

@@ -34,14 +34,12 @@ class HostDetailsPanel extends StatelessWidget {
   final Host host;
   final VoidCallback onClose;
   final VoidCallback onConnect;
-  final VoidCallback onEditAll;
 
   const HostDetailsPanel({
     super.key,
     required this.host,
     required this.onClose,
     required this.onConnect,
-    required this.onEditAll,
   });
 
   @override
@@ -59,8 +57,6 @@ class HostDetailsPanel extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const _VaultCard(name: 'Personal'),
-                  const SizedBox(height: 15),
                   _FormCard(
                     children: [
                       const _SectionTitle('Address'),
@@ -92,36 +88,6 @@ class HostDetailsPanel extends StatelessWidget {
                       ),
                       const _BackspaceRow(),
                     ],
-                  ),
-                  const SizedBox(height: 15),
-                  // Share this host — wrapper padding 10, ghost accent button
-                  // with the team icon at its right.
-                  Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: SizedBox(
-                      height: 36,
-                      child: TextButton(
-                        onPressed: onEditAll,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Share this host',
-                              style: theme.typography.medium.copyWith(
-                                fontSize: 14,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Icon(
-                              LucideIcons.users,
-                              size: 18,
-                              color: theme.colorScheme.primary,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 15),
                   _FormCard(
@@ -417,42 +383,7 @@ class _BackspaceRow extends StatelessWidget {
   }
 }
 
-/// The vault selector card: --card-a, radius 10, 15/20 padding, 16px icon and
-/// body1 name, chevron at the right.
-class _VaultCard extends StatelessWidget {
-  final String name;
 
-  const _VaultCard({required this.name});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      decoration: BoxDecoration(
-        color: _cardSurface,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
-      child: Row(
-        children: [
-          Icon(LucideIcons.vault, size: 16, color: theme.colorScheme.foreground),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              name,
-              style: theme.typography.normal.copyWith(
-                fontSize: 16,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-          ),
-          Icon(LucideIcons.chevronDown,
-              size: 14, color: theme.colorScheme.foreground),
-        ],
-      ),
-    );
-  }
-}
 
 /// "SSH on [22] port" with a 1px --dark-grey-5 divider underneath.
 class _PortRow extends StatelessWidget {

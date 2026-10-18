@@ -147,27 +147,6 @@ class _SplitButtonState extends State<SplitButton> {
                     onTap: _menu.hide,
                     theme: theme,
                   ),
-                  _MenuEntry(
-                    icon: LucideIcons.cloud,
-                    label: 'AWS Integration',
-                    upgrade: true,
-                    onTap: _menu.hide,
-                    theme: theme,
-                  ),
-                  _MenuEntry(
-                    icon: LucideIcons.droplet,
-                    label: 'DigitalOcean Integration',
-                    upgrade: true,
-                    onTap: _menu.hide,
-                    theme: theme,
-                  ),
-                  _MenuEntry(
-                    icon: LucideIcons.cloudCog,
-                    label: 'Azure Integration',
-                    upgrade: true,
-                    onTap: _menu.hide,
-                    theme: theme,
-                  ),
                 ],
               ),
             ),
@@ -225,11 +204,10 @@ class _SplitSegmentState extends State<_SplitSegment> {
   }
 }
 
-/// One dropdown row: 16px icon, 14px label, optional upgrade badge at right.
+/// One dropdown row: 16px icon, 14px label.
 class _MenuEntry extends StatefulWidget {
   final IconData icon;
   final String label;
-  final bool upgrade;
   final VoidCallback onTap;
   final ThemeData theme;
 
@@ -238,7 +216,6 @@ class _MenuEntry extends StatefulWidget {
     required this.label,
     required this.onTap,
     required this.theme,
-    this.upgrade = false,
   });
 
   @override
@@ -280,9 +257,6 @@ class _MenuEntryState extends State<_MenuEntry> {
                   ),
                 ),
               ),
-              if (widget.upgrade)
-                const Icon(LucideIcons.circleArrowOutUpRight,
-                    size: 15, color: Color(0xFF8D91A5)),
             ],
           ),
         ),

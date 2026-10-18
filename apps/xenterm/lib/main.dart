@@ -1,6 +1,7 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'data/hosts.dart';
 import 'shell/root_shell.dart';
 import 'theme/termius_theme.dart';
 import 'theme/app_fonts.dart';
@@ -30,7 +31,10 @@ Future<void> main() async {
 
 class XenTermApp extends StatefulWidget {
   final AppFonts? fonts;
-  const XenTermApp({super.key, this.fonts});
+  /// Overrides the hosts loader (widget tests use the sample fixture; the app
+  /// loads the real sessions from the Rust core).
+  final Future<List<Host>> Function()? hostsLoader;
+  const XenTermApp({super.key, this.fonts, this.hostsLoader});
 
   @override
   State<XenTermApp> createState() => _XenTermAppState();
@@ -77,6 +81,7 @@ class _XenTermAppState extends State<XenTermApp> {
           lightTheme: _lightTheme,
           onThemeChanged: (light) => setState(() => _lightTheme = light),
           fonts: _fonts,
+          hostsLoader: widget.hostsLoader,
         ),
       ),
     );

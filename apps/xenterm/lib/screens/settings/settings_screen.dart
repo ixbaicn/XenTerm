@@ -41,14 +41,13 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _tabs = [
-    'Account',
     'Terminal',
     'SFTP',
     'Logs',
     'Shortcuts',
   ];
 
-  int _tab = 1; // Terminal holds the functional settings.
+  int _tab = 0; // Terminal holds the functional settings.
 
   // Preview-only toggles (backend integration pending, as before).
   final Map<String, bool> _toggles = {
@@ -115,26 +114,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   List<Widget> _contentFor(int tab) => switch (tab) {
-        0 => _accountTab(),
-        1 => _terminalTab(),
-        2 => _sftpTab(),
-        3 => _logsTab(),
+        0 => _terminalTab(),
+        1 => _sftpTab(),
+        2 => _logsTab(),
         _ => _shortcutsTab(),
       };
 
   // ── Tab pages ─────────────────────────────────────────────────────────
-
-  List<Widget> _accountTab() => [
-        _SectionCard(
-          title: 'Account',
-          children: const [
-            _SettingsText(
-              'XenTerm runs locally on this device. Accounts, sync and team '
-              'vaults arrive with the backend integration.',
-            ),
-          ],
-        ),
-      ];
 
   List<Widget> _terminalTab() {
     final fonts = widget.fonts;

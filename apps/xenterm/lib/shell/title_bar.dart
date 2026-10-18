@@ -57,23 +57,6 @@ class TitleBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 5),
                 const _TitlePill(
-                  icon: Icon(LucideIcons.vault,
-                      size: 15, color: Color(0xFF8D91A5)),
-                  label: 'Vaults',
-                  filled: true,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(LucideIcons.cloud,
-                          size: 13, color: Color(0xFF8D91A5)),
-                      SizedBox(width: 6),
-                      Icon(LucideIcons.chevronDown,
-                          size: 12, color: Color(0xFF8D91A5)),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 5),
-                const _TitlePill(
                   icon: Icon(LucideIcons.folderOpen,
                       size: 15, color: Color(0xFF8D91A5)),
                   label: 'SFTP',
@@ -106,14 +89,10 @@ class TitleBar extends StatelessWidget {
 class _TitlePill extends StatefulWidget {
   final Widget icon;
   final String label;
-  final Widget? trailing;
-  final bool filled;
 
   const _TitlePill({
     required this.icon,
     required this.label,
-    this.trailing,
-    this.filled = false,
   });
 
   @override
@@ -142,9 +121,7 @@ class _TitlePillState extends State<_TitlePill> {
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: widget.filled
-                ? const Color(0xFF2C2F3F)
-                : (_hovering ? const Color(0xFF2C2F3F) : Colors.transparent),
+            color: _hovering ? const Color(0xFF2C2F3F) : Colors.transparent,
             borderRadius: BorderRadius.circular(TermiusRadius.field),
           ),
           child: Row(
@@ -155,10 +132,6 @@ class _TitlePillState extends State<_TitlePill> {
               Text(widget.label,
                   style: theme.typography.normal
                       .copyWith(fontSize: 14, color: fg)),
-              if (widget.trailing != null) ...[
-                const SizedBox(width: 8),
-                widget.trailing!,
-              ],
             ],
           ),
         ),

@@ -36,3 +36,19 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
 - 布局、交互、动画按 design-tokens.md 的 MUI 刻度实现（150–375ms、
   cubic-bezier(0,0,0.2,1)）。
 - 截图比对验证阶段：**无视觉能力的模型须暂停并请用户接管**。
+
+## 已落地（第一步，C ABI 直连）
+
+- `apps/xenterm/native/` 暴露三个 C 符号：`xenterm_core_version`、
+  `xenterm_sessions_json`、`xenterm_string_free`；字符串由调用方通过
+  `xenterm_string_free` 释放。会话投影只含列表字段（id/label/address/port/
+  username/group/kind/last_used），密码与私钥不出核心。
+- Dart 侧 `apps/xenterm/lib/bridge/native_bridge.dart` 用 `dart:ffi` 加载
+  `xenterm_bridge.dll`（macOS/Linux 对应 `.dylib`/`.so`，可用
+  `XENTERM_BRIDGE_PATH` 覆盖）。`ConfigStore::load` 会触达系统钥匙串与
+  SQLite，因此读取放在 `Isolate.run`，UI 线程不阻塞。
+- 主机屏通过 `loadHostsFromCore()` 读取真实会话：空列表显示空状态，加载失败
+  显示错误与重试；widget 测试注入 `kSampleHosts` 作为夹具，不伪装生产数据。
+- 构建与放置：`apps/xenterm/tool/build_native.ps1`（Windows）或
+  `build_native.sh`，产物需与 Flutter 可执行文件同目录。
+- 未实现：连接生命周期、终端输出流、SFTP 与资源采样（下一步）。

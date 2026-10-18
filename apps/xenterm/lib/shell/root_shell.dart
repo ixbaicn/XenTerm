@@ -36,12 +36,14 @@ class RootShell extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
   final AppFonts fonts;
+  final Future<List<Host>> Function()? hostsLoader;
 
   const RootShell({
     super.key,
     required this.lightTheme,
     required this.onThemeChanged,
     required this.fonts,
+    this.hostsLoader,
   });
 
   @override
@@ -100,6 +102,7 @@ class _RootShellState extends State<RootShell> {
     return switch (destination) {
       NavDestination.hosts => HostsScreen(
         onConnect: (host) => setState(() => _terminalHost = host),
+        loadHosts: widget.hostsLoader,
       ),
       NavDestination.keys => const KeychainScreen(),
       NavDestination.logs => const LogsScreen(),

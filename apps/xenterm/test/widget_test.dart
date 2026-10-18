@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart' as material;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/main.dart';
 import 'package:xenterm_app/theme/app_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('the shell mounts with the hosts screen showing', (tester) async {
-    await tester.pumpWidget(const XenTermApp());
+    await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
+    await tester.pumpAndSettle();
     expect(find.text('Hosts'), findsWidgets);
     // The toolbar's button and the grid's tail card both say it.
     expect(find.text('New host'), findsWidgets);
@@ -16,7 +18,8 @@ void main() {
   testWidgets('a host opens the terminal preview and can be closed', (
     tester,
   ) async {
-    await tester.pumpWidget(const XenTermApp());
+    await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
+    await tester.pumpAndSettle();
     // A plain card click connects immediately.
     await tester.tap(find.text('gateway-test02'));
     await tester.pumpAndSettle();
@@ -43,7 +46,8 @@ void main() {
   testWidgets(
     'SFTP preview opens once, switches tabs, and closes independently',
     (tester) async {
-      await tester.pumpWidget(const XenTermApp());
+      await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
+    await tester.pumpAndSettle();
       // The hover pencil opens the details drawer (edit path).
       await tester.tap(find.byKey(const ValueKey('edit-gw2')));
       await tester.pumpAndSettle();
@@ -94,7 +98,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final fonts = AppFonts();
     addTearDown(fonts.dispose);
-    await tester.pumpWidget(XenTermApp(fonts: fonts));
+    await tester.pumpWidget(XenTermApp(
+      fonts: fonts,
+      hostsLoader: () async => kSampleHosts,
+    ));
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     expect(find.text('Terminal settings'), findsOneWidget);

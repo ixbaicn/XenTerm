@@ -6,6 +6,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../theme/termius_theme.dart';
 import '../../widgets/toolbar.dart';
@@ -16,8 +17,10 @@ enum HostsLayout { cards, rows }
 
 class HostsScreen extends StatefulWidget {
   final ValueChanged<Host>? onConnect;
+  /// Session source; defaults to the Rust core through the FFI bridge.
+  final Future<List<Host>> Function()? loadHosts;
 
-  const HostsScreen({super.key, this.onConnect});
+  const HostsScreen({super.key, this.onConnect, this.loadHosts});
 
   @override
   State<HostsScreen> createState() => _HostsScreenState();
@@ -29,6 +32,36 @@ class _HostsScreenState extends State<HostsScreen> {
   Host? _drawerHost;
   bool _drawerOpen = false;
   String _query = '';
+  List<Host> _hosts = const [];
+  bool _loading = true;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final hosts = await (widget.loadHosts ?? loadHostsFromCore)();
+      if (!mounted) return;
+      setState(() {
+        _hosts = hosts;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = error is NativeBridgeError ? error.message : '$error';
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -38,8 +71,8 @@ class _HostsScreenState extends State<HostsScreen> {
 
   List<Host> get _filtered {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return kSampleHosts;
-    return kSampleHosts
+    if (q.isEmpty) return _hosts;
+    return _hosts
         .where(
           (h) =>
               h.label.toLowerCase().contains(q) ||
@@ -256,9 +289,23 @@ class _HostsScreenState extends State<HostsScreen> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-                  child: _layout == HostsLayout.cards
-                      ? _cardGrid(hosts)
-                      : _rowList(hosts),
+                  child: _loading
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            size: 20,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : _loadError != null
+                          ? _ErrorState(
+                              message: _loadError!,
+                              onRetry: _reload,
+                            )
+                          : hosts.isEmpty
+                              ? const _EmptyState()
+                              : _layout == HostsLayout.cards
+                                  ? _cardGrid(hosts)
+                                  : _rowList(hosts),
                 ),
               ),
             ],
@@ -269,12 +316,17 @@ class _HostsScreenState extends State<HostsScreen> {
         // the whole content height; the hosts column reflows beside it.
         _DrawerSlider(
           open: _drawerOpen,
-          child: HostDetailsPanel(
-            host: _drawerHost ?? kSampleHosts.first,
-            onClose: _closeDrawer,
-            onConnect: () => _connect(_drawerHost),
-            onEditAll: () {},
-          ),
+          child: _drawerHost == null
+              ? const SizedBox.shrink()
+              : HostDetailsPanel(
+                  host: _drawerHost!,
+                  onClose: _closeDrawer,
+                  onConnect: () {
+                    final host = _drawerHost;
+                    _closeDrawer();
+                    _connect(host);
+                  },
+                ),
         ),
       ],
     );
@@ -319,6 +371,75 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.server,
+              size: 34, color: theme.colorScheme.mutedForeground),
+          const SizedBox(height: 12),
+          Text('No hosts yet',
+              style: theme.typography.semiBold.copyWith(
+                  fontSize: 16, color: theme.colorScheme.foreground)),
+          const SizedBox(height: 4),
+          Text('Hosts saved by the XenTerm core appear here.',
+              style: theme.typography.normal.copyWith(
+                  fontSize: 13, color: theme.colorScheme.mutedForeground)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.circleAlert,
+              size: 30, color: theme.colorScheme.destructive),
+          const SizedBox(height: 12),
+          Text('Could not load hosts',
+              style: theme.typography.semiBold.copyWith(
+                  fontSize: 16, color: theme.colorScheme.foreground)),
+          const SizedBox(height: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.typography.normal.copyWith(
+                  fontSize: 12, color: theme.colorScheme.mutedForeground),
+            ),
+          ),
+          const SizedBox(height: 12),
+          GhostButton(
+            density: ButtonDensity.compact,
+            onPressed: onRetry,
+            child: Text('Retry',
+                style: theme.typography.normal.copyWith(
+                    fontSize: 13, color: theme.colorScheme.foreground)),
+          ),
+        ],
+      ),
     );
   }
 }
