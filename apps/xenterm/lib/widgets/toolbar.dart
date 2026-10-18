@@ -7,9 +7,12 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../theme/termius_theme.dart';
 
-/// [+ Label | ▾] — the original is ONE pill (--dark-grey-4) split by a
-/// hairline, each half highlighting on its own hover.
-class SplitButton extends StatelessWidget {
+/// [+ Label | ▾] — the original is TWO segments 2px apart (source:
+/// `toolbarButtonWithMenu { display:flex; gap:2px }`, main radius 8/2/2/8,
+/// menu button square, radius 2/8/8/2). The chevron rotates 180° while open.
+/// Its dropdown carries New Group / Import / the cloud integrations, the
+/// integrations tagged with the upgrade badge.
+class SplitButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
@@ -24,43 +27,264 @@ class SplitButton extends StatelessWidget {
   });
 
   @override
+  State<SplitButton> createState() => _SplitButtonState();
+}
+
+class _SplitButtonState extends State<SplitButton> {
+  final OverlayPortalController _menu = OverlayPortalController();
+  final LayerLink _link = LayerLink();
+
+  void _toggleMenu() {
+    if (_menu.isShowing) {
+      _menu.hide();
+    } else {
+      _menu.show();
+      widget.onDropdown?.call();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(TermiusRadius.field),
-      child: Container(
-        height: 36,
-        color: const Color(0xFF32364A), // --dark-grey-4
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _SplitSegment(
-              onTap: onPressed,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 14, color: theme.colorScheme.foreground),
-                  const SizedBox(width: 8),
-                  Text(label,
-                      style: theme.typography.medium.copyWith(
-                          fontSize: 14,
-                          color: theme.colorScheme.foreground)),
-                ],
-              ),
+    const outer = Radius.circular(TermiusRadius.card); // 8
+    const inner = Radius.circular(2);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SplitSegment(
+          onTap: widget.onPressed,
+          radius: const BorderRadius.only(
+            topLeft: outer,
+            bottomLeft: outer,
+            topRight: inner,
+            bottomRight: inner,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(widget.icon,
+                  size: 14, color: theme.colorScheme.foreground),
+              const SizedBox(width: 8),
+              Text(widget.label,
+                  style: theme.typography.medium.copyWith(
+                      fontSize: 14, color: theme.colorScheme.foreground)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 2),
+        CompositedTransformTarget(
+          link: _link,
+          child: _SplitSegment(
+            onTap: _toggleMenu,
+            radius: const BorderRadius.only(
+              topLeft: inner,
+              bottomLeft: inner,
+              topRight: outer,
+              bottomRight: outer,
             ),
-            Container(
-              width: 1,
-              height: 20,
-              color: const Color(0xFF282B3D), // hairline on the pill
-            ),
-            _SplitSegment(
-              onTap: onDropdown,
-              padding: const EdgeInsets.symmetric(horizontal: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: AnimatedRotation(
+              turns: _menu.isShowing ? 0.5 : 0,
+              duration: TermiusMotion.micro,
+              curve: TermiusMotion.easeOut,
               child: Icon(LucideIcons.chevronDown,
                   size: 14, color: theme.colorScheme.foreground),
             ),
-          ],
+          ),
+        ),
+        OverlayPortal(controller: _menu, overlayChildBuilder: _overlay),
+      ],
+    );
+  }
+
+  Widget _overlay(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _menu.hide,
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        CompositedTransformFollower(
+          link: _link,
+          targetAnchor: Alignment.bottomLeft,
+          followerAnchor: Alignment.topLeft,
+          offset: const Offset(0, 8), // source: menu marginTop 8px
+          showWhenUnlinked: false,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Container(
+              width: 300,
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF282B3D), // --card-c
+                borderRadius: BorderRadius.circular(TermiusRadius.field),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _MenuEntry(
+                    icon: LucideIcons.layoutGrid,
+                    label: 'New Group',
+                    onTap: _menu.hide,
+                    theme: theme,
+                  ),
+                  _MenuEntry(
+                    icon: LucideIcons.download,
+                    label: 'Import',
+                    onTap: _menu.hide,
+                    theme: theme,
+                  ),
+                  _MenuEntry(
+                    icon: LucideIcons.cloud,
+                    label: 'AWS Integration',
+                    upgrade: true,
+                    onTap: _menu.hide,
+                    theme: theme,
+                  ),
+                  _MenuEntry(
+                    icon: LucideIcons.droplet,
+                    label: 'DigitalOcean Integration',
+                    upgrade: true,
+                    onTap: _menu.hide,
+                    theme: theme,
+                  ),
+                  _MenuEntry(
+                    icon: LucideIcons.cloudCog,
+                    label: 'Azure Integration',
+                    upgrade: true,
+                    onTap: _menu.hide,
+                    theme: theme,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One split-button segment: its own rounded rect, hover one step lighter.
+class _SplitSegment extends StatefulWidget {
+  final VoidCallback? onTap;
+  final EdgeInsetsGeometry padding;
+  final BorderRadius radius;
+  final Widget child;
+
+  const _SplitSegment({
+    required this.onTap,
+    required this.padding,
+    required this.radius,
+    required this.child,
+  });
+
+  @override
+  State<_SplitSegment> createState() => _SplitSegmentState();
+}
+
+class _SplitSegmentState extends State<_SplitSegment> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 36,
+          padding: widget.padding,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hovering ? const Color(0xFF3E4257) : const Color(0xFF32364A),
+            borderRadius: widget.radius,
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+/// One dropdown row: 16px icon, 14px label, optional upgrade badge at right.
+class _MenuEntry extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool upgrade;
+  final VoidCallback onTap;
+  final ThemeData theme;
+
+  const _MenuEntry({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.theme,
+    this.upgrade = false,
+  });
+
+  @override
+  State<_MenuEntry> createState() => _MenuEntryState();
+}
+
+class _MenuEntryState extends State<_MenuEntry> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: TermiusMotion.micro,
+          curve: TermiusMotion.easeOut,
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: _hovering ? const Color(0xFF3E4257) : Colors.transparent,
+            borderRadius: BorderRadius.circular(TermiusRadius.card),
+          ),
+          child: Row(
+            children: [
+              Icon(widget.icon, size: 16, color: const Color(0xFF8D91A5)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: theme.typography.medium.copyWith(
+                    fontSize: 14,
+                    color: theme.colorScheme.foreground,
+                  ),
+                ),
+              ),
+              if (widget.upgrade)
+                const Icon(LucideIcons.circleArrowOutUpRight,
+                    size: 15, color: Color(0xFF8D91A5)),
+            ],
+          ),
         ),
       ),
     );
@@ -178,49 +402,6 @@ class SectionTitle extends StatelessWidget {
       child: Text(text,
           style: theme.typography.bold.copyWith(
               fontSize: 18, color: theme.colorScheme.foreground)),
-    );
-  }
-}
-
-
-/// One half of the split pill: independent hover, same fill as the parent
-/// container until hovered.
-class _SplitSegment extends StatefulWidget {
-  final VoidCallback? onTap;
-  final EdgeInsetsGeometry padding;
-  final Widget child;
-
-  const _SplitSegment({
-    required this.onTap,
-    required this.padding,
-    required this.child,
-  });
-
-  @override
-  State<_SplitSegment> createState() => _SplitSegmentState();
-}
-
-class _SplitSegmentState extends State<_SplitSegment> {
-  bool _hovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          color: _hovering ? const Color(0xFF3E4257) : Colors.transparent,
-          padding: widget.padding,
-          alignment: Alignment.center,
-          child: widget.child,
-        ),
-      ),
     );
   }
 }
