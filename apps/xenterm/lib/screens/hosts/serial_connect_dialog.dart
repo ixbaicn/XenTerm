@@ -270,33 +270,15 @@ class _SerialConnectDialogState extends State<SerialConnectDialog> {
                             ],
                           ),
                           const SizedBox(height: 6),
-                          TermiusField(
-                            key: const ValueKey('serial-port'),
+                          // Dropdown + free input: picking a detected port
+                          // fills the field, but any device path can still be
+                          // typed (network serial servers, unusual drivers).
+                          _PortComboField(
                             controller: _port,
-                            placeholder: 'COM3 or /dev/ttyUSB0',
-                            leading: const Icon(
-                              LucideIcons.usb,
-                              size: 14,
-                              color: Color(0xFF8D91A5),
-                            ),
+                            ports: _ports,
+                            loading: _loadingPorts,
+                            onRefresh: _refreshPorts,
                           ),
-                          if (_ports.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                for (final port in _ports)
-                                  _PortChip(
-                                    key: ValueKey('serial-port-${port.name}'),
-                                    label: port.label,
-                                    selected: _port.text == port.name,
-                                    onTap: () =>
-                                        setState(() => _port.text = port.name),
-                                  ),
-                              ],
-                            ),
-                          ],
                           const SizedBox(height: 14),
                           _labelText('BAUD RATE', theme),
                           const SizedBox(height: 6),
@@ -543,46 +525,242 @@ class _SerialConnectDialogState extends State<SerialConnectDialog> {
   };
 }
 
-class _PortChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// Editable port field with a dropdown of detected devices.
+///
+/// The text stays editable (a serial server path is not always an enumerated
+/// COM/tty device); the chevron lists what the OS reported and fills the field
+/// on selection.
+class _PortComboField extends StatefulWidget {
+  final TextEditingController controller;
+  final List<SerialPortInfo> ports;
+  final bool loading;
+  final VoidCallback onRefresh;
 
-  const _PortChip({
-    super.key,
-    required this.label,
-    required this.selected,
-    required this.onTap,
+  const _PortComboField({
+    required this.controller,
+    required this.ports,
+    required this.loading,
+    required this.onRefresh,
   });
 
   @override
+  State<_PortComboField> createState() => _PortComboFieldState();
+}
+
+class _PortComboFieldState extends State<_PortComboField> {
+  final OverlayPortalController _menu = OverlayPortalController();
+  final LayerLink _link = LayerLink();
+  double _width = 0;
+
+  void _toggle() {
+    if (_menu.isShowing) {
+      _menu.hide();
+    } else {
+      _menu.show();
+    }
+  }
+
+  void _pick(SerialPortInfo port) {
+    widget.controller.text = port.name;
+    widget.controller.selection = TextSelection.collapsed(
+      offset: port.name.length,
+    );
+    _menu.hide();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected
-              ? theme.colorScheme.primary.withValues(alpha: 0.18)
-              : const Color(0xFF282B3D),
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(
-            color: selected
-                ? theme.colorScheme.primary
-                : const Color(0xFF3E4257),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            color: selected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.mutedForeground,
-          ),
+    return OverlayPortal(
+      controller: _menu,
+      overlayChildBuilder: _overlay,
+      child: CompositedTransformTarget(
+        link: _link,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth.isFinite) {
+              _width = constraints.maxWidth;
+            }
+            return TermiusField(
+              key: const ValueKey('serial-port'),
+              controller: widget.controller,
+              placeholder: 'COM3 or /dev/ttyUSB0',
+              leading: const Icon(
+                LucideIcons.usb,
+                size: 14,
+                color: Color(0xFF8D91A5),
+              ),
+              trailing: GestureDetector(
+                key: const ValueKey('serial-port-toggle'),
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggle,
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: Center(
+                    child: widget.loading
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.5),
+                          )
+                        : Icon(
+                            _menu.isShowing
+                                ? LucideIcons.chevronUp
+                                : LucideIcons.chevronDown,
+                            size: 15,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .mutedForeground,
+                          ),
+                  ),
+                ),
+              ),
+            );
+          },
         ),
       ),
+    );
+  }
+
+  Widget _overlay(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _menu.hide,
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        CompositedTransformFollower(
+          link: _link,
+          targetAnchor: Alignment.bottomLeft,
+          followerAnchor: Alignment.topLeft,
+          offset: const Offset(0, 6),
+          showWhenUnlinked: false,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: Container(
+              width: _width > 0 ? _width : 320,
+              constraints: const BoxConstraints(maxHeight: 260),
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF282B3D),
+                borderRadius: BorderRadius.circular(TermiusRadius.field),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66000000),
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (widget.ports.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 10,
+                        ),
+                        child: Text(
+                          widget.loading
+                              ? 'Scanning serial ports…'
+                              : 'No serial ports detected — type a device path',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.mutedForeground,
+                          ),
+                        ),
+                      )
+                    else
+                      for (final port in widget.ports)
+                        GestureDetector(
+                          key: ValueKey('serial-port-${port.name}'),
+                          onTap: () => _pick(port),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: widget.controller.text == port.name
+                                  ? theme.colorScheme.muted
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    port.name,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: theme.colorScheme.foreground,
+                                    ),
+                                  ),
+                                ),
+                                if (widget.controller.text == port.name) ...[
+                                  Icon(
+                                    LucideIcons.check,
+                                    size: 13,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                  const SizedBox(width: 6),
+                                ],
+                                Text(
+                                  port.kind,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: theme.colorScheme.mutedForeground,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    const Divider(height: 9, color: Color(0xFF3E4257)),
+                    GestureDetector(
+                      key: const ValueKey('serial-port-refresh'),
+                      onTap: () {
+                        _menu.hide();
+                        widget.onRefresh();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              LucideIcons.refreshCw,
+                              size: 13,
+                              color: theme.colorScheme.mutedForeground,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Refresh ports',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: theme.colorScheme.mutedForeground,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

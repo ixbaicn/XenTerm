@@ -31,8 +31,6 @@ void main() {
     await tester.pumpAndSettle();
 
     // The first attached port is selected for a new connection.
-    expect(find.byKey(const ValueKey('serial-port-COM3')), findsOne);
-    expect(find.byKey(const ValueKey('serial-port-COM7')), findsOne);
     expect(
       tester
           .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
@@ -41,12 +39,25 @@ void main() {
       'COM3',
     );
 
+    // The port field is a dropdown: open it and pick another detected device.
+    await tester.tap(find.byKey(const ValueKey('serial-port-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('serial-port-COM3')), findsOne);
+    expect(find.byKey(const ValueKey('serial-port-COM7')), findsOne);
+    await tester.tap(find.byKey(const ValueKey('serial-port-COM7')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .controller
+          ?.text,
+      'COM7',
+    );
+
     await tester.enterText(
       find.byKey(const ValueKey('serial-label')),
       'Console',
     );
-    await tester.tap(find.byKey(const ValueKey('serial-port-COM7')));
-    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('serial-advanced')));
     await tester.pumpAndSettle();
@@ -117,5 +128,31 @@ void main() {
     expect(submitted!.parity, 'odd');
     expect(submitted!.flowControl, 'hardware');
     expect(submitted!.password, '');
+  });
+
+  testWidgets('a device path can be typed without picking from the list', (
+    tester,
+  ) async {
+    SerialDraft? submitted;
+    await tester.pumpWidget(
+      _app(
+        SerialConnectDialog(
+          loadPorts: () async => const [
+            SerialPortInfo(name: 'COM3', kind: 'USB'),
+          ],
+          onSubmit: (draft) => submitted = draft,
+          onClose: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey('serial-port')),
+      r'\\.\COM42',
+    );
+    await tester.tap(find.byKey(const ValueKey('serial-connect')));
+    await tester.pumpAndSettle();
+    expect(submitted!.port, r'\\.\COM42');
   });
 }

@@ -118,8 +118,9 @@ DTO 与 Stream；核心 crate 保持零前端依赖，`arch_guards` 守卫继续
 - 测试补充：`cargo test -p xenterm-bridge` 覆盖分组往返与 SSH 配置导入；
   `flutter test` 覆盖分组折叠/新建/重命名/删除、导入横幅与资源面板渲染。
 - 串口连接：`xenterm_serial_ports_json` 枚举本机串口（名称 + USB/PCI/
-  Bluetooth 标签）。Serial 按钮打开模态连接面板：端口（探测列表 + 手工
-  输入）、波特率，Advanced 展开数据位/停止位/校验/流控，以及可选的
+  Bluetooth 标签）。Serial 按钮打开模态连接面板：端口为可编辑的下拉框
+  （下拉列出探测结果，选中即填入；也允许直接输入设备路径）、波特率，
+  Advanced 展开数据位/停止位/校验/流控，以及可选的
   console 登录用户名/密码；编辑串口主机时铅笔按钮同样打开该面板。会话
   的串口参数通过 `xenterm_session_upsert` 持久化（baud_rate/data_bits/
   stop_bits/parity/flow_control），仅返回 `has_password` 而不回传密码。

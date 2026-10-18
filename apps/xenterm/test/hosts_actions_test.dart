@@ -3,6 +3,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
+import 'package:xenterm_app/theme/termius_field.dart';
 import 'package:xenterm_app/theme/termius_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
@@ -199,7 +200,13 @@ void main() {
     await tester.tap(find.text('Serial'));
     await tester.pumpAndSettle();
     expect(find.text('Serial connection'), findsOne);
-    expect(find.byKey(const ValueKey('serial-port-COM3')), findsOne);
+    expect(
+      tester
+          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .controller
+          ?.text,
+      'COM3',
+    );
 
     await tester.tap(find.byKey(const ValueKey('serial-connect')));
     await tester.pumpAndSettle();
