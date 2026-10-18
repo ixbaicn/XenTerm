@@ -115,6 +115,18 @@ abstract final class TermiusMetrics {
   static const double gridCardWidth = 430;
 }
 
+/// Brightness-aware strip colors: the titlebar/tabs bar sits one step off
+/// the content surface in both modes (original RDe/.lighter styles).
+Color termiusTitleBarColor(Brightness brightness) =>
+    brightness == Brightness.dark
+        ? const Color(0xFF141729) // --dark-grey-1
+        : const Color(0xFFF7F9FA); // --light-grey-7
+
+Color termiusTitleBarBorderColor(Brightness brightness) =>
+    brightness == Brightness.dark
+        ? const Color(0xFF32364A) // --dark-grey-4
+        : const Color(0xFF798C94).withValues(alpha: 0.25);
+
 /// Duration/easing slots from Termius's MUI theme (design-tokens.md §5).
 abstract final class TermiusMotion {
   /// MUI `shorter`: micro-feedback (color fades, hover reveals).

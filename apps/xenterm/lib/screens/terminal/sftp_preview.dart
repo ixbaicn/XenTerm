@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../theme/termius_theme.dart';
 
 /// SFTP workspace placeholder; no remote filesystem or connection is accessed.
 class SftpPreview extends StatelessWidget {
@@ -13,7 +14,7 @@ class SftpPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      color: const Color(0xFF141729),
+      color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
       alignment: Alignment.center,
       padding: const EdgeInsets.all(24),
       child: Column(

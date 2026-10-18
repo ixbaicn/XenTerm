@@ -205,7 +205,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1D2033),
+              color: theme.colorScheme.background,
               border: Border(top: BorderSide(color: theme.colorScheme.border)),
             ),
             child: SizedBox(

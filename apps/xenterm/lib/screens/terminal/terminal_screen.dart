@@ -41,7 +41,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
           Container(
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 18),
-            color: const Color(0xFF141729),
+            color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
             child: Row(
               children: [
                 _tab(context, BootstrapIcons.cloudFill, 'Vault', false, null),
@@ -138,7 +138,7 @@ class _TerminalScreenState extends State<TerminalScreen> {
                       child: _sftpActive && _showSftp
                           ? SftpPreview(host: widget.host)
                           : Container(
-                              color: const Color(0xFF141729),
+                              color: termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
                               padding: const EdgeInsets.all(18),
                               alignment: Alignment.topLeft,
                               child: Column(

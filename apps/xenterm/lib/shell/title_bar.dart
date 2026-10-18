@@ -20,6 +20,7 @@ class TitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     // DragToMoveArea wraps the entire bar: drag anywhere that is not an
     // interactive child, double-click toggles maximize — the native
     // titlebar's two gestures, re-provided.
@@ -33,9 +34,9 @@ class TitleBar extends StatelessWidget {
           }
         },
         child: Container(
-          height: 51,
-          color: const Color(0xFF141729), // --dark-grey-1
-          padding: const EdgeInsets.fromLTRB(9, 11, 0, 10),
+          height: 56,
+          color: termiusTitleBarColor(theme.colorScheme.brightness),
+          padding: const EdgeInsets.fromLTRB(10, 8, 0, 8),
           child: Row(
             children: [
               const Padding(
@@ -111,7 +112,7 @@ class _TitlePillState extends State<_TitlePill> {
           height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
-            color: const Color(0xFF1D2033),
+            color: theme.colorScheme.background,
             borderRadius: BorderRadius.circular(TermiusRadius.field),
             border: Border.all(
               color: _hovering

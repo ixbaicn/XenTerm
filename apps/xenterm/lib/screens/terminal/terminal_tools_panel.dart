@@ -407,7 +407,7 @@ class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
                     decoration: BoxDecoration(
                       color: name.contains('Light')
                           ? const Color(0xFFE6EBED)
-                          : const Color(0xFF141729),
+                          : termiusTitleBarColor(Theme.of(context).colorScheme.brightness),
                       borderRadius: BorderRadius.circular(TermiusRadius.menu),
                     ),
                     child: Column(
