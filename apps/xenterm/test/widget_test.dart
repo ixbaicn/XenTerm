@@ -19,9 +19,9 @@ void main() {
     await tester.pumpWidget(const XenTermApp());
     await tester.tap(find.text('gateway-test02'));
     await tester.pumpAndSettle();
-    // The drawer's blue Connect (.last; the search bar's ghost 连接 is
-    // disabled while the drawer is open).
-    await tester.tap(find.text('连接').last);
+    // The drawer's blue Connect (the search bar's ghost 连接 is disabled
+    // while the drawer is open).
+    await tester.tap(find.text('Connect').last);
     await tester.pumpAndSettle();
     expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
     expect(find.text('Vault'), findsOneWidget);
@@ -49,7 +49,7 @@ void main() {
       await tester.pumpWidget(const XenTermApp());
       await tester.tap(find.text('gateway-test02'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('连接').last);
+      await tester.tap(find.text('Connect').last);
       await tester.pumpAndSettle();
 
       expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);

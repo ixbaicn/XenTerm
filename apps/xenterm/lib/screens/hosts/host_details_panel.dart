@@ -1,113 +1,34 @@
-/// The host details drawer — the original's right panel, faithful to the
-/// screenshots: header (title / ⋯ / →|), the Personal vault selector, the
-/// sections (地址 with the OS icon INSIDE the outlined field, 通用 with
-/// icon-bearing fields + the backspace row, 共享此主机, SSH on [port] 端口,
-/// 凭据), and the Connect bar pinned at the bottom.
+/// The host details drawer, rebuilt from Termius's own component source
+/// (`HostFormContent` / `FormCard` / `InputField` / `RelativeSlider` in
+/// reconnectSaga‑9aed66e2.js and hosts canvas):
 ///
-/// Field style: OUTLINED — a 1px border on a `--background` fill, radius 10 —
-/// not the filled blocks the search field uses. Icons sit inside the field's
-/// left edge; the backspace row carries its right-aligned "默认" value.
+/// - drawer width 340px, animated over 200ms, surface --dark-grey-2 #1D2033
+/// - header 56px, surface --dark-grey-3 #282B3D, bottom border --dark-grey-4,
+///   title "Host Details" 16px/600 in --dark-grey-7, then saved-check, ⋯, →|
+/// - body padding 15/15/85/15, 15px gap, cards --dark-grey-3 radius 10 with
+///   padding 15 20 20 and 10px between rows
+/// - field: 36px, 1px outline #8D91A540, radius 10, transparent fill,
+///   14px/450 text, placeholders --dark-grey-7
+/// - Address row: 36×36 OS chip (radius 8) then the field, no gap
+/// - General: Label / Parent Group (folder) / Tags (tag) / Backspace (keyboard,
+///   value "Default" right-aligned at --dark-grey-6)
+/// - Share this host: 10px padded ghost button, accent text + people icon
+/// - SSH card: "SSH on [22] port" over a 1px --dark-grey-5 divider, then
+///   "Credentials" with Username (person) and Password (key) fields
+/// - Connect bar: --dark-grey-2 band, 20/15 padding, full-width accent button
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
 import '../../theme/termius_theme.dart';
+import 'host_card.dart';
 
-/// The drawer's outlined input. [leading] and [leadingWidget] render INSIDE
-/// the field container; [trailing] right-aligns a muted value (退格键 → 默认).
-class _DrawerField extends StatelessWidget {
-  final String placeholder;
-  final String? initialValue;
-  final IconData? leading;
-  final Widget? leadingWidget;
-  final String? trailing;
-
-  const _DrawerField({
-    required this.placeholder,
-    this.initialValue,
-    this.leading,
-    this.leadingWidget,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.only(left: 6, right: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.background,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-        border: Border.all(color: theme.colorScheme.border),
-      ),
-      child: Row(
-        children: [
-          if (leadingWidget != null) ...[
-            leadingWidget!,
-            const SizedBox(width: 8),
-          ] else if (leading != null) ...[
-            Icon(leading, size: 14, color: theme.colorScheme.mutedForeground),
-            const SizedBox(width: 8),
-          ],
-          Expanded(
-            child: TextField(
-              initialValue: initialValue,
-              padding: EdgeInsets.zero,
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-              ),
-              placeholder: Text(
-                placeholder,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              style: theme.typography.normal.copyWith(
-                fontSize: 14,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-          ),
-          if (trailing != null)
-            Text(
-              trailing!,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The pink OS chip that lives inside the address field's left edge.
-class _OsChip extends StatelessWidget {
-  const _OsChip();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 28,
-      height: 28,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: Color(0xFFD70A53),
-        shape: BoxShape.circle,
-      ),
-      child: const Icon(
-        BootstrapIcons.lightningChargeFill,
-        size: 14,
-        color: Colors.white,
-      ),
-    );
-  }
-}
+const _cardSurface = Color(0xFF282B3D); // --dark-grey-3 / --card-a
+const _divider = Color(0xFF3E4257); // --dark-grey-5
+const _textDisabled = Color(0xFF5A5E73); // --dark-grey-6
+const _titleGrey = Color(0xFF8D91A5); // --dark-grey-7
+const _headerBorder = Color(0xFF32364A); // --dark-grey-4
 
 class HostDetailsPanel extends StatelessWidget {
   final Host host;
@@ -126,144 +47,132 @@ class HostDetailsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      children: [
-        _Header(onClose: onClose),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const _VaultSelector(name: 'Personal'),
-                const SizedBox(height: 16),
-                _Section(
-                  title: '地址',
-                  child: _DrawerField(
-                    initialValue: host.address,
-                    placeholder: 'IP 或主机名',
-                    leadingWidget: const _OsChip(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _Section(
-                  title: '通用',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ColoredBox(
+      color: theme.colorScheme.background, // --dark-grey-2
+      child: Column(
+        children: [
+          _Header(onClose: onClose),
+          Expanded(
+            child: SingleChildScrollView(
+              // formPaddings: 15px calc(15px - scrollbar) 85px 15px; gap 15.
+              padding: const EdgeInsets.fromLTRB(15, 15, 15, 85),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _VaultCard(name: 'Personal'),
+                  const SizedBox(height: 15),
+                  _FormCard(
                     children: [
-                      _DrawerField(
-                        initialValue: host.label,
-                        placeholder: '标签',
+                      const _SectionTitle('Address'),
+                      Row(
+                        children: [
+                          _OsChip(host: host),
+                          Expanded(
+                            child: _PanelField(
+                              initialValue: host.address,
+                              placeholder: 'IP or Hostname',
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 10),
-                      const _DrawerField(
-                        placeholder: '父分组',
-                        leading: BootstrapIcons.collection,
+                    ],
+                  ),
+                  const SizedBox(height: 15),
+                  _FormCard(
+                    children: [
+                      const _SectionTitle('General'),
+                      _PanelField(initialValue: host.label, placeholder: 'Label'),
+                      _PanelField(
+                        placeholder: 'Parent Group',
+                        leading: BootstrapIcons.folder,
                       ),
-                      const SizedBox(height: 10),
-                      const _DrawerField(
-                        placeholder: '标签',
+                      _PanelField(
+                        placeholder: 'Tags',
                         leading: BootstrapIcons.tag,
                       ),
-                      const SizedBox(height: 10),
-                      const _DrawerField(
-                        placeholder: '退格键',
-                        leading: BootstrapIcons.keyboard,
-                        trailing: '默认',
-                      ),
+                      const _BackspaceRow(),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                // 共享此主机 — a full-width outlined row, text left, people
-                // icon right, exactly the original's share affordance.
-                _OutlinedRow(
-                  onPressed: onEditAll,
-                  child: Row(
+                  const SizedBox(height: 15),
+                  // Share this host — wrapper padding 10, ghost accent button
+                  // with the team icon at its right.
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: SizedBox(
+                      height: 36,
+                      child: TextButton(
+                        onPressed: onEditAll,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Share this host',
+                              style: theme.typography.medium.copyWith(
+                                fontSize: 14,
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Icon(
+                              BootstrapIcons.peopleFill,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  _FormCard(
+                    padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
                     children: [
-                      Text(
-                        '共享此主机',
-                        style: theme.typography.normal.copyWith(
-                          fontSize: 14,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                      const Spacer(),
-                      Icon(
-                        BootstrapIcons.peopleFill,
-                        size: 15,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // SSH on [port] 端口 — the inline port row.
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    children: [
-                      Text(
-                        'SSH on',
-                        style: theme.typography.normal.copyWith(
-                          fontSize: 15,
-                          color: theme.colorScheme.foreground,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _DrawerField(
-                          initialValue: '${host.port}',
-                          placeholder: '22',
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '端口',
-                        style: theme.typography.normal.copyWith(
-                          fontSize: 15,
-                          color: theme.colorScheme.foreground,
-                        ),
+                      _PortRow(port: host.port),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const _SectionTitle('Credentials'),
+                          const SizedBox(height: 10),
+                          _PanelField(
+                            initialValue: host.username,
+                            placeholder: 'Username',
+                            leading: BootstrapIcons.person,
+                          ),
+                          const SizedBox(height: 10),
+                          const _PanelField(
+                            placeholder: 'Password',
+                            leading: BootstrapIcons.key,
+                            obscure: true,
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                _Section(
-                  title: '凭据',
-                  child: _DrawerField(
-                    initialValue: host.username,
-                    placeholder: '用户名',
-                    leading: BootstrapIcons.person,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-        // ── Connect bar, pinned to the drawer's bottom ────────────────────
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
+          // connectButton: --dark-grey-2 band, padding 20px 15px, full width.
+          Container(
             color: theme.colorScheme.background,
-            border: Border(
-              top: BorderSide(color: theme.colorScheme.border),
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
+            child: SizedBox(
+              width: double.infinity,
+              height: 36,
+              child: Button(
+                onPressed: onConnect,
+                style: const ButtonStyle.primary(),
+                child: const Text('Connect'),
+              ),
             ),
           ),
-          child: SizedBox(
-            width: double.infinity,
-            child: PrimaryButton(
-              onPressed: onConnect,
-              child: const Text('连接'),
-            ),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// The panel header: title left, ⋯ and the →| collapse at right.
+/// The 56px header: title in --dark-grey-7 16px/600, saved check, ⋯, →|.
 class _Header extends StatelessWidget {
   final VoidCallback onClose;
 
@@ -272,36 +181,83 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.only(left: 15, right: 10),
+      decoration: const BoxDecoration(
+        color: _cardSurface,
+        border: Border(bottom: BorderSide(color: _headerBorder)),
+      ),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              '主机详情',
-              style: theme.typography.semiBold.copyWith(
-                fontSize: 16,
-                color: theme.colorScheme.foreground,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 5),
+              child: Text(
+                'Host Details',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.semiBold.copyWith(
+                  fontSize: 16,
+                  color: _titleGrey,
+                ),
               ),
             ),
           ),
-          GhostButton(
-            density: ButtonDensity.compact,
-            onPressed: () {},
-            child: const Icon(
-              BootstrapIcons.threeDots,
-              size: 14,
-              color: Color(0xFF8D91A5),
-            ),
+          // savingStatus: an 18px slot with a 14px check.
+          const SizedBox(
+            width: 18,
+            child: Icon(BootstrapIcons.check2, size: 14, color: Colors.white),
           ),
-          GhostButton(
-            density: ButtonDensity.compact,
-            onPressed: onClose,
-            child: const Icon(
-              BootstrapIcons.boxArrowRight,
-              size: 14,
-              color: Color(0xFF8D91A5),
-            ),
+          const SizedBox(width: 5),
+          _HeaderIcon(
+            onPressed: () {},
+            child: const Icon(BootstrapIcons.threeDots,
+                size: 15, color: _titleGrey),
+          ),
+          _HeaderIcon(onPressed: onClose, child: const _ArrowRightPipe()),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderIcon extends StatelessWidget {
+  final VoidCallback onPressed;
+  final Widget child;
+
+  const _HeaderIcon({required this.onPressed, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.ghost(
+      onPressed: onPressed,
+      icon: child,
+      size: ButtonSize.small,
+    );
+  }
+}
+
+/// Termius's close glyph: a right arrow ending on a vertical pipe (→|).
+class _ArrowRightPipe extends StatelessWidget {
+  const _ArrowRightPipe();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 19,
+      height: 18,
+      child: Stack(
+        children: [
+          const Positioned(
+            left: 0,
+            top: 1,
+            child: Icon(BootstrapIcons.arrowRight, size: 16, color: _titleGrey),
+          ),
+          Positioned(
+            right: 0,
+            top: 2,
+            child: Container(width: 1.6, height: 14, color: _titleGrey),
           ),
         ],
       ),
@@ -309,100 +265,259 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// The vault selector: vault glyph, name, chevron — one quiet row, no card.
-class _VaultSelector extends StatelessWidget {
-  final String name;
+/// 36×36 OS chip, radius 8 — the entity icon block of the Address row.
+class _OsChip extends StatelessWidget {
+  final Host host;
 
-  const _VaultSelector({required this.name});
+  const _OsChip({required this.host});
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = osChipFor(host.id.hashCode);
+    return Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: chip.fill,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(chip.icon, size: 20, color: Colors.white),
+    );
+  }
+}
+
+/// `FormCard`: --dark-grey-3, radius 10, padding 15 20 20, children 10 apart.
+class _FormCard extends StatelessWidget {
+  final List<Widget> children;
+  final EdgeInsetsGeometry padding;
+
+  const _FormCard({
+    required this.children,
+    this.padding = const EdgeInsets.fromLTRB(20, 15, 20, 20),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final spaced = <Widget>[];
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) spaced.add(const SizedBox(height: 10));
+      spaced.add(children[i]);
+    }
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: spaced,
+      ),
+    );
+  }
+}
+
+/// The section title: body1 16px, weight 500, primary text.
+class _SectionTitle extends StatelessWidget {
+  final String text;
+
+  const _SectionTitle(this.text);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
-      height: 36,
-      child: Row(
-        children: [
-          Icon(
-            BootstrapIcons.viewStacked,
-            size: 15,
-            color: theme.colorScheme.mutedForeground,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              name,
-              style: theme.typography.normal.copyWith(
-                fontSize: 14,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ),
-          Icon(
-            BootstrapIcons.chevronDown,
-            size: 13,
-            color: theme.colorScheme.mutedForeground,
-          ),
-        ],
+    return Text(
+      text,
+      style: theme.typography.medium.copyWith(
+        fontSize: 16,
+        color: theme.colorScheme.foreground,
       ),
     );
   }
 }
 
-/// One section: popover ground, radius 8, 15/20 padding, a 14px/500 title in
-/// normal case — the original's titleSection, with content below.
-class _Section extends StatelessWidget {
-  final String title;
-  final Widget child;
+/// MUI outlined InputField: 36px, 1px #8D91A540, radius 10, 14px/450 text,
+/// placeholder --dark-grey-7; optional 14px leading icon in --dark-grey-6.
+class _PanelField extends StatelessWidget {
+  final String placeholder;
+  final String? initialValue;
+  final IconData? leading;
+  final bool obscure;
+  final double height;
 
-  const _Section({required this.title, required this.child});
+  const _PanelField({
+    required this.placeholder,
+    this.initialValue,
+    this.leading,
+    this.obscure = false,
+    this.height = 36,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 15, 20, 20),
+      height: height,
+      padding: leading == null
+          ? const EdgeInsets.symmetric(horizontal: 10)
+          : const EdgeInsets.only(left: 9, right: 10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.popover,
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
+        border: Border.all(color: theme.colorScheme.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
         children: [
-          Text(
-            title,
-            style: theme.typography.medium.copyWith(
-              fontSize: 14,
-              color: theme.colorScheme.foreground,
+          if (leading != null) ...[
+            Icon(leading, size: 14, color: _textDisabled),
+            const SizedBox(width: 5),
+          ],
+          Expanded(
+            child: TextField(
+              initialValue: initialValue,
+              obscureText: obscure,
+              padding: EdgeInsets.zero,
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(TermiusRadius.field),
+              ),
+              placeholder: Text(
+                placeholder,
+                style: theme.typography.normal.copyWith(
+                  fontSize: 14,
+                  color: theme.colorScheme.mutedForeground,
+                ),
+              ),
+              style: theme.typography.normal.copyWith(
+                fontSize: 14,
+                color: theme.colorScheme.foreground,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          child,
         ],
       ),
     );
   }
 }
 
-/// The full-width outlined action row (共享此主机).
-class _OutlinedRow extends StatelessWidget {
-  final VoidCallback onPressed;
-  final Widget child;
-
-  const _OutlinedRow({required this.onPressed, required this.child});
+/// Backspace selector row: outlined, keyboard icon, label and value both in
+/// --dark-grey-6 (the disabled tone), value right-aligned.
+class _BackspaceRow extends StatelessWidget {
+  const _BackspaceRow();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        height: 40,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(TermiusRadius.field),
-          border: Border.all(color: theme.colorScheme.border),
-        ),
-        child: child,
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
+        border: Border.all(color: theme.colorScheme.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(BootstrapIcons.keyboard, size: 14, color: _textDisabled),
+          const SizedBox(width: 5),
+          Text(
+            'Backspace',
+            style: theme.typography.normal.copyWith(
+              fontSize: 16,
+              color: _textDisabled,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            'Default',
+            style: theme.typography.normal.copyWith(
+              fontSize: 16,
+              color: _textDisabled,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The vault selector card: --card-a, radius 10, 15/20 padding, 16px icon and
+/// body1 name, chevron at the right.
+class _VaultCard extends StatelessWidget {
+  final String name;
+
+  const _VaultCard({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(TermiusRadius.field),
+      ),
+      child: Row(
+        children: [
+          Icon(BootstrapIcons.safe, size: 16, color: theme.colorScheme.foreground),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              name,
+              style: theme.typography.normal.copyWith(
+                fontSize: 16,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+          ),
+          Icon(BootstrapIcons.chevronDown,
+              size: 12, color: theme.colorScheme.foreground),
+        ],
+      ),
+    );
+  }
+}
+
+/// "SSH on [22] port" with a 1px --dark-grey-5 divider underneath.
+class _PortRow extends StatelessWidget {
+  final int port;
+
+  const _PortRow({required this.port});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.only(bottom: 10),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _divider)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            'SSH on',
+            style: theme.typography.normal.copyWith(
+              fontSize: 16,
+              color: theme.colorScheme.foreground,
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 79,
+            child: _PanelField(
+              initialValue: '$port',
+              placeholder: '22',
+              height: 28,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'port',
+            style: theme.typography.normal.copyWith(
+              fontSize: 16,
+              color: theme.colorScheme.foreground,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -231,43 +231,19 @@ class _HostsScreenState extends State<HostsScreen> {
                       : _rowList(hosts),
                 ),
               ),
-              // The details drawer PUSHES the grid: AnimatedSize animates
-              // its width both ways, so the cards reflow while it opens and
-              // the column is reclaimed while it collapses (no instant
-              // removal, no floating popup — the original's behavior).
-              AnimatedSize(
-                duration:
-                    _drawerOpen ? TermiusMotion.panel : TermiusMotion.collapse,
-                curve: TermiusMotion.easeInOut,
-                alignment: Alignment.centerRight,
-                onEnd: () {
-                  if (!_drawerOpen && _drawerHost != null) {
-                    setState(() => _drawerHost = null);
-                  }
-                },
-                child: _drawerOpen && _drawerHost != null
-                    ? SizedBox(
-                        // The original drawer is ~420 logical px wide —
-                        // narrower than half the window, so the grid keeps
-                        // its two-column rhythm while it pushes.
-                        width: 420,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.background,
-                            border: Border(
-                              left: BorderSide(
-                                  color: theme.colorScheme.border),
-                            ),
-                          ),
-                          child: HostDetailsPanel(
-                            host: _drawerHost!,
-                            onClose: _closeDrawer,
-                            onConnect: () => _connect(_drawerHost),
-                            onEditAll: () {},
-                          ),
-                        ),
-                      )
-                    : const SizedBox(width: 0),
+              // The details drawer: a 340px-panel revealed from the right
+              // exactly like Termius's RelativeSlider (min-width 0→340,
+              // 200ms). The grid reflows while the panel pushes in, and the
+              // panel itself keeps its own width so its contents don't
+              // squash mid-animation.
+              _DrawerSlider(
+                open: _drawerOpen,
+                child: HostDetailsPanel(
+                  host: _drawerHost ?? kSampleHosts.first,
+                  onClose: _closeDrawer,
+                  onConnect: () => _connect(_drawerHost),
+                  onEditAll: () {},
+                ),
               ),
             ],
           ),
@@ -310,6 +286,59 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Termius's RelativeSlider: the panel is laid out at its full width and the
+/// container's width animates 0↔340 with the content anchored right, so the
+/// drawer slides in/out instead of stretching its children. 200ms, ease —
+/// the exact `sliderAnimationDuration` and default timing function.
+class _DrawerSlider extends StatefulWidget {
+  final bool open;
+  final Widget child;
+
+  const _DrawerSlider({required this.open, required this.child});
+
+  @override
+  State<_DrawerSlider> createState() => _DrawerSliderState();
+}
+
+class _DrawerSliderState extends State<_DrawerSlider>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: TermiusMotion.micro,
+    reverseDuration: TermiusMotion.micro,
+    value: widget.open ? 1 : 0,
+  );
+
+  @override
+  void didUpdateWidget(_DrawerSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.open != oldWidget.open) {
+      widget.open ? _controller.forward() : _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) => ClipRect(
+        child: Align(
+          alignment: Alignment.centerRight,
+          widthFactor: _controller.value,
+          child: child,
+        ),
+      ),
+      child: SizedBox(width: 340, child: widget.child),
     );
   }
 }
