@@ -34,6 +34,17 @@ Release workflow 也会检查推送上来的 tag。比如 tag 名是 `v0.5.7` �
 `Cargo.toml` 和 `Cargo.lock` 必须是 `0.5.7`，构建产物的 `xenterm --version`
 必须输出 `xenterm xt-v0.5.7`，否则 workflow 会在发布前失败。
 
+发布产物分两类：
+
+- `xenterm-<版本>-<平台>-desktop.*`：Flutter 桌面应用（Windows zip、macOS
+  `XenTerm.app` zip、Linux tar.gz），已经带上对应平台的 `xenterm_bridge`
+  动态库，下载即可使用。
+- `xenterm-cli-<版本>-*`：只含命令行 / MCP 服务核心；AppImage、deb、MSI、Flatpak
+  和 glibc 2.28 包都属于这一类。
+
+桌面包由 `apps/xenterm/tool/bundle_native.sh`（把 bridge 放到 Flutter 产物旁）和
+`apps/xenterm/tool/package_desktop.sh`（打包并重签 macOS bundle）生成。
+
 <a name="english"></a>
 
 ## English
@@ -72,3 +83,15 @@ The release workflow also checks pushed tags. A tag named `v0.5.7` must match
 `Cargo.toml` and `Cargo.lock` at `0.5.7`, and the built binary must print
 `xenterm xt-v0.5.7` from `xenterm --version`, otherwise the workflow fails
 before publishing.
+
+Two artifact families are published:
+
+- `xenterm-<version>-<platform>-desktop.*`: the Flutter desktop application
+  (Windows zip, macOS `XenTerm.app` zip, Linux tar.gz) with the platform's
+  `xenterm_bridge` library already inside, ready to run.
+- `xenterm-cli-<version>-*`: the command-line/MCP service core only (AppImage,
+  deb, MSI, Flatpak and glibc 2.28 archives).
+
+`apps/xenterm/tool/bundle_native.sh` stages the bridge next to the Flutter
+output, and `apps/xenterm/tool/package_desktop.sh` archives it and re-signs the
+macOS bundle.

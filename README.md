@@ -209,31 +209,36 @@ behaviour still require platform testing.
 
 ## Install
 
-Every `v*` tag builds **Windows**, **macOS** (Apple Silicon and Intel) and **Linux**
-(x86_64 and aarch64) packages in GitHub Actions and publishes them on the
-[Releases](https://github.com/ixbaicn/XenTerm/releases) page.
+Every `v*` tag builds the **Flutter desktop application** for **Windows**,
+**macOS** (Apple Silicon and Intel) and **Linux** (x86_64 and aarch64) in GitHub
+Actions and publishes it on the
+[Releases](https://github.com/ixbaicn/XenTerm/releases) page. Desktop downloads are
+named `xenterm-<version>-<platform>-desktop.*` and already contain the UI and the
+Rust bridge. The separate `xenterm-cli-*` archives contain only the command-line/MCP
+service core.
 
 ### Windows
 
-- **Installer** — run `xenterm-<version>-windows-x86_64.msi` and choose an install
-  location.
-- **Portable** — unzip `xenterm-<version>-windows-x86_64.zip` and run `xenterm.exe`.
+- **Desktop (recommended)** — unzip
+  `xenterm-<version>-windows-x86_64-desktop.zip` and run `xenterm.exe`.
+- **CLI / MCP only** — `xenterm-cli-<version>-windows-x86_64.msi` installs the
+  service core without a UI.
 
 ### macOS
 
-The download is a `.zip` containing `xenterm.app`:
+The desktop download is a `.zip` containing `XenTerm.app`:
 
 ```bash
 # aarch64 = Apple Silicon, x86_64 = Intel
-unzip xenterm-*-macos-*.zip
+unzip xenterm-*-macos-*-desktop.zip
 
 # Optional: move it into Applications (running it in place also works)
-mv xenterm.app /Applications/
+mv XenTerm.app /Applications/
 
-# Clear the quarantine flag, or macOS reports "xenterm is damaged and can't be opened"
-xattr -dr com.apple.quarantine /Applications/xenterm.app
+# Clear the quarantine flag, or macOS reports "XenTerm is damaged and can't be opened"
+xattr -dr com.apple.quarantine /Applications/XenTerm.app
 
-open /Applications/xenterm.app
+open /Applications/XenTerm.app
 ```
 
 If you did not move it, point both paths above at wherever the `.app` actually is.
@@ -241,20 +246,29 @@ Requires macOS 11 Big Sur or later.
 
 ### Linux
 
-| Package | Command |
-| --- | --- |
-| Debian / Ubuntu | `sudo apt install ./xenterm-*-linux-amd64.deb` |
-| Fedora / others | `tar -xzf xenterm-*-linux-x86_64.tar.gz` |
-| Flatpak | `flatpak install --user xenterm-*.flatpak` |
-| AppImage | `chmod +x xenterm-*.AppImage && ./xenterm-*.AppImage` |
-| Arch (AUR) | `yay -S xenterm-bin` |
-
-The tarball runs directly:
+The desktop tarball runs directly (GTK 3 is required):
 
 ```bash
-tar -xzf xenterm-*-linux-x86_64.tar.gz
-cd xenterm-*-linux-x86_64
+tar -xzf xenterm-*-linux-x86_64-desktop.tar.gz
+cd xenterm-*-linux-x86_64-desktop
 ./xenterm
+```
+
+The `xenterm-cli-*` archives and the `.deb`, AppImage and Flatpak packages install
+only the command-line/MCP service core:
+
+| Core package | Command |
+| --- | --- |
+| Debian / Ubuntu | `sudo apt install ./xenterm-cli-*-linux-amd64.deb` |
+| Flatpak | `flatpak install --user xenterm-cli-*.flatpak` |
+| AppImage | `chmod +x xenterm-cli-*.AppImage && ./xenterm-cli-*.AppImage` |
+| Arch (AUR) | `yay -S xenterm-bin` |
+
+The CLI archive also ships the installer for its `xenterm` binary:
+
+```bash
+tar -xzf xenterm-cli-*-linux-x86_64.tar.gz
+cd xenterm-cli-*-linux-x86_64
 
 # Optional: install the binary, icon and launcher under /usr/local
 # sudo is requested only when the destination needs it; root does not need sudo

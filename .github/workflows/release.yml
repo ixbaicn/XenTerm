@@ -227,8 +227,8 @@ jobs:
           # --output appimage already invokes the plugin; --plugin appimage is redundant and causes an error
           ./linuxdeploy --appdir AppDir --output appimage
 
-          mv xenterm*.AppImage "xenterm-${VERSION}-linux-x86_64.AppImage"
-          echo "APPIMAGE=xenterm-${VERSION}-linux-x86_64.AppImage" >> "$GITHUB_ENV"
+          mv xenterm*.AppImage "xenterm-cli-${VERSION}-linux-x86_64.AppImage"
+          echo "APPIMAGE=xenterm-cli-${VERSION}-linux-x86_64.AppImage" >> "$GITHUB_ENV"
 
       - name: Build Debian package
         if: runner.os == 'Linux'
@@ -279,7 +279,7 @@ jobs:
            XenTerm is a cross-platform terminal client written in Rust and GPUI.
           EOF
 
-          DEB="xenterm-${VERSION}-linux-${DEB_ARCH}.deb"
+          DEB="xenterm-cli-${VERSION}-linux-${DEB_ARCH}.deb"
           dpkg-deb --root-owner-group --build "$ROOT" "$DEB"
           dpkg-deb --info "$DEB"
           echo "DEB=$DEB" >> "$GITHUB_ENV"
@@ -288,7 +288,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          STAGE="xenterm-${VERSION}-${{ matrix.name }}"
+          STAGE="xenterm-cli-${VERSION}-${{ matrix.name }}"
 
           if [ "${{ runner.os }}" = "macOS" ]; then
             # ── Build a proper .app bundle ────────────────────────────────────
@@ -370,8 +370,8 @@ jobs:
           $candle = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*\bin\candle.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($candle) { $env:PATH = "$($candle.DirectoryName);$env:PATH" }
           cargo install cargo-wix --locked
-          cargo wix -p xenterm --no-build --nocapture --target ${{ matrix.target }} --output "xenterm-$env:VERSION-windows-x86_64.msi"
-          echo "MSI=xenterm-$env:VERSION-windows-x86_64.msi" >> $env:GITHUB_ENV
+          cargo wix -p xenterm --no-build --nocapture --target ${{ matrix.target }} --output "xenterm-cli-$env:VERSION-windows-x86_64.msi"
+          echo "MSI=xenterm-cli-$env:VERSION-windows-x86_64.msi" >> $env:GITHUB_ENV
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -399,6 +399,88 @@ jobs:
         with:
           name: windows-x86_64-msi
           path: ${{ env.MSI }}
+
+  # The Rust jobs above package the service core (CLI/MCP). This job builds the
+  # actual desktop application: Flutter UI + the FFI bridge next to it. Without
+  # this, a release archive starts a console-only binary with no UI.
+  build-ui:
+    name: ${{ matrix.name }}
+    needs: prepare
+    if: needs.prepare.outputs.mode != 'beta' || github.repository == 'ixbaicn/XenTerm' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows, name: windows-x86_64-ui }
+          - { os: ubuntu-22.04, platform: linux, name: linux-x86_64-ui }
+          - { os: ubuntu-22.04-arm, platform: linux, name: linux-aarch64-ui }
+          - { os: macos-14, platform: macos, name: macos-aarch64-ui }
+          - { os: macos-15-intel, platform: macos, name: macos-x86_64-ui }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake ninja-build clang \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libudev-dev libdbus-1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-ui-${{ matrix.name }}
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Resolve Flutter build name
+        id: appver
+        shell: bash
+        run: |
+          set -eu
+          V="$(sed -n '/^\[package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' crates/xenterm/Cargo.toml | head -n 1)"
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Build FFI bridge
+        run: cargo build --release --locked -p xenterm-bridge
+
+      - name: Build Flutter desktop app
+        working-directory: apps/xenterm
+        run: |
+          flutter pub get
+          flutter build ${{ matrix.platform }} --release \
+            --build-name=${{ steps.appver.outputs.name }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Bundle the bridge next to the app
+        shell: bash
+        run: bash apps/xenterm/tool/bundle_native.sh
+
+      - name: Package desktop archive
+        shell: bash
+        run: |
+          set -eu
+          ASSET="$(bash apps/xenterm/tool/package_desktop.sh "$VERSION" | tail -n 1)"
+          test -f "$ASSET"
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+
+      - name: Upload desktop application
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: ${{ env.ASSET }}
 
   build-flatpak:
     name: linux-x86_64-flatpak
@@ -432,7 +514,7 @@ jobs:
       - name: Build Flatpak bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: xenterm-${{ env.VERSION }}-linux-x86_64.flatpak
+          bundle: xenterm-cli-${{ env.VERSION }}-linux-x86_64.flatpak
           manifest-path: packaging/flatpak/io.github.yituorou.xenterm.yml
           cache-key: flatpak-builder-${{ github.sha }}
 
@@ -440,7 +522,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64-flatpak
-          path: xenterm-${{ env.VERSION }}-linux-x86_64.flatpak
+          path: xenterm-cli-${{ env.VERSION }}-linux-x86_64.flatpak
 
   build-glibc228:
     name: linux-${{ matrix.arch }}-glibc228
@@ -530,7 +612,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          STAGE="xenterm-${VERSION}-linux-${{ matrix.arch }}-glibc228"
+          STAGE="xenterm-cli-${VERSION}-linux-${{ matrix.arch }}-glibc228"
 
           mkdir "$STAGE"
           cp "target/${{ matrix.target }}/release/xenterm" "$STAGE/"
@@ -549,7 +631,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [prepare, build, build-flatpak, build-glibc228]
+    needs: [prepare, build, build-ui, build-flatpak, build-glibc228]
     if: needs.prepare.outputs.mode != 'dry-run'
     runs-on: ubuntu-latest
     steps:

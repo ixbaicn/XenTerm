@@ -180,50 +180,60 @@ Linux 原生界面的验证不能代替 Windows、macOS 原生交互验证；请
 
 ## 安装
 
-每次打 `v*` 标签，GitHub Actions 会构建 **Windows**、**macOS**（Apple 芯片与 Intel）和
-**Linux**（x86_64 与 aarch64）安装包，并发布到
-[Releases](https://github.com/ixbaicn/XenTerm/releases) 页面。
+每次打 `v*` 标签，GitHub Actions 会构建 **Flutter 桌面应用**，覆盖 **Windows**、
+**macOS**（Apple 芯片与 Intel）和 **Linux**（x86_64 与 aarch64），并发布到
+[Releases](https://github.com/ixbaicn/XenTerm/releases) 页面。桌面包命名为
+`xenterm-<版本>-<平台>-desktop.*`，内含 UI 与 Rust bridge；另外的
+`xenterm-cli-*` 包只包含命令行 / MCP 服务核心。
 
 ### Windows
 
-- **安装程序** —— 运行 `xenterm-<版本>-windows-x86_64.msi`，可自选安装位置。
-- **免安装** —— 解压 `xenterm-<版本>-windows-x86_64.zip`，双击 `xenterm.exe`。
+- **桌面版（推荐）** —— 解压 `xenterm-<版本>-windows-x86_64-desktop.zip`，双击 `xenterm.exe`。
+- **仅 CLI / MCP** —— `xenterm-cli-<版本>-windows-x86_64.msi` 只安装无 UI 的服务核心。
 
 ### macOS
 
-下载得到的是包含 `xenterm.app` 的 `.zip`：
+桌面版下载得到的是包含 `XenTerm.app` 的 `.zip`：
 
 ```bash
 # aarch64 = Apple 芯片，x86_64 = Intel
-unzip xenterm-*-macos-*.zip
+unzip xenterm-*-macos-*-desktop.zip
 
 # 可选：移动到「应用程序」（留在原地也能运行）
-mv xenterm.app /Applications/
+mv XenTerm.app /Applications/
 
-# 去掉隔离属性，否则 macOS 会提示「xenterm 已损坏，无法打开」
-xattr -dr com.apple.quarantine /Applications/xenterm.app
+# 去掉隔离属性，否则 macOS 会提示「XenTerm 已损坏，无法打开」
+xattr -dr com.apple.quarantine /Applications/XenTerm.app
 
-open /Applications/xenterm.app
+open /Applications/XenTerm.app
 ```
 
 如果没有移动它，把上面两条路径换成 `.app` 实际所在的位置即可。需要 macOS 11 Big Sur 或更高版本。
 
 ### Linux
 
-| 安装包 | 命令 |
-| --- | --- |
-| Debian / Ubuntu | `sudo apt install ./xenterm-*-linux-amd64.deb` |
-| Fedora / 其他 | `tar -xzf xenterm-*-linux-x86_64.tar.gz` |
-| Flatpak | `flatpak install --user xenterm-*.flatpak` |
-| AppImage | `chmod +x xenterm-*.AppImage && ./xenterm-*.AppImage` |
-| Arch（AUR） | `yay -S xenterm-bin` |
-
-tar 包可直接运行：
+桌面版 tar 包可直接运行（需要 GTK 3）：
 
 ```bash
-tar -xzf xenterm-*-linux-x86_64.tar.gz
-cd xenterm-*-linux-x86_64
+tar -xzf xenterm-*-linux-x86_64-desktop.tar.gz
+cd xenterm-*-linux-x86_64-desktop
 ./xenterm
+```
+
+`xenterm-cli-*` 包以及 `.deb`、AppImage、Flatpak 只安装命令行 / MCP 服务核心：
+
+| 核心包 | 命令 |
+| --- | --- |
+| Debian / Ubuntu | `sudo apt install ./xenterm-cli-*-linux-amd64.deb` |
+| Flatpak | `flatpak install --user xenterm-cli-*.flatpak` |
+| AppImage | `chmod +x xenterm-cli-*.AppImage && ./xenterm-cli-*.AppImage` |
+| Arch（AUR） | `yay -S xenterm-bin` |
+
+CLI 压缩包内还带有安装 `xenterm` 二进制的脚本：
+
+```bash
+tar -xzf xenterm-cli-*-linux-x86_64.tar.gz
+cd xenterm-cli-*-linux-x86_64
 
 # 可选：将程序、图标和启动器安装到 /usr/local
 # 仅目标目录需要权限时请求 sudo；root 不需要 sudo
