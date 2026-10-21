@@ -417,7 +417,7 @@ jobs:
           - { os: windows-latest, platform: windows, name: windows-x86_64-ui }
           - { os: ubuntu-22.04, platform: linux, name: linux-x86_64-ui }
           - { os: ubuntu-22.04-arm, platform: linux, name: linux-aarch64-ui }
-          - { os: macos-14, platform: macos, name: macos-aarch64-ui }
+          - { os: macos-15, platform: macos, name: macos-aarch64-ui }
           - { os: macos-15-intel, platform: macos, name: macos-x86_64-ui }
     steps:
       - uses: actions/checkout@v4

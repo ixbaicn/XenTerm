@@ -125,7 +125,7 @@ jobs:
         include:
           - { os: ubuntu-22.04, platform: linux, name: linux }
           - { os: windows-latest, platform: windows, name: windows }
-          - { os: macos-14, platform: macos, name: macos }
+          - { os: macos-15, platform: macos, name: macos }
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux desktop build dependencies
