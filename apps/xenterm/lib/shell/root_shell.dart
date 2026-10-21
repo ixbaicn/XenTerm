@@ -21,6 +21,7 @@ import '../data/hosts.dart';
 import '../terminal/core_settings.dart';
 import '../terminal/terminal_command_bus.dart';
 import '../theme/app_fonts.dart';
+import '../l10n/app_language.dart';
 
 enum NavDestination {
   hosts,
@@ -261,7 +262,7 @@ class _NavRail extends StatelessWidget {
                 ),
                 _ => null,
               },
-              label: title,
+              label: AppLanguage.tr(context, title),
               selected: destination == active,
               onTap: () => onSelect(destination),
             ),
@@ -270,7 +271,7 @@ class _NavRail extends StatelessWidget {
           const SizedBox(height: 4),
           _RailItem(
             icon: material.Icons.settings_outlined,
-            label: 'Settings',
+            label: AppLanguage.tr(context, 'Settings'),
             selected: active == NavDestination.settings,
             onTap: () => onSelect(NavDestination.settings),
           ),
