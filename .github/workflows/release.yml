@@ -410,6 +410,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      # The xenterm build script embeds the version: pin the already-validated
+      # string from prepare instead of letting version.sh derive a channel
+      # from the branch name (invalid on e.g. `flutter`).
+      XT_VERSION: ${{ needs.prepare.outputs.xt_version }}
     strategy:
       fail-fast: false
       matrix:
