@@ -37,8 +37,9 @@ Release workflow 也会检查推送上来的 tag。比如 tag 名是 `v0.5.7` �
 发布产物分两类：
 
 - `xenterm-<版本>-<平台>-desktop.*`：Flutter 桌面应用（Windows zip、macOS
-  `XenTerm.app` zip、Linux tar.gz），已经带上对应平台的 `xenterm_bridge`
-  动态库，下载即可使用。
+  `XenTerm.app` zip、Linux x86_64 tar.gz），已经带上对应平台的
+  `xenterm_bridge` 动态库，下载即可使用。Flutter 未发布 Linux arm64 的
+  SDK，桌面包暂不含 aarch64（Rust CLI 仍有 aarch64 构建）。
 - `xenterm-cli-<版本>-*`：只含命令行 / MCP 服务核心；AppImage、deb、MSI、Flatpak
   和 glibc 2.28 包都属于这一类。
 
@@ -87,8 +88,10 @@ before publishing.
 Two artifact families are published:
 
 - `xenterm-<version>-<platform>-desktop.*`: the Flutter desktop application
-  (Windows zip, macOS `XenTerm.app` zip, Linux tar.gz) with the platform's
-  `xenterm_bridge` library already inside, ready to run.
+  (Windows zip, macOS `XenTerm.app` zip, Linux x86_64 tar.gz) with the
+  platform's `xenterm_bridge` library already inside, ready to run. Flutter
+  publishes no Linux arm64 SDK, so there is no aarch64 desktop archive (the
+  Rust CLI keeps its aarch64 build).
 - `xenterm-cli-<version>-*`: the command-line/MCP service core only (AppImage,
   deb, MSI, Flatpak and glibc 2.28 archives).
 

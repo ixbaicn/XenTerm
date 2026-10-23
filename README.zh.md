@@ -181,7 +181,7 @@ Linux 原生界面的验证不能代替 Windows、macOS 原生交互验证；请
 ## 安装
 
 每次打 `v*` 标签，GitHub Actions 会构建 **Flutter 桌面应用**，覆盖 **Windows**、
-**macOS**（Apple 芯片与 Intel）和 **Linux**（x86_64 与 aarch64），并发布到
+**macOS**（Apple 芯片与 Intel）和 **Linux x86_64**，并发布到
 [Releases](https://github.com/ixbaicn/XenTerm/releases) 页面。桌面包命名为
 `xenterm-<版本>-<平台>-desktop.*`，内含 UI 与 Rust bridge；另外的
 `xenterm-cli-*` 包只包含命令行 / MCP 服务核心。

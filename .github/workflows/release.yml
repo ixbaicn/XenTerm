@@ -420,7 +420,9 @@ jobs:
         include:
           - { os: windows-latest, platform: windows, name: windows-x86_64-ui }
           - { os: ubuntu-22.04, platform: linux, name: linux-x86_64-ui }
-          - { os: ubuntu-22.04-arm, platform: linux, name: linux-aarch64-ui }
+          # No linux-aarch64 here: Flutter does not publish an arm64 Linux
+          # SDK tarball, so the desktop app stays x86_64-only (the Rust CLI
+          # still ships an aarch64 build).
           - { os: macos-15, platform: macos, name: macos-aarch64-ui }
           - { os: macos-15-intel, platform: macos, name: macos-x86_64-ui }
     steps:
@@ -462,11 +464,8 @@ jobs:
 
       - name: Build Flutter desktop app
         working-directory: apps/xenterm
-        run: |
-          flutter pub get
-          flutter build ${{ matrix.platform }} --release \
-            --build-name=${{ steps.appver.outputs.name }} \
-            --build-number=${{ github.run_number }}
+        # One line, no shell continuations: the default Windows shell is pwsh.
+        run: flutter pub get && flutter build ${{ matrix.platform }} --release --build-name=${{ steps.appver.outputs.name }} --build-number=${{ github.run_number }}
 
       - name: Bundle the bridge next to the app
         shell: bash

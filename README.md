@@ -210,7 +210,7 @@ behaviour still require platform testing.
 ## Install
 
 Every `v*` tag builds the **Flutter desktop application** for **Windows**,
-**macOS** (Apple Silicon and Intel) and **Linux** (x86_64 and aarch64) in GitHub
+**macOS** (Apple Silicon and Intel) and **Linux x86_64** in GitHub
 Actions and publishes it on the
 [Releases](https://github.com/ixbaicn/XenTerm/releases) page. Desktop downloads are
 named `xenterm-<version>-<platform>-desktop.*` and already contain the UI and the
