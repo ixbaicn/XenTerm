@@ -50,6 +50,9 @@ class Host {
   /// memory; saved hosts pass the secret through the core store instead.
   final String adhocPassword;
 
+  /// Expect/send automation rules (the core fires them during the session).
+  final List<SessionTriggerRule> triggers;
+
   const Host({
     required this.id,
     required this.label,
@@ -72,6 +75,7 @@ class Host {
     this.jumpHostId = '',
     this.ephemeral = false,
     this.adhocPassword = '',
+    this.triggers = const [],
   });
 
   /// Maps one `xenterm_sessions_json` row (native bridge) onto the UI model.
@@ -98,6 +102,10 @@ class Host {
       flowControl: (json['flow_control'] as String?) ?? 'none',
       hasPassword: json['has_password'] == true,
       jumpHostId: (json['jump_session_id'] as String?) ?? '',
+      triggers: ((json['triggers'] as List?) ?? const [])
+          .cast<Map<String, dynamic>>()
+          .map(SessionTriggerRule.fromCoreJson)
+          .toList(),
     );
   }
 
@@ -139,6 +147,7 @@ class Host {
     jumpHostId: jumpHostId,
     ephemeral: ephemeral,
     adhocPassword: adhocPassword,
+    triggers: triggers,
   );
 
   bool get isSerial => protocol == 'serial';
@@ -225,3 +234,66 @@ const kSampleHosts = <Host>[
     os: HostOs.debian,
   ),
 ];
+
+
+/// One expect/send rule. The response text is a secret: the core only reports
+/// whether one is stored, and an empty [draftResponse] keeps it on save.
+class SessionTriggerRule {
+  /// Output the session waits for before answering, e.g. `login:`.
+  final String expect;
+
+  /// Whether the core has a stored response for this rule.
+  final bool hasResponse;
+
+  final bool appendEnter;
+
+  /// False = the rule is consumed after its first match.
+  final bool repeat;
+
+  /// Editor-only replacement text; empty keeps the stored response unless
+  /// [clearResponse] is set.
+  final String draftResponse;
+  final bool clearResponse;
+
+  const SessionTriggerRule({
+    required this.expect,
+    this.hasResponse = false,
+    this.appendEnter = true,
+    this.repeat = false,
+    this.draftResponse = '',
+    this.clearResponse = false,
+  });
+
+  factory SessionTriggerRule.fromCoreJson(Map<String, dynamic> json) =>
+      SessionTriggerRule(
+        expect: (json['expect'] as String?) ?? '',
+        hasResponse: json['has_response'] == true,
+        appendEnter: json['append_enter'] != false,
+        repeat: json['repeat'] == true,
+      );
+
+  /// Wire format for the bridge's session upsert.
+  Map<String, dynamic> toCoreJson() => {
+    'expect': expect,
+    'response': draftResponse,
+    if (clearResponse) 'clear_response': true,
+    'append_enter': appendEnter,
+    'repeat': repeat,
+  };
+
+  SessionTriggerRule copyWith({
+    String? expect,
+    bool? hasResponse,
+    bool? appendEnter,
+    bool? repeat,
+    String? draftResponse,
+    bool? clearResponse,
+  }) => SessionTriggerRule(
+    expect: expect ?? this.expect,
+    hasResponse: hasResponse ?? this.hasResponse,
+    appendEnter: appendEnter ?? this.appendEnter,
+    repeat: repeat ?? this.repeat,
+    draftResponse: draftResponse ?? this.draftResponse,
+    clearResponse: clearResponse ?? this.clearResponse,
+  );
+}

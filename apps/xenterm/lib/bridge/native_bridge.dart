@@ -1472,6 +1472,7 @@ Future<CoreWriteResult> saveSessionToCore({
   String password = '',
   bool clearPassword = false,
   String jumpHostId = '',
+  List<Map<String, dynamic>> triggers = const [],
 }) {
   return Isolate.run(() {
     final bridge = NativeBridge.tryLoad();
@@ -1497,6 +1498,7 @@ Future<CoreWriteResult> saveSessionToCore({
       'password': password,
       'clear_password': clearPassword,
       'jump_session_id': jumpHostId,
+      if (triggers.isNotEmpty) 'triggers': triggers,
     });
     return CoreWriteResult(
       ok: result['ok'] == true,

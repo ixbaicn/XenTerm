@@ -80,6 +80,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
     text: widget.host.keyPath,
   );
   late String _jumpId = widget.host.jumpHostId;
+  late List<SessionTriggerRule> _triggers = List.of(widget.host.triggers);
   bool _saving = false;
   String? _saveError;
 
@@ -94,6 +95,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
       _username.text = widget.host.username;
       _keyPath.text = widget.host.keyPath;
       _jumpId = widget.host.jumpHostId;
+      _triggers = List.of(widget.host.triggers);
       _saveError = null;
     }
   }
@@ -129,6 +131,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
     flowControl: widget.host.flowControl,
     hasPassword: widget.host.hasPassword,
     jumpHostId: _jumpId,
+    triggers: List.unmodifiable(_triggers),
   );
 
   Future<void> _delete() async {
@@ -271,6 +274,65 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             ),
                           ],
                         ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 15),
+                  _FormCard(
+                    padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
+                    children: [
+                      const _SectionTitle('Triggers'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Wait for a prompt, answer automatically. Responses are '
+                        'stored securely; a blank field keeps the saved value.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.mutedForeground,
+                        ),
+                      ),
+                      if (_triggers.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            'No triggers yet.',
+                            key: const ValueKey('host-triggers-empty'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _titleGrey,
+                            ),
+                          ),
+                        )
+                      else
+                        for (var i = 0; i < _triggers.length; i++)
+                          _TriggerRow(
+                            key: ValueKey('host-trigger-$i'),
+                            rule: _triggers[i],
+                            onChanged: (rule) => setState(() {
+                              _triggers[i] = rule;
+                            }),
+                            onRemoved: () => setState(() {
+                              _triggers.removeAt(i);
+                            }),
+                          ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Button(
+                          key: const ValueKey('host-trigger-add'),
+                          style: const ButtonStyle.ghost(),
+                          onPressed: () => setState(() {
+                            _triggers.add(const SessionTriggerRule(expect: ''));
+                          }),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.plus, size: 14),
+                              SizedBox(width: 6),
+                              Text('Add trigger'),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -641,6 +703,149 @@ class _PortRow extends StatelessWidget {
               fontSize: 16,
               color: theme.colorScheme.foreground,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One expect/send rule inside the host drawer. The response field stays
+/// blank-looking while a secret is stored ("Saved…"): only a typed value
+/// replaces it, matching the password field's semantics.
+class _TriggerRow extends StatefulWidget {
+  final SessionTriggerRule rule;
+  final ValueChanged<SessionTriggerRule> onChanged;
+  final VoidCallback onRemoved;
+
+  const _TriggerRow({
+    super.key,
+    required this.rule,
+    required this.onChanged,
+    required this.onRemoved,
+  });
+
+  @override
+  State<_TriggerRow> createState() => _TriggerRowState();
+}
+
+class _TriggerRowState extends State<_TriggerRow> {
+  late final TextEditingController _expect = TextEditingController(
+    text: widget.rule.expect,
+  );
+  late final TextEditingController _response = TextEditingController(
+    text: widget.rule.draftResponse,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // Typing must reach the parent's save payload immediately; the row keeps
+    // no separate draft state.
+    _expect.addListener(() => _push(expect: _expect.text));
+    _response.addListener(() => _push(response: _response.text));
+  }
+
+  @override
+  void dispose() {
+    _expect.dispose();
+    _response.dispose();
+    super.dispose();
+  }
+
+  void _push({String? expect, String? response, bool? appendEnter, bool? repeat, bool? clear}) {
+    widget.onChanged(
+      widget.rule.copyWith(
+        expect: expect,
+        draftResponse: response,
+        appendEnter: appendEnter,
+        repeat: repeat,
+        clearResponse: clear,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final kept =
+        widget.rule.hasResponse &&
+        widget.rule.draftResponse.isEmpty &&
+        !widget.rule.clearResponse;
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(TermiusRadius.card),
+        border: Border.all(color: _divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _PanelField(
+            key: const ValueKey('trigger-expect'),
+            controller: _expect,
+            placeholder: 'Wait for (e.g. login:)',
+            leading: LucideIcons.eye,
+            height: 30,
+          ),
+          const SizedBox(height: 8),
+          _PanelField(
+            key: const ValueKey('trigger-response'),
+            controller: _response,
+            placeholder: kept ? 'Saved — leave blank to keep' : 'Response',
+            leading: LucideIcons.messageSquare,
+            height: 30,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Switch(
+                      value: widget.rule.appendEnter,
+                      onChanged: (value) => _push(appendEnter: value),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Enter',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Switch(
+                      value: widget.rule.repeat,
+                      onChanged: (value) => _push(repeat: value),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Repeat',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Button(
+                key: const ValueKey('trigger-remove'),
+                style: const ButtonStyle.ghost(),
+                onPressed: widget.onRemoved,
+                child: const Icon(LucideIcons.trash2, size: 14),
+              ),
+            ],
           ),
         ],
       ),

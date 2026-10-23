@@ -42,6 +42,7 @@ void main() {
                 String? password,
                 bool? clearPassword,
                 String? jumpHostId,
+                List<Map<String, dynamic>>? triggers,
               }) async {
                 saved = {
                   'label': label,
@@ -112,6 +113,7 @@ void main() {
                 String? password,
                 bool? clearPassword,
                 String? jumpHostId,
+                List<Map<String, dynamic>>? triggers,
               }) async {
                 savedLabel = label;
                 hosts = [
@@ -169,6 +171,7 @@ void main() {
                 String? password,
                 bool? clearPassword,
                 String? jumpHostId,
+                List<Map<String, dynamic>>? triggers,
               }) async {
                 saved = {
                   'label': label,
@@ -275,6 +278,7 @@ void main() {
                 String? password,
                 bool? clearPassword,
                 String? jumpHostId,
+                List<Map<String, dynamic>>? triggers,
               }) async {
                 hosts = [
                   Host(
@@ -298,4 +302,104 @@ void main() {
     expect(connected?.protocol, 'local');
     expect(connected?.label, 'Local terminal');
   });
+  testWidgets('the host drawer edits expect/send triggers', (tester) async {
+    final host = Host(
+      id: 't1',
+      label: 'triggered-host',
+      address: '10.0.0.9',
+      protocol: 'ssh',
+      triggers: const [
+        SessionTriggerRule(expect: 'login:', hasResponse: true),
+      ],
+    );
+    var hosts = <Host>[host];
+    List<Map<String, dynamic>>? savedTriggers;
+    await tester.pumpWidget(
+      _app(
+        HostsScreen(
+          loadHosts: () async => hosts,
+          saveSession:
+              ({
+                required id,
+                required label,
+                required address,
+                required port,
+                required username,
+                required group,
+                required kind,
+                keyPath = '',
+                int? baudRate,
+                int? dataBits,
+                int? stopBits,
+                String? parity,
+                String? flowControl,
+                String? password,
+                bool? clearPassword,
+                String? jumpHostId,
+                List<Map<String, dynamic>>? triggers,
+              }) async {
+                savedTriggers = triggers;
+                hosts = [
+                  Host(
+                    id: id.isEmpty ? 't1' : id,
+                    label: label,
+                    address: address,
+                    port: port,
+                    username: username,
+                    group: group,
+                    protocol: kind,
+                    triggers: const [
+                      SessionTriggerRule(expect: 'login:', hasResponse: true),
+                    ],
+                  ),
+                ];
+                return const CoreWriteResult(ok: true, id: 't1');
+              },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The hover pencil opens the details drawer.
+    await tester.tap(find.byKey(const ValueKey('edit-t1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Host Details'), findsOneWidget);
+
+    // The stored rule shows its expect text and keeps the secret masked.
+    await tester.ensureVisible(find.byKey(const ValueKey('host-trigger-add')));
+    expect(find.text('login:'), findsOneWidget);
+    expect(find.text('Saved — leave blank to keep'), findsOneWidget);
+
+    // Add a second rule: wait for the password prompt, answer it.
+    await tester.tap(find.byKey(const ValueKey('host-trigger-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('trigger-expect')).last,
+      'Password:',
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('trigger-response')).last,
+      's3cret-response',
+    );
+    await tester.pumpAndSettle();
+
+    // Persist through the header check.
+    await tester.ensureVisible(find.byIcon(LucideIcons.check));
+    await tester.tap(find.byIcon(LucideIcons.check));
+    await tester.pumpAndSettle();
+
+    final rules = savedTriggers;
+    expect(rules, isNotNull);
+    expect(rules!.length, 2);
+    // The stored secret is kept (blank response in the payload).
+    expect(rules[0]['expect'], 'login:');
+    expect(rules[0]['response'], '');
+    // The new rule carries the typed response and the default flags.
+    expect(rules[1]['expect'], 'Password:');
+    expect(rules[1]['response'], 's3cret-response');
+    expect(rules[1]['append_enter'], true);
+    expect(rules[1]['repeat'], false);
+  });
 }
+

@@ -129,6 +129,21 @@ pub extern "C" fn xenterm_sessions_json() -> *mut c_char {
                     "parity": s.parity,
                     "flow_control": s.flow_control,
                     "has_password": !s.password.is_empty(),
+                    // Expect/send rules. The response text is a secret: only
+                    // its presence crosses the bridge; the editor leaves the
+                    // field blank to keep the stored value (as with passwords).
+                    "triggers": s
+                        .triggers
+                        .iter()
+                        .map(|t| {
+                            serde_json::json!({
+                                "expect": t.expect,
+                                "has_response": !t.response.is_empty(),
+                                "append_enter": t.append_enter,
+                                "repeat": t.repeat,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -192,6 +207,10 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
         let parity = value.get("parity").and_then(|v| v.as_str());
         let flow_control = value.get("flow_control").and_then(|v| v.as_str());
         let jump_session_id = value.get("jump_session_id").and_then(|v| v.as_str());
+        // Optional full replacement of the expect/send rule list. Rows with a
+        // blank response keep the stored response of the rule with the same
+        // expect text; `clear_response` drops it explicitly.
+        let trigger_rows = value.get("triggers").and_then(|v| v.as_array()).cloned();
 
         let store = store()?;
         let mut store = store.lock().unwrap_or_else(|p| p.into_inner());
@@ -243,6 +262,47 @@ pub extern "C" fn xenterm_session_upsert(json: *const c_char) -> *mut c_char {
         }
         if session.kind == xenterm::config::SessionKind::Serial {
             session.serial_port = address.to_string();
+        }
+        if let Some(rows) = trigger_rows {
+            let old = session.triggers.clone();
+            session.triggers = rows
+                .iter()
+                .filter_map(|row| {
+                    let expect = row
+                        .get("expect")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    if expect.is_empty() {
+                        return None;
+                    }
+                    let response = row.get("response").and_then(|v| v.as_str()).unwrap_or_default();
+                    let response = if !response.is_empty() {
+                        xenterm::config::Secret::new(response)
+                    } else if row
+                        .get("clear_response")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
+                        xenterm::config::Secret::default()
+                    } else {
+                        old.iter()
+                            .find(|t| t.expect == expect)
+                            .map(|t| t.response.clone())
+                            .unwrap_or_default()
+                    };
+                    Some(xenterm::config::SessionTrigger {
+                        expect,
+                        response,
+                        append_enter: row
+                            .get("append_enter")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true),
+                        repeat: row.get("repeat").and_then(|v| v.as_bool()).unwrap_or(false),
+                    })
+                })
+                .collect();
         }
         let id = session.id.clone();
         store

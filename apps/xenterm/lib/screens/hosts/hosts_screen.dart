@@ -36,6 +36,7 @@ typedef HostSaver = Future<CoreWriteResult> Function({
   String? password,
   bool? clearPassword,
   String? jumpHostId,
+  List<Map<String, dynamic>>? triggers,
 });
 typedef HostDeleter = Future<CoreWriteResult> Function(String id);
 typedef GroupLoader = Future<List<HostGroup>> Function();
@@ -228,6 +229,7 @@ class _HostsScreenState extends State<HostsScreen> {
         flowControl: host.flowControl,
         password: password,
         jumpHostId: host.jumpHostId,
+        triggers: host.triggers.map((t) => t.toCoreJson()).toList(),
       );
       if (!result.ok) return result.error ?? 'Save failed';
       await _reload(silent: true);
