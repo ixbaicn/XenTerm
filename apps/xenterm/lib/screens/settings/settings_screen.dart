@@ -15,6 +15,7 @@ import '../../bridge/native_bridge.dart' show CoreSettings;
 import '../../terminal/core_settings.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/termius_theme.dart';
+import '../../l10n/app_language.dart';
 
 const _chrome = Color(0xFF282B3D); // --dark-grey-3 (header, sidebar, cards)
 const _page = Color(0xFF1D2033); // --dark-grey-2 (tab content)
@@ -110,7 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               children: [
                 Text(
-                  'Settings',
+                  AppLanguage.tr(context, 'Settings'),
                   style: theme.typography.bold.copyWith(
                     fontSize: 24,
                     height: 45 / 24,
@@ -175,6 +176,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final fonts = widget.fonts;
     final core = _core;
     return [
+      _SectionCard(
+        children: [
+          _DropdownRow(
+            label: 'Language 语言',
+            value: AppLanguage.supported[AppLanguage.of(context).code]!,
+            options: AppLanguage.supported.values.toList(),
+            onSelected: (value) {
+              final code = AppLanguage.supported.entries
+                  .firstWhere((entry) => entry.value == value)
+                  .key;
+              AppLanguage.of(context).onChanged(code);
+            },
+          ),
+        ],
+      ),
       _SectionCard(
         title: 'Terminal settings',
         children: [
@@ -425,7 +441,7 @@ class _TabSidebar extends StatelessWidget {
         children: [
           for (var i = 0; i < tabs.length; i++)
             _TabItem(
-              label: tabs[i],
+              label: AppLanguage.tr(context, tabs[i]),
               selected: i == active,
               onTap: () => onSelect(i),
               theme: theme,
@@ -518,7 +534,7 @@ class _PathRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  label,
+                  AppLanguage.tr(context, label),
                   style: theme.typography.medium.copyWith(
                     fontSize: 12,
                     color: theme.colorScheme.foreground,
@@ -526,7 +542,7 @@ class _PathRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  value,
+                  AppLanguage.tr(context, value),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.normal.copyWith(
@@ -541,7 +557,7 @@ class _PathRow extends StatelessWidget {
           Button(
             style: const ButtonStyle.outline(),
             onPressed: onChoose,
-            child: const Text('Choose…'),
+            child: Text(AppLanguage.tr(context, 'Choose…')),
           ),
         ],
       ),
@@ -580,7 +596,7 @@ class _ShortcutRow extends StatelessWidget {
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              action,
+              AppLanguage.tr(context, action),
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
                 color: _labelGrey,
@@ -618,7 +634,7 @@ class _SectionCard extends StatelessWidget {
             children: [
               if (title != null)
                 Text(
-                  title!,
+                  AppLanguage.tr(context, title!),
                   style: theme.typography.normal.copyWith(
                     fontSize: 16,
                     height: 1.75,
@@ -662,7 +678,7 @@ class _SwitchRow extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  label,
+                  AppLanguage.tr(context, label),
                   style: theme.typography.medium.copyWith(
                     fontSize: 12,
                     color: theme.colorScheme.foreground,
@@ -675,7 +691,7 @@ class _SwitchRow extends StatelessWidget {
           if (description != null) ...[
             const SizedBox(height: 4),
             Text(
-              description!,
+              AppLanguage.tr(context, description!),
               style: theme.typography.normal.copyWith(
                 fontSize: 14,
                 color: _labelGrey,
@@ -766,7 +782,7 @@ class _DropdownRowState extends State<_DropdownRow> {
         children: [
           Expanded(
             child: Text(
-              widget.label,
+              AppLanguage.tr(context, widget.label),
               style: theme.typography.medium.copyWith(
                 fontSize: 12,
                 color: theme.colorScheme.foreground,
@@ -782,7 +798,7 @@ class _DropdownRowState extends State<_DropdownRow> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    widget.value,
+                    AppLanguage.tr(context, widget.value),
                     style: theme.typography.medium.copyWith(
                       fontSize: 12,
                       color: theme.colorScheme.foreground,
@@ -843,7 +859,7 @@ class _DropdownRowState extends State<_DropdownRow> {
                 children: [
                   for (final option in widget.options)
                     _MenuOption(
-                      label: option,
+                      label: AppLanguage.tr(context, option),
                       selected: option == widget.value,
                       onTap: () {
                         _close();
@@ -947,7 +963,7 @@ class _StepperRow extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              label,
+              AppLanguage.tr(context, label),
               style: theme.typography.normal.copyWith(
                 fontSize: 14,
                 color: theme.colorScheme.foreground,
@@ -1038,7 +1054,7 @@ class _DestinationRow extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  label,
+                  AppLanguage.tr(context, label),
                   style: theme.typography.medium.copyWith(
                     fontSize: 12,
                     color: theme.colorScheme.foreground,
@@ -1067,7 +1083,7 @@ class _SettingsText extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 15),
       child: Text(
-        text,
+        AppLanguage.tr(context, text),
         style: theme.typography.normal.copyWith(
           fontSize: 14,
           color: color ?? _labelGrey,

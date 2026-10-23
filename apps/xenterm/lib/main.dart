@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'data/hosts.dart';
+import 'l10n/app_language.dart';
 import 'shell/root_shell.dart';
 import 'terminal/core_settings.dart';
 import 'theme/termius_theme.dart';
@@ -33,16 +34,12 @@ Future<void> main() async {
 
 class XenTermApp extends StatefulWidget {
   final AppFonts? fonts;
+
   /// Overrides the hosts loader (widget tests use the sample fixture; the app
   /// loads the real sessions from the Rust core).
   final Future<List<Host>> Function()? hostsLoader;
   final CoreSettingsController? settings;
-  const XenTermApp({
-    super.key,
-    this.fonts,
-    this.hostsLoader,
-    this.settings,
-  });
+  const XenTermApp({super.key, this.fonts, this.hostsLoader, this.settings});
 
   @override
   State<XenTermApp> createState() => _XenTermAppState();
@@ -50,7 +47,9 @@ class XenTermApp extends StatefulWidget {
 
 class _XenTermAppState extends State<XenTermApp> {
   static const _themeKey = 'xenterm.theme.light';
+  static const _languageKey = 'xenterm.language';
   bool _lightTheme = false;
+  String _language = 'en';
   late final AppFonts _fonts = widget.fonts ?? AppFonts();
   late final CoreSettingsController _settings =
       widget.settings ?? CoreSettingsController();
@@ -61,6 +60,7 @@ class _XenTermAppState extends State<XenTermApp> {
     _fonts.addListener(_changed);
     if (widget.settings == null) _settings.load();
     _restoreTheme();
+    _restoreLanguage();
   }
 
   Future<void> _restoreTheme() async {
@@ -73,6 +73,22 @@ class _XenTermAppState extends State<XenTermApp> {
     setState(() => _lightTheme = light);
     SharedPreferences.getInstance().then(
       (prefs) => prefs.setBool(_themeKey, light),
+    );
+  }
+
+  Future<void> _restoreLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final code = prefs.getString(_languageKey);
+    if (mounted && AppLanguage.supported.containsKey(code)) {
+      setState(() => _language = code!);
+    }
+  }
+
+  void _setLanguage(String code) {
+    if (!AppLanguage.supported.containsKey(code)) return;
+    setState(() => _language = code);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setString(_languageKey, code),
     );
   }
 
@@ -99,18 +115,22 @@ class _XenTermAppState extends State<XenTermApp> {
         // TermiusRadius, so the multiplier only styles library internals.
         radius: 0.5,
       ),
-      home: DefaultTextEditingShortcuts(
-        child: DefaultTextStyle.merge(
-        style: TextStyle(
-          fontFamily: _fonts.uiFamily.isEmpty ? null : _fonts.uiFamily,
-          fontSize: _fonts.uiSize,
-        ),
-          child: RootShell(
-            lightTheme: _lightTheme,
-            onThemeChanged: _setTheme,
-            fonts: _fonts,
-            settings: _settings,
-            hostsLoader: widget.hostsLoader,
+      home: AppLanguage(
+        code: _language,
+        onChanged: _setLanguage,
+        child: DefaultTextEditingShortcuts(
+          child: DefaultTextStyle.merge(
+            style: TextStyle(
+              fontFamily: _fonts.uiFamily.isEmpty ? null : _fonts.uiFamily,
+              fontSize: _fonts.uiSize,
+            ),
+            child: RootShell(
+              lightTheme: _lightTheme,
+              onThemeChanged: _setTheme,
+              fonts: _fonts,
+              settings: _settings,
+              hostsLoader: widget.hostsLoader,
+            ),
           ),
         ),
       ),
