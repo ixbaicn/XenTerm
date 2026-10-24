@@ -44,7 +44,7 @@ to whatever runs on the other end, and local shells run in a real PTY / ConPTY.
 | **Terminals** | Full VT/ANSI, mouse tracking, DEC line drawing, colour emoji, split panes |
 | **Monitoring** | Local + remote CPU / memory / swap / disk / network, remote process list |
 | **Automation** | A `cli` for scripts and CI, and an MCP server for AI clients |
-| **Interface** | GPUI-rendered, English / Simplified Chinese, collapsible docked panels |
+| **Interface** | Flutter (shadcn-based, Termius-style), English / Simplified Chinese |
 
 ## The interface
 
@@ -209,24 +209,19 @@ behaviour still require platform testing.
 
 ## Install
 
-Every `v*` tag builds the **Flutter desktop application** for **Windows**,
-**macOS** (Apple Silicon and Intel) and **Linux x86_64** in GitHub
-Actions and publishes it on the
-[Releases](https://github.com/ixbaicn/XenTerm/releases) page. Desktop downloads are
-named `xenterm-<version>-<platform>-desktop.*` and already contain the UI and the
-Rust bridge. The separate `xenterm-cli-*` archives contain only the command-line/MCP
-service core.
+Every `v*` tag builds the **desktop application** — the Flutter UI with the full
+Rust core (SSH, SFTP, monitoring, triggers) packaged inside one archive per
+platform — and publishes it on the
+[Releases](https://github.com/ixbaicn/XenTerm/releases) page. Nothing needs to
+be installed separately: unzip and run.
 
 ### Windows
 
-- **Desktop (recommended)** — unzip
-  `xenterm-<version>-windows-x86_64-desktop.zip` and run `xenterm.exe`.
-- **CLI / MCP only** — `xenterm-cli-<version>-windows-x86_64.msi` installs the
-  service core without a UI.
+Unzip `xenterm-<version>-windows-x86_64-desktop.zip` and run `xenterm.exe`.
 
 ### macOS
 
-The desktop download is a `.zip` containing `XenTerm.app`:
+The download is a `.zip` containing `XenTerm.app`:
 
 ```bash
 # aarch64 = Apple Silicon, x86_64 = Intel
@@ -246,7 +241,7 @@ Requires macOS 11 Big Sur or later.
 
 ### Linux
 
-The desktop tarball runs directly (GTK 3 is required):
+The tarball is a self-contained bundle (GTK 3 is the only system dependency):
 
 ```bash
 tar -xzf xenterm-*-linux-x86_64-desktop.tar.gz
@@ -254,76 +249,41 @@ cd xenterm-*-linux-x86_64-desktop
 ./xenterm
 ```
 
-The `xenterm-cli-*` archives and the `.deb`, AppImage and Flatpak packages install
-only the command-line/MCP service core:
-
-| Core package | Command |
+| Distribution | Command |
 | --- | --- |
-| Debian / Ubuntu | `sudo apt install ./xenterm-cli-*-linux-amd64.deb` |
-| Flatpak | `flatpak install --user xenterm-cli-*.flatpak` |
-| AppImage | `chmod +x xenterm-cli-*.AppImage && ./xenterm-cli-*.AppImage` |
-| Arch (AUR) | `yay -S xenterm-bin` |
+| Arch (AUR) | `yay -S xenterm-bin` (installs the same bundle to `/opt/xenterm`) |
 
-The CLI archive also ships the installer for its `xenterm` binary:
+The `xenterm.desktop` entry and icon ship inside the tarball for distributions
+that want to register the application.
 
-```bash
-tar -xzf xenterm-cli-*-linux-x86_64.tar.gz
-cd xenterm-cli-*-linux-x86_64
-
-# Optional: install the binary, icon and launcher under /usr/local
-# sudo is requested only when the destination needs it; root does not need sudo
-chmod +x install-linux.sh && ./install-linux.sh
-
-# Or install for this user under ~/.local, without sudo
-./install-linux.sh --user
-
-# Or choose an installation directory (quote paths containing spaces)
-./install-linux.sh --prefix "$HOME/Apps/XenTerm"
-# Equivalent environment setting; an optional binary path still works
-PREFIX="$HOME/Apps/XenTerm" ./install-linux.sh /path/to/xenterm
-```
-
-The default prefix is `/usr/local`. The installer creates `<prefix>/bin/xenterm`,
-`<prefix>/share/applications/xenterm.desktop` and
-`<prefix>/share/icons/hicolor/512x512/apps/xenterm.png`. Prefix precedence is
-`--prefix` > `PREFIX` > the default (`$HOME/.local` with `--user`). `--user` never
-invokes sudo and fails with a clear error if the selected destination is not writable.
-Relative prefixes are resolved to absolute paths. Prefixes containing `=` or control
-characters are rejected because they cannot form a safe desktop launcher path.
-
-The launcher and its **New Window** action use the installed binary's absolute path,
-so they do not depend on `PATH`. For command-line use, add `<prefix>/bin` to `PATH`.
-For a custom prefix outside the desktop's search path, also add `<prefix>/share` to
-`XDG_DATA_DIRS` in your desktop session environment, then log out and back in.
-
-Other user launchers are preserved; the installer warns if one may override the new
-installation. Rerunning the installer updates launchers marked as managed by it, and
-also upgrades the original installer's unchanged launcher (an exact content match).
-If an existing destination launcher is unmarked and differs from that original
-template, installation stops before changing files. Review and move that customized
-launcher before retrying.
-
-> Requires glibc ≥ 2.35 (Ubuntu 22.04+ / Debian 12+). If you need an older baseline, the
-> `-glibc228` tarballs are built against glibc 2.28 (Debian 10).
-
-> On Wayland you may need to log out and back in once after installing the icon, so the
-> shell picks it up.
+> The command-line/MCP service core is not published as release artifacts any
+> more; it lives inside the desktop archive's `xenterm_bridge` library. For
+> automation use, build it from source:
+> `cargo build --locked --release --no-default-features --features headless`.
 
 ## Quick start
 
+Build the desktop app from source (Flutter 3.47+ and a Rust toolchain):
+
 ```bash
-git clone https://github.com/ixbaicn/XenTerm
-cd xenterm
-cargo run --release
+cargo build --release -p xenterm-bridge        # the Rust core as a bridge library
+cd apps/xenterm
+flutter pub get
+flutter build windows --release                # or linux / macos
 ```
 
+`apps/xenterm/tool/bundle_native.sh` copies the bridge next to the built app
+(`build/windows/x64/runner/Release` on Windows); `flutter run` during
+development needs the same step once.
+
 On first launch XenTerm creates an empty session store. Add your first server with **New
-Session**, or import one — `~/.ssh/config`, a FinalShell connection export, a previous
+host**, or import one — `~/.ssh/config`, a FinalShell connection export, a previous
 XenTerm export, or a pasted `host|port|user|password|name` list are all supported.
 
-### Headless CLI / authenticated remote MCP
+## Headless CLI / authenticated remote MCP
 
-Build without the GPUI desktop libraries:
+The desktop archive already contains the whole service core inside its bridge
+library; build the standalone CLI/MCP binary from source with:
 
 ```sh
 cargo build --locked --release --no-default-features --features headless
@@ -338,17 +298,15 @@ the build.
 
 ### Building on Linux
 
-`cargo run` needs the system development packages the GUI stack links against:
+The Flutter desktop build and the Rust core need these system development
+packages:
 
 ```bash
 sudo apt update
 sudo apt install -y --no-install-recommends \
-  build-essential pkg-config cmake \
-  libfontconfig1-dev libfreetype6-dev \
-  libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-  libgl1-mesa-dev libegl1-mesa-dev libgtk-3-dev \
-  libudev-dev
+  build-essential pkg-config cmake ninja-build clang \
+  libgtk-3-dev liblzma-dev libstdc++-12-dev \
+  libudev-dev libdbus-1-dev
 ```
 
 ## Keyboard shortcuts
@@ -535,7 +493,7 @@ overwritten. Diagnostics go to a separate `log/` directory beside the config, wi
 
 | Layer | Choice |
 | --- | --- |
-| UI | [GPUI](https://gpui.rs) via `gpui-kit` — GPU-rendered Rust UI, compiled in |
+| UI | Flutter + shadcn_flutter (Termius-style desktop app) over an FFI bridge |
 | Async runtime | [`tokio`](https://tokio.rs) |
 | SSH / SFTP | [`russh`](https://crates.io/crates/russh) + [`russh-sftp`](https://crates.io/crates/russh-sftp) — pure Rust, no libssh |
 | Terminal emulation | [`rio-vt`](https://crates.io/crates/rio-vt) native grid, scrollback and reflow |

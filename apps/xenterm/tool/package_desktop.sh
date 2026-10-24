@@ -81,6 +81,8 @@ case "$(uname -s)" in
     mkdir -p "$stage"
     cp -a "$bundle/." "$stage/"
     copy_extras "$stage"
+    # Desktop entry + icon so distributions (and users) can register the app.
+    cp assets/xenterm.desktop "assets/icon@512.png" "$stage/" 2>/dev/null || true
     tar -czf "${stage}.tar.gz" "$stage"
     echo "${stage}.tar.gz"
     ;;

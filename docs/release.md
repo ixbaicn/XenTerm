@@ -20,7 +20,7 @@
 
 应用的完整版本号遵循 [版本号规范](versioning.md)：稳定版是 `xt-vX.Y.Z`，
 由 `scripts/version.sh` 唯一拼接。`Cargo.toml` 里的 semver 只作打包元数据
-（deb / MSI / Info.plist）。
+（Flutter `--build-name` 与 AUR 包元数据）。
 
 如果想先在本地创建提交和 tag，不立即推送：
 
@@ -31,17 +31,13 @@ git push origin v0.5.7
 ```
 
 Release workflow 也会检查推送上来的 tag。比如 tag 名是 `v0.5.7` 时，
-`Cargo.toml` 和 `Cargo.lock` 必须是 `0.5.7`，构建产物的 `xenterm --version`
-必须输出 `xenterm xt-v0.5.7`，否则 workflow 会在发布前失败。
+`Cargo.toml` 和 `Cargo.lock` 必须是 `0.5.7`，否则 workflow 会在发布前失败。
 
-发布产物分两类：
-
-- `xenterm-<版本>-<平台>-desktop.*`：Flutter 桌面应用（Windows zip、macOS
-  `XenTerm.app` zip、Linux x86_64 tar.gz），已经带上对应平台的
-  `xenterm_bridge` 动态库，下载即可使用。Flutter 未发布 Linux arm64 的
-  SDK，桌面包暂不含 aarch64（Rust CLI 仍有 aarch64 构建）。
-- `xenterm-cli-<版本>-*`：只含命令行 / MCP 服务核心；AppImage、deb、MSI、Flatpak
-  和 glibc 2.28 包都属于这一类。
+发布产物只有一类：`xenterm-<版本>-<平台>-desktop.*` 桌面应用（Windows zip、
+macOS `XenTerm.app` zip、Linux x86_64 tar.gz）。Flutter UI 与完整 Rust 核心
+（`xenterm_bridge` 动态库）在同一个包里，解压即用；CLI/MCP 服务核心不再单独
+打包，自动化场景从源码构建。Flutter 未发布 Linux arm64 的 SDK，桌面包暂不含
+aarch64。
 
 桌面包由 `apps/xenterm/tool/bundle_native.sh`（把 bridge 放到 Flutter 产物旁）和
 `apps/xenterm/tool/package_desktop.sh`（打包并重签 macOS bundle）生成。
@@ -70,7 +66,7 @@ The script:
 
 The application version string follows the [versioning spec](versioning.md):
 stable builds report `xt-vX.Y.Z`, assembled only by `scripts/version.sh`. The
-semver in `Cargo.toml` remains packaging metadata (deb / MSI / Info.plist).
+semver in `Cargo.toml` remains packaging metadata (the Flutter build name and AUR package metadata).
 
 To prepare the commit and tag without pushing:
 
@@ -81,19 +77,16 @@ git push origin v0.5.7
 ```
 
 The release workflow also checks pushed tags. A tag named `v0.5.7` must match
-`Cargo.toml` and `Cargo.lock` at `0.5.7`, and the built binary must print
-`xenterm xt-v0.5.7` from `xenterm --version`, otherwise the workflow fails
+`Cargo.toml` and `Cargo.lock` at `0.5.7`, otherwise the workflow fails
 before publishing.
 
-Two artifact families are published:
-
-- `xenterm-<version>-<platform>-desktop.*`: the Flutter desktop application
-  (Windows zip, macOS `XenTerm.app` zip, Linux x86_64 tar.gz) with the
-  platform's `xenterm_bridge` library already inside, ready to run. Flutter
-  publishes no Linux arm64 SDK, so there is no aarch64 desktop archive (the
-  Rust CLI keeps its aarch64 build).
-- `xenterm-cli-<version>-*`: the command-line/MCP service core only (AppImage,
-  deb, MSI, Flatpak and glibc 2.28 archives).
+Only one artifact family is published:
+`xenterm-<version>-<platform>-desktop.*` — the desktop application (Windows
+zip, macOS `XenTerm.app` zip, Linux x86_64 tar.gz). The Flutter UI and the
+whole Rust core (the `xenterm_bridge` library) ship inside the same archive,
+ready to run. The CLI/MCP service core is no longer packaged separately;
+automation users build it from source. Flutter publishes no Linux arm64 SDK,
+so there is no aarch64 desktop archive.
 
 `apps/xenterm/tool/bundle_native.sh` stages the bridge next to the Flutter
 output, and `apps/xenterm/tool/package_desktop.sh` archives it and re-signs the

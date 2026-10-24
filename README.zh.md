@@ -43,7 +43,7 @@ XenTerm 是一个跨平台 SSH / SFTP / 终端客户端：**Rust 服务核心 + 
 | **终端能力** | 完整 VT/ANSI、鼠标追踪、DEC 线框字符、彩色 emoji、分屏 |
 | **资源监控** | 本机 + 远端 CPU / 内存 / 交换 / 磁盘 / 网络，远端进程列表 |
 | **自动化** | 面向脚本和 CI 的 `cli`，以及面向 AI 客户端的 MCP 服务 |
-| **界面** | GPUI 渲染，中英双语，面板可折叠可停靠 |
+| **界面** | Flutter（shadcn 风格、Termius 布局），中英双语 |
 
 ## 仓库结构
 
@@ -180,20 +180,18 @@ Linux 原生界面的验证不能代替 Windows、macOS 原生交互验证；请
 
 ## 安装
 
-每次打 `v*` 标签，GitHub Actions 会构建 **Flutter 桌面应用**，覆盖 **Windows**、
-**macOS**（Apple 芯片与 Intel）和 **Linux x86_64**，并发布到
-[Releases](https://github.com/ixbaicn/XenTerm/releases) 页面。桌面包命名为
-`xenterm-<版本>-<平台>-desktop.*`，内含 UI 与 Rust bridge；另外的
-`xenterm-cli-*` 包只包含命令行 / MCP 服务核心。
+每次打 `v*` 标签，GitHub Actions 都会构建**桌面应用**——Flutter UI 加上完整的
+Rust 核心（SSH、SFTP、监控、触发器）打进同一个包——并发布到
+[Releases](https://github.com/ixbaicn/XenTerm/releases) 页面。无需另装任何组件，
+解压即用。
 
 ### Windows
 
-- **桌面版（推荐）** —— 解压 `xenterm-<版本>-windows-x86_64-desktop.zip`，双击 `xenterm.exe`。
-- **仅 CLI / MCP** —— `xenterm-cli-<版本>-windows-x86_64.msi` 只安装无 UI 的服务核心。
+解压 `xenterm-<版本>-windows-x86_64-desktop.zip`，双击 `xenterm.exe`。
 
 ### macOS
 
-桌面版下载得到的是包含 `XenTerm.app` 的 `.zip`：
+下载得到的是包含 `XenTerm.app` 的 `.zip`：
 
 ```bash
 # aarch64 = Apple 芯片，x86_64 = Intel
@@ -212,7 +210,7 @@ open /Applications/XenTerm.app
 
 ### Linux
 
-桌面版 tar 包可直接运行（需要 GTK 3）：
+tar 包是自包含的运行目录（系统只需要 GTK 3）：
 
 ```bash
 tar -xzf xenterm-*-linux-x86_64-desktop.tar.gz
@@ -220,81 +218,42 @@ cd xenterm-*-linux-x86_64-desktop
 ./xenterm
 ```
 
-`xenterm-cli-*` 包以及 `.deb`、AppImage、Flatpak 只安装命令行 / MCP 服务核心：
-
-| 核心包 | 命令 |
+| 发行版 | 命令 |
 | --- | --- |
-| Debian / Ubuntu | `sudo apt install ./xenterm-cli-*-linux-amd64.deb` |
-| Flatpak | `flatpak install --user xenterm-cli-*.flatpak` |
-| AppImage | `chmod +x xenterm-cli-*.AppImage && ./xenterm-cli-*.AppImage` |
-| Arch（AUR） | `yay -S xenterm-bin` |
+| Arch（AUR） | `yay -S xenterm-bin`（同一个包，安装到 `/opt/xenterm`） |
 
-CLI 压缩包内还带有安装 `xenterm` 二进制的脚本：
+包内附带 `xenterm.desktop` 与图标，供发行版注册应用使用。
 
-```bash
-tar -xzf xenterm-cli-*-linux-x86_64.tar.gz
-cd xenterm-cli-*-linux-x86_64
-
-# 可选：将程序、图标和启动器安装到 /usr/local
-# 仅目标目录需要权限时请求 sudo；root 不需要 sudo
-chmod +x install-linux.sh && ./install-linux.sh
-
-# 或仅为当前用户安装到 ~/.local，不使用 sudo
-./install-linux.sh --user
-
-# 或指定安装目录（路径包含空格时请加引号）
-./install-linux.sh --prefix "$HOME/Apps/XenTerm"
-# 等价的环境变量写法；仍可传入可选的二进制文件路径
-PREFIX="$HOME/Apps/XenTerm" ./install-linux.sh /path/to/xenterm
-```
-
-默认安装前缀为 `/usr/local`。安装器会创建 `<prefix>/bin/xenterm`、
-`<prefix>/share/applications/xenterm.desktop` 和
-`<prefix>/share/icons/hicolor/512x512/apps/xenterm.png`。前缀优先级为
-`--prefix` > `PREFIX` 环境变量 > 默认值（使用 `--user` 时为 `$HOME/.local`）。
-`--user` 绝不调用 sudo；所选目标不可写时会明确报错。
-相对前缀会转换为绝对路径。包含 `=` 或控制字符的前缀无法构成安全的桌面启动路径，会被拒绝。
-
-启动器及其「新建窗口」动作均使用已安装程序的绝对路径，不依赖 `PATH`。
-若要在命令行使用，请将 `<prefix>/bin` 加入 `PATH`。
-自定义前缀若不在桌面搜索路径内，还需在桌面会话环境中将 `<prefix>/share` 加入
-`XDG_DATA_DIRS`，然后注销并重新登录。
-
-其他位置的用户启动器会保留；若可能遮蔽本次安装，安装器会给出提示。
-再次运行脚本可以更新带有本安装器管理标记的启动器，也能升级原版安装器生成且
-未经修改的启动器（要求内容完全一致）。如果目标启动器没有管理标记，且与原版模板
-不一致，安装会在修改文件前停止。请检查并移走该自定义启动器后重试。
-
-> 需要 glibc ≥ 2.35（Ubuntu 22.04+ / Debian 12+）。如果需要更老的基线，`-glibc228`
-> 后缀的 tar 包是针对 glibc 2.28（Debian 10）构建的。
-
-> 在 Wayland 下，安装图标后可能需要注销重登一次，桌面环境才会认到这个图标。
+> 命令行 / MCP 服务核心不再单独发布产物：它就在桌面包的 `xenterm_bridge`
+> 动态库里。自动化场景请从源码构建：
+> `cargo build --locked --release --no-default-features --features headless`。
 
 ## 快速开始
 
+从源码构建桌面应用（需要 Flutter 3.47+ 和 Rust 工具链）：
+
 ```bash
-git clone https://github.com/ixbaicn/XenTerm
-cd xenterm
-cargo run --release
+cargo build --release -p xenterm-bridge        # Rust 核心编成 bridge 库
+cd apps/xenterm
+flutter pub get
+flutter build windows --release                # 或 linux / macos
 ```
 
-首次启动会创建一个空的会话库。点击 **新建会话** 添加第一台服务器，或者直接导入：
+`apps/xenterm/tool/bundle_native.sh` 会把 bridge 拷到构建产物旁
+（Windows 是 `build/windows/x64/runner/Release`）；开发时 `flutter run`
+前同样需要先执行一次。
+
+首次启动会创建一个空的会话库。点击 **New host** 添加第一台服务器，或者直接导入：
 `~/.ssh/config`、FinalShell 连接导出文件、XenTerm 自己的导出文件，以及
 `host|port|user|password|name` 格式的粘贴列表都支持。
 
 ### 在 Linux 上构建
 
-`cargo run` 需要先安装界面栈链接的系统开发包：
+Flutter Linux 桌面与 Rust 核心需要这些系统开发包：
 
 ```bash
 sudo apt update
-sudo apt install -y --no-install-recommends \
-  build-essential pkg-config cmake \
-  libfontconfig1-dev libfreetype6-dev \
-  libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-  libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
-  libgl1-mesa-dev libegl1-mesa-dev libgtk-3-dev \
-  libudev-dev
+sudo apt install -y --no-install-recommends   build-essential pkg-config cmake ninja-build clang   libgtk-3-dev liblzma-dev libstdc++-12-dev   libudev-dev libdbus-1-dev
 ```
 
 ## 快捷键
@@ -469,7 +428,7 @@ tar 包），所有数据都放在那里。否则回退到系统的用户配置�
 
 | 层次 | 选型 |
 | --- | --- |
-| 界面 | [GPUI](https://gpui.rs)，通过 `gpui-kit` —— GPU 渲染的 Rust 界面，编译进二进制 |
+| 界面 | Flutter + shadcn_flutter（Termius 风格桌面应用），经 FFI bridge 与核心通信 |
 | 异步运行时 | [`tokio`](https://tokio.rs) |
 | SSH / SFTP | [`russh`](https://crates.io/crates/russh) + [`russh-sftp`](https://crates.io/crates/russh-sftp)，纯 Rust，不依赖 libssh |
 | 终端模拟 | [`rio-vt`](https://crates.io/crates/rio-vt) 原生网格、滚动历史与缩放重排 |
