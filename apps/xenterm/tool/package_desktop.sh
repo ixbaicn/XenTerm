@@ -27,6 +27,10 @@ case "$(uname -s)" in
     cp -a "$bundle/." "$stage/"
     # A local launch creates its profile next to the exe; never ship it.
     rm -rf "$stage/config"
+    # Never ship stale artifacts left in the build tree: symbols and a
+    # pre-CMake-rename executable (windows/CMakeLists.txt sets BINARY_NAME to
+    # xenterm, so xenterm_app.exe cannot be a current output).
+    rm -f "$stage"/*.pdb "$stage"/xenterm_app.exe
     copy_extras "$stage"
     if [ -x "/c/Windows/System32/tar.exe" ]; then
       # bsdtar ships with Windows and can write zip from the extension.

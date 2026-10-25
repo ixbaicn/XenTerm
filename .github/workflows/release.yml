@@ -2,7 +2,9 @@ name: Release
 
 # One workflow, one artifact set: the Flutter desktop application (UI + the
 # full Rust core inside xenterm_bridge) for Windows, Linux x86_64 and macOS
-# (Apple Silicon + Intel).
+# (Apple Silicon + Intel). Windows additionally ships a per-machine MSI
+# installer (packaging/windows/main.wxs) next to the portable zip; the other
+# platforms keep their portable archive only.
 #   - push a tag `vX.Y.Z`  -> stable mode; once every build succeeds, all
 #     artifacts attach to the GitHub Release in one step (no partial releases).
 #   - push to main         -> beta mode; replaces the single rolling `beta`
@@ -121,6 +123,10 @@ jobs:
       # string from prepare instead of letting version.sh derive a channel
       # from the branch name (invalid on e.g. `flutter`).
       XT_VERSION: ${{ needs.prepare.outputs.xt_version }}
+      # build.rs runs scripts/version.sh via bash; on Windows the Git Bash on
+      # PATH is not guaranteed for pwsh steps, and C:\Windows\System32\bash.exe
+      # is the WSL launcher (build.rs skips it). Pin the real Git Bash.
+      XT_BASH: 'C:\Program Files\Git\bin\bash.exe'
     strategy:
       fail-fast: false
       matrix:
@@ -185,11 +191,41 @@ jobs:
           test -f "$ASSET"
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
 
+      - name: Install pinned WiX Toolset 3.14.1
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $wix = & "$env:GITHUB_WORKSPACE\scripts\install-wix.ps1"
+          if ([string]::IsNullOrWhiteSpace($wix) -or -not (Test-Path -LiteralPath (Join-Path $wix "candle.exe"))) {
+            throw "scripts/install-wix.ps1 did not return a usable WiX bin directory: '$wix'"
+          }
+          Write-Host "WiX bin: $wix"
+          "WIX_BIN=$wix" >> $env:GITHUB_ENV
+
+      - name: Build the Windows MSI installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        # Same naming as the archive: xenterm-<version>-windows-x86_64.msi.
+        # ProductVersion comes from the crate version (vX.Y.Z tags) and the
+        # artefact version (tag / beta hash) is recorded in the installer.
+        run: |
+          $msi = & "$env:GITHUB_WORKSPACE\apps\xenterm\tool\package_windows_installer.ps1" -Version $env:VERSION -WixBin $env:WIX_BIN
+          if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "MSI was not created: $msi" }
+          Write-Host "MSI: $msi"
+          "MSI=$msi" >> $env:GITHUB_ENV
+
       - name: Upload desktop application
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
           path: ${{ env.ASSET }}
+
+      - name: Upload Windows installer
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          path: ${{ env.MSI }}
 
   publish:
     name: Publish

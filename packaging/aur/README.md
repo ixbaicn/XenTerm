@@ -60,6 +60,6 @@ git push
 ## 备注
 - 包名用 `xenterm-bin`（二进制包惯例）。若以后想要从源码编译的 `xenterm`
   包，可另加一份从源码 `makepkg` 的 PKGBUILD（需要 Arch 上有 Rust 工具链 +
-  那串 GUI 依赖）。
+  Flutter 桌面构建依赖，例如 gtk3、clang、ninja）。
 - ArchLinuxCN 源：在 AUR 稳定后，可以向 archlinuxcn/repo 提 PR 把它纳入二进制源
   （他们会基于 AUR 的 PKGBUILD 打包），那是另外的流程，按其仓库说明走即可。

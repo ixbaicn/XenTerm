@@ -6,7 +6,7 @@
 # .github/workflows/aur-publish.yml keeps pkgver + checksums in sync on each
 # release; you can also `makepkg -si` this file directly.
 pkgname=xenterm-bin
-pkgver=0.6.6
+pkgver=0.7.3
 pkgrel=1
 pkgdesc="Lightweight FinalShell-style SSH/SFTP/terminal client (Rust core + Flutter UI)"
 arch=('x86_64')

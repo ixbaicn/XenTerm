@@ -83,8 +83,12 @@ if ($existingTag) {
 }
 
 $version = $Tag.Substring(1)
-$cargoTomlPath = Join-Path $repoRoot "Cargo.toml"
+# The product version lives in the crate (root Cargo.toml is a virtual
+# workspace manifest); the crate version is the single source for packaging
+# metadata, mirrored into the Flutter pubspec (version.sh enforces the match).
+$cargoTomlPath = Join-Path $repoRoot "crates\xenterm\Cargo.toml"
 $cargoLockPath = Join-Path $repoRoot "Cargo.lock"
+$pubspecPath = Join-Path $repoRoot "apps\xenterm\pubspec.yaml"
 
 $cargoToml = Get-Content -LiteralPath $cargoTomlPath -Raw
 $newCargoToml = [regex]::Replace(
@@ -108,8 +112,19 @@ if ($newCargoLock -eq $cargoLock) {
     throw "Could not update xenterm version in Cargo.lock."
 }
 
+$pubspec = Get-Content -LiteralPath $pubspecPath -Raw
+$newPubspec = [regex]::Replace(
+    $pubspec,
+    '(?m)^(version:\s*)[0-9]+\.[0-9]+\.[0-9]+(\+[0-9]+)?(\s*)$',
+    "`${1}$version`${2}`${3}",
+    1
+)
+if ($newPubspec -eq $pubspec) {
+    throw "Could not update the app version in apps/xenterm/pubspec.yaml (expected a 'version: X.Y.Z[+N]' line)."
+}
+
 if ($DryRun) {
-    Write-Host "Would update desktop Cargo manifests/locks to $version."
+    Write-Host "Would update the xenterm crate manifests/lock and the Flutter pubspec to $version."
 } else {
     # Windows PowerShell 5 uses the active ANSI code page for Set-Content by
     # default, which corrupts non-ASCII comments and makes Cargo reject the
@@ -117,6 +132,7 @@ if ($DryRun) {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($cargoTomlPath, $newCargoToml, $utf8NoBom)
     [System.IO.File]::WriteAllText($cargoLockPath, $newCargoLock, $utf8NoBom)
+    [System.IO.File]::WriteAllText($pubspecPath, $newPubspec, $utf8NoBom)
 }
 
 Run-Cargo -CargoArgs @("check", "--locked")
@@ -125,7 +141,7 @@ Run-Cargo -CargoArgs @("check", "--locked")
 $env:XT_VERSION = "xt-v$version"
 try {
     Run-CheckedOutput -Expected "xenterm xt-v$version" -Command @(
-        "cargo", "run", "--locked", "--", "--version"
+        "cargo", "run", "-p", "xenterm", "--locked", "--", "--version"
     )
 } finally {
     Remove-Item Env:XT_VERSION -ErrorAction SilentlyContinue
@@ -133,8 +149,9 @@ try {
 
 Run-Git -GitArgs @(
     "add",
-    "Cargo.toml",
-    "Cargo.lock"
+    "crates/xenterm/Cargo.toml",
+    "Cargo.lock",
+    "apps/xenterm/pubspec.yaml"
 )
 Run-Git -GitArgs @("commit", "-m", "Release $Tag")
 Run-Git -GitArgs @("tag", "-a", $Tag, "-m", "Release $Tag")

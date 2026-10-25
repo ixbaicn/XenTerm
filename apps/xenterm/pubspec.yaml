@@ -1,5 +1,5 @@
 name: xenterm_app
-description: "XenTerm — cross-platform SSH client (Termius-style UI on a Rust core)"
+description: "XenTerm — cross-platform SSH / SFTP / terminal client (Rust core, Flutter UI)"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,11 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+# The version base MUST match crates/xenterm/Cargo.toml (the single source of
+# the product version); scripts/version.sh fails any build where the two drift,
+# and scripts/release.ps1 bumps both. Release builds pass --build-name with the
+# crate version and --build-number, so the base only matters for local builds.
+version: 0.7.3+1
 
 environment:
   sdk: ^3.13.5

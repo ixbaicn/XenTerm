@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 0.3.6); blank = latest release"
+        description: "Version to publish (e.g. 0.7.3); blank = latest release"
         required: false
 
 jobs:
