@@ -31,7 +31,7 @@ pub(super) fn should_start_sftp(session: &Session) -> bool {
 /// already-registered tab. Used by the initial connect and by in-place
 /// reconnect (#79); the tab/terminal/parser must already exist.
 ///
-/// `pub(crate)` because the GPUI shell calls it too. This is the one entry point over
+/// `pub(crate)` because the desktop bridge calls it too. This is the one entry point over
 /// all four session kinds, their pump threads and the SFTP bootstrap, and a second
 /// frontend reusing it is what the `ConnectCtx` decoupling was for.
 pub(crate) fn start_session_in_tab(tab_id: &str, session: Session, ctx: &ConnectCtx) {

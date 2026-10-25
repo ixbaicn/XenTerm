@@ -3,17 +3,16 @@ name = "xenterm"
 version = "0.7.3"
 edition = "2021"
 authors = ["xenterm contributors"]
-description = "A lightweight FinalShell-style SSH/terminal client written in Rust"
+description = "XenTerm — a cross-platform SSH / SFTP / terminal client with a Rust core"
 license = "MIT"
 repository = "https://github.com/ixbaicn/XenTerm"
-readme = "README.md"
+readme = "../../README.md"
 rust-version = "1.88"
 
 [features]
-# The GPUI desktop frontend is gone (docs/features.md); this crate is the
-# service core. `headless` is kept as an alias because CI, scripts and muscle
-# memory all say `--features headless` — it means the same thing as the
-# default build now.
+# This crate is the service core. `headless` is kept as an alias because CI,
+# scripts and existing automation say `--features headless` — it means the
+# same thing as the default build now.
 default = ["remote-mcp", "secrets-native"]
 headless = ["remote-mcp"]
 remote-mcp = ["dep:rmcp", "dep:axum", "dep:jsonwebtoken", "dep:tokio-util", "dep:url"]
@@ -26,12 +25,11 @@ secrets-native = [
 ]
 
 [dependencies]
-# The UI toolkit.
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
-# CSS/HSV parsing and conversion; the existing GPUI component supplies the picker UI.
+# CSS/HSV parsing and conversion; the desktop side supplies the picker UI.
 csscolorparser = "=0.9.0"
 glob = "0.3"
 encoding_rs = "0.8"
@@ -146,8 +144,8 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 
-# The GPUI test API is feature-gated with the optional desktop dependency above.
-# A unconditional dev-dependency would pull native GUI libraries into headless tests.
+# Test-only helpers that need a UI host are kept out of the default feature set;
+# an unconditional dev-dependency would pull native GUI libraries into headless tests.
 
 [dependencies.rmcp]
 version = "=2.2.0"
