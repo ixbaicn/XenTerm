@@ -1864,12 +1864,6 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "md5"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
-
-[[package]]
-name = "md5"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
@@ -2852,7 +2846,7 @@ dependencies = [
  "internal-russh-num-bigint",
  "keccak",
  "log",
- "md5 0.8.1",
+ "md5",
  "ml-kem",
  "module-lattice",
  "num-bigint",
@@ -4858,7 +4852,7 @@ dependencies = [
  "jemallocator",
  "jsonwebtoken",
  "keyring",
- "md5 0.7.0",
+ "md5",
  "mimalloc",
  "portable-pty",
  "rand 0.8.6",
