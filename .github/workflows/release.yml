@@ -242,7 +242,7 @@ jobs:
 
       - name: Attach all artifacts to the GitHub Release
         if: needs.prepare.outputs.mode == 'stable'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # Custom fork builds must stay separate from upstream stable releases.
           prerelease: ${{ github.repository != 'ixbaicn/XenTerm' }}
