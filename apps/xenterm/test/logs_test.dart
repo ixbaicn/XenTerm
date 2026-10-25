@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/screens/logs/logs_screen.dart';
-import 'package:xenterm_app/theme/termius_theme.dart';
+import 'package:xenterm_app/theme/app_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
-  theme: ThemeData(colorScheme: termiusDarkScheme()),
+  theme: ThemeData(colorScheme: xtDarkScheme()),
   home: Scaffold(child: SizedBox(width: 1400, height: 800, child: child)),
 );
 

@@ -1,33 +1,66 @@
-/// One host card — the original shows the real OS logo in a colored rounded
-/// square, the name over "ssh, user, tag", and an edit pencil on hover.
-/// Card: 60px tall, radius 15, --dark-grey-3 fill, no border.
+/// One host card: the OS glyph tile, the name over the connection target, and
+/// an edit pencil revealed on hover.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:simple_icons/simple_icons.dart';
 
+import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 
-/// The OS chip: one neutral fill across distros (monochrome theme), with the
-/// actual brand glyph (Simple Icons) as the only differentiator.
-class OsChip {
-  final Color fill;
-  final IconData glyph;
+/// The distro glyph for a host. The theme is monochrome, so the brand glyph
+/// (Simple Icons) inside the neutral tile is the only differentiator.
+IconData osGlyphFor(HostOs os) => switch (os) {
+  HostOs.unknown => LucideIcons.server,
+  HostOs.debian => SimpleIcons.debian,
+  HostOs.ubuntu => SimpleIcons.ubuntu,
+  HostOs.arch => SimpleIcons.archlinux,
+  HostOs.linux => SimpleIcons.linux,
+  HostOs.windows => LucideIcons.appWindow,
+  HostOs.apple => SimpleIcons.apple,
+  HostOs.android => SimpleIcons.android,
+};
 
-  const OsChip(this.fill, this.glyph);
+/// The glyph the tile shows for [host]: a detected distro logo when
+/// [hostOsRegistry] reported one, otherwise the neutral server glyph.
+IconData osGlyphForHost(Host host) {
+  final detected = hostOsRegistry.of(host.id);
+  return osGlyphFor(detected ?? host.os);
 }
 
-OsChip osChipFor(HostOs os) => switch (os) {
-      HostOs.debian => const OsChip(Color(0xFF3A3A3A), SimpleIcons.debian),
-      HostOs.ubuntu => const OsChip(Color(0xFF3A3A3A), SimpleIcons.ubuntu),
-      HostOs.arch => const OsChip(Color(0xFF3A3A3A), SimpleIcons.archlinux),
-      HostOs.linux => const OsChip(Color(0xFF3A3A3A), SimpleIcons.linux),
-      HostOs.windows =>
-        const OsChip(Color(0xFF3A3A3A), LucideIcons.appWindow),
-      HostOs.apple => const OsChip(Color(0xFF3A3A3A), SimpleIcons.apple),
-      HostOs.android => const OsChip(Color(0xFF3A3A3A), SimpleIcons.android),
-    };
+/// The square OS glyph tile shared by the host card and the details drawer.
+class OsChipTile extends StatelessWidget {
+  final Host host;
+  final double size;
+  final double iconSize;
+
+  const OsChipTile({
+    super.key,
+    required this.host,
+    this.size = 40,
+    this.iconSize = 22,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: XtColors.selected(context),
+        borderRadius: BorderRadius.circular(XtRadius.card),
+      ),
+      child: Icon(
+        osGlyphForHost(host),
+        size: iconSize,
+        color: XtColors.textPrimary(context),
+      ),
+    );
+  }
+}
 
 class HostCard extends StatefulWidget {
   final Host host;
@@ -59,108 +92,81 @@ class HostCard extends StatefulWidget {
 class _HostCardState extends State<HostCard> {
   bool _hovering = false;
 
-  static const _cardFill = Color(0xFF1B1B1B); // --dark-grey-3 / --card-a
-  static const _cardHover = Color(0xFF2E2E2E); // one step up
-  static const _subtitle = Color(0xFFA6A6A6); // --dark-grey-7
+  /// The card's second line: the connection target, not the metadata that the
+  /// details drawer already lists (protocol/user/group repeated on every card).
+  String get _subtitle {
+    final host = widget.host;
+    if (host.protocol == 'local') return 'Local terminal';
+    final detail = host.detail.trim();
+    if (detail.isEmpty) return host.address;
+    return host.protocol == 'ssh' ? detail : '${host.protocol} · $detail';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final host = widget.host;
-    final selected = widget.selected;
-    final chip = osChipFor(host.os);
-    final border = selected
-        ? Border.all(color: theme.colorScheme.primary, width: 1.5)
-        : Border.all(color: Colors.transparent);
-    final fill = _hovering ? _cardHover : _cardFill;
-
+    final card = XtCard(
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      radius: XtRadius.cardLarge,
+      color: widget.selected ? XtColors.selected(context) : null,
+      interactive: true,
+      onTap: widget.onTap,
+      child: SizedBox(
+        height: 60,
+        child: Row(
+          children: [
+            OsChipTile(host: host),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    host.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.semiBold.copyWith(
+                      fontSize: 16,
+                      color: XtColors.textPrimary(context),
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    _subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.typography.normal.copyWith(
+                      fontSize: 13,
+                      color: XtColors.textSecondary(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // The edit pencil is the per-card quick action, revealed on hover.
+            AnimatedOpacity(
+              duration: XtMotion.micro,
+              curve: XtMotion.easeOut,
+              opacity: _hovering ? 1 : 0,
+              child: XtIconButton(
+                key: ValueKey('edit-${host.id}'),
+                icon: LucideIcons.pencil,
+                onPressed: widget.onEdit,
+                size: 28,
+                iconSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 15),
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-            border: border,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: chip.fill,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(chip.glyph, size: 22, color: Colors.white),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      host.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.typography.semiBold.copyWith(
-                        fontSize: 16,
-                        color: theme.colorScheme.foreground,
-                      ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      host.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.typography.normal.copyWith(
-                        fontSize: 13,
-                        color: _subtitle,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // The edit pencil: hidden until hover (200ms fade), the
-              // original's per-card quick action.
-              AnimatedOpacity(
-                duration: TermiusMotion.micro,
-                curve: TermiusMotion.easeOut,
-                opacity: _hovering ? 1 : 0,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    key: ValueKey('edit-${host.id}'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: widget.onEdit,
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF3A3A3A),
-                        borderRadius: BorderRadius.circular(TermiusRadius.menu),
-                      ),
-                      child: const Icon(LucideIcons.pencil,
-                          size: 13, color: Colors.white),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: card,
     );
   }
 }

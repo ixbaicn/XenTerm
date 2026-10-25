@@ -6,9 +6,9 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
-import '../../widgets/lucide_extra_icons.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 
 typedef KnownHostLoader = Future<List<KnownHost>> Function();
@@ -134,7 +134,7 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
         if (_searching)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: TermiusField(
+            child: XtField(
               key: const ValueKey('known-host-search'),
               controller: _search,
               autofocus: true,
@@ -145,9 +145,11 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
         const SectionTitle(text: 'Known Hosts'),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: _body(theme),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: _body(theme),
+            ),
           ),
         ),
       ],
@@ -156,12 +158,12 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
+      return Padding(
+        padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
             'Loading known hosts…',
-            style: TextStyle(color: Color(0xFFA6A6A6)),
+            style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
       );
@@ -174,13 +176,13 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFA6A6A6)),
+              style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
-            Button(
-              style: const ButtonStyle.outline(),
+            XtActionButton(
+              label: 'Retry',
+              variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
-              child: const Text('Retry'),
             ),
           ],
         ),
@@ -188,35 +190,12 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
     }
     final hosts = _filtered;
     if (hosts.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            FingerprintPatternIcon(
-              size: 30,
-              color: theme.colorScheme.mutedForeground,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _hosts.isEmpty ? 'No known hosts yet' : 'No matches',
-              style: theme.typography.semiBold.copyWith(
-                fontSize: 15,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _hosts.isEmpty
-                  ? 'Host keys are remembered after you accept them on connect.'
-                  : 'Try a different search.',
-              textAlign: TextAlign.center,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ],
-        ),
+      return XtEmptyState(
+        icon: LucideIcons.fingerprint,
+        title: _hosts.isEmpty ? 'No known hosts yet' : 'No matches',
+        message: _hosts.isEmpty
+            ? 'Host keys are remembered after you accept them on connect.'
+            : 'Try a different search.',
       );
     }
     return Column(
@@ -253,106 +232,78 @@ class _KnownHostCardState extends State<KnownHostCard> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Container(
-        key: ValueKey('known-host-${widget.host.id}'),
+      child: SizedBox(
         height: 76,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: _hover ? const Color(0xFF2E2E2E) : const Color(0xFF1B1B1B),
-          borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFF161616),
-                borderRadius: BorderRadius.circular(TermiusRadius.menu),
-              ),
-              child: const Icon(
-                LucideIcons.shieldCheck,
-                size: 20,
-                color: Color(0xFFFFFFFF),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          widget.host.id,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.semiBold.copyWith(
-                            fontSize: 15,
-                            color: theme.colorScheme.foreground,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF161616),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _algorithmLabel(widget.host.keyType),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFFA6A6A6),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    fingerprint,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: 'Consolas',
-                      fontFamilyFallback: ['Menlo', 'Courier New'],
-                      fontSize: 12,
-                      color: Color(0xFFA6A6A6),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_hover)
-              Tooltip(
-                tooltip: (_) => const Text('Forget this key'),
-                child: GestureDetector(
-                  key: ValueKey('known-host-remove-${widget.host.id}'),
-                  onTap: widget.onRemove,
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF161616),
-                      borderRadius: BorderRadius.circular(TermiusRadius.menu),
-                    ),
-                    child: const Icon(
-                      LucideIcons.trash2,
-                      size: 14,
-                      color: Color(0xFFE5484D),
-                    ),
-                  ),
+        child: XtCard(
+          key: ValueKey('known-host-${widget.host.id}'),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          radius: XtRadius.cardLarge,
+          interactive: true,
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: XtColors.sunken(context),
+                  borderRadius: BorderRadius.circular(XtRadius.menu),
+                ),
+                child: Icon(
+                  LucideIcons.shieldCheck,
+                  size: 20,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
-          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            widget.host.id,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.semiBold.copyWith(
+                              fontSize: 15,
+                              color: XtColors.textPrimary(context),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        XtBadge(label: _algorithmLabel(widget.host.keyType)),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      fingerprint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'Consolas',
+                        fontFamilyFallback: const ['Menlo', 'Courier New'],
+                        fontSize: 12,
+                        color: XtColors.textSecondary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_hover)
+                XtActionButton(
+                  key: ValueKey('known-host-remove-${widget.host.id}'),
+                  icon: LucideIcons.trash2,
+                  variant: XtActionVariant.danger,
+                  tooltip: 'Forget this key',
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: widget.onRemove,
+                ),
+            ],
+          ),
         ),
       ),
     );

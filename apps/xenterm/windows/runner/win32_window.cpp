@@ -273,8 +273,8 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  // The app is dark-themed (Termius replica); the titlebar follows the app,
-  // not the OS setting, until a light theme actually ships.
+  // The app draws its own titlebar; keep the native frame dark until a light
+  // titlebar treatment is wired.
   BOOL enable_dark_mode = TRUE;
   DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                         &enable_dark_mode, sizeof(enable_dark_mode));

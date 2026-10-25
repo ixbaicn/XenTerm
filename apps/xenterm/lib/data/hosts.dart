@@ -6,9 +6,10 @@
 /// repository with generated bindings touches screens, not models.
 library;
 
-/// The OS a host runs — drives the colored brand chip on cards and in the
-/// details drawer, the way the original shows the real Debian/Ubuntu logos.
-enum HostOs { debian, ubuntu, arch, linux, windows, apple, android }
+/// The OS a host runs — drives the neutral OS chip on cards and in the details
+/// drawer. [unknown] is the honest default: the core does not report an OS
+/// until the first connection, so guessing a distro logo would be a lie.
+enum HostOs { unknown, debian, ubuntu, arch, linux, windows, apple, android }
 
 class Host {
   final String id;
@@ -69,7 +70,7 @@ class Host {
     this.username = 'root',
     this.group = '',
     this.tags = const [],
-    this.os = HostOs.debian,
+    this.os = HostOs.unknown,
     this.lastUsed,
     this.protocol = 'ssh',
     this.auth = 'password',
@@ -101,7 +102,7 @@ class Host {
       username: (json['username'] as String?) ?? '',
       group: (json['group'] as String?) ?? '',
       protocol: kind,
-      os: kind == 'serial' ? HostOs.linux : HostOs.debian,
+      os: HostOs.unknown,
       lastUsed: json['last_used'] as String?,
       auth: (json['auth'] as String?) ?? 'password',
       keyPath: (json['private_key_path'] as String?) ?? '',

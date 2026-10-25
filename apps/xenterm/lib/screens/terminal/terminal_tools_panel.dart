@@ -3,8 +3,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../theme/app_fonts.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 
 /// The desktop terminal's right-hand tools: live search over the visible
 /// buffer, session status, font size, and real actions on the running PTY.
@@ -39,21 +40,20 @@ class TerminalToolsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final closed = screen?['closed'] != null;
     final status = closed
         ? 'Disconnected'
         : (screen == null ? 'Connecting…' : 'Connected');
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF111111),
-        border: Border(left: BorderSide(color: Color(0xFF1F1F1F))),
+      decoration: BoxDecoration(
+        color: XtColors.surface(context),
+        border: Border(left: BorderSide(color: XtColors.hairline(context))),
       ),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TermiusField(
+          XtField(
             key: const ValueKey('terminal-search'),
             focusNode: searchFocus,
             onChanged: onSearch,
@@ -61,7 +61,7 @@ class TerminalToolsPanel extends StatelessWidget {
             leading: Icon(
               LucideIcons.search,
               size: 14,
-              color: scheme.mutedForeground,
+              color: XtColors.textTertiary(context),
             ),
           ),
           const SizedBox(height: 6),
@@ -69,7 +69,10 @@ class TerminalToolsPanel extends StatelessWidget {
             search.trim().isEmpty
                 ? 'Ctrl+Shift+F'
                 : '$matchCount match${matchCount == 1 ? '' : 'es'} in view',
-            style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A8A)),
+            style: TextStyle(
+              fontSize: 11,
+              color: XtColors.textTertiary(context),
+            ),
           ),
           const SizedBox(height: 18),
           const _PanelLabel('SESSION'),
@@ -81,8 +84,8 @@ class TerminalToolsPanel extends StatelessWidget {
                 height: 8,
                 decoration: BoxDecoration(
                   color: closed
-                      ? const Color(0xFFE5484D)
-                      : const Color(0xFFFFFFFF),
+                      ? XtColors.danger(context)
+                      : XtColors.accent(context),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -90,7 +93,12 @@ class TerminalToolsPanel extends StatelessWidget {
               Expanded(
                 child: Text(
                   status,
-                  style: TextStyle(fontSize: 13, color: scheme.foreground),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: closed
+                        ? XtColors.dangerText(context)
+                        : XtColors.textPrimary(context),
+                  ),
                 ),
               ),
             ],
@@ -110,65 +118,60 @@ class TerminalToolsPanel extends StatelessWidget {
               'No saved snippets',
               style: TextStyle(
                 fontSize: 12,
-                color: scheme.mutedForeground,
+                color: XtColors.textTertiary(context),
               ),
             )
           else
             for (final snippet in snippets.take(6))
-              GestureDetector(
+              XtHoverRow(
                 key: ValueKey('terminal-snippet-${snippet.index}'),
                 onTap: () => onRunSnippet?.call(snippet),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B1B1B),
-                    borderRadius: BorderRadius.circular(7),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        LucideIcons.terminal,
-                        size: 13,
-                        color: scheme.mutedForeground,
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              snippet.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: scheme.foreground,
-                              ),
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 6,
+                ),
+                radius: XtRadius.menu,
+                child: Row(
+                  children: [
+                    Icon(
+                      LucideIcons.terminal,
+                      size: 13,
+                      color: XtColors.textSecondary(context),
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            snippet.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: XtColors.textPrimary(context),
                             ),
-                            const SizedBox(height: 1),
-                            Text(
-                              snippet.command,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontFamily: 'Consolas',
-                                fontFamilyFallback: const [
-                                  'Menlo',
-                                  'Courier New',
-                                ],
-                                fontSize: 11,
-                                color: scheme.mutedForeground,
-                              ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            snippet.command,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'Consolas',
+                              fontFamilyFallback: const [
+                                'Menlo',
+                                'Courier New',
+                              ],
+                              fontSize: 11,
+                              color: XtColors.textTertiary(context),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
           const SizedBox(height: 18),
@@ -176,29 +179,41 @@ class TerminalToolsPanel extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Font size',
-                  style: TextStyle(fontSize: 13, color: Color(0xFFD4D4D4)),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: XtColors.textPrimary(context),
+                  ),
                 ),
               ),
-              _StepButton(
+              XtIconButton(
                 key: const ValueKey('terminal-size-down'),
-                label: '−',
-                onTap: () => fonts.setTerminalSize(fonts.terminalSize - 1),
+                icon: LucideIcons.minus,
+                size: 30,
+                iconSize: 13,
+                onPressed: () =>
+                    fonts.setTerminalSize(fonts.terminalSize - 1),
               ),
               SizedBox(
                 width: 34,
                 child: Text(
                   '${fonts.terminalSize.round()}',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: scheme.foreground),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: XtColors.textPrimary(context),
+                  ),
                 ),
               ),
-              _StepButton(
+              XtIconButton(
                 key: const ValueKey('terminal-size-up'),
-                label: '+',
-                onTap: () => fonts.setTerminalSize(fonts.terminalSize + 1),
+                icon: LucideIcons.plus,
+                size: 30,
+                iconSize: 13,
+                onPressed: () =>
+                    fonts.setTerminalSize(fonts.terminalSize + 1),
               ),
             ],
           ),
@@ -206,27 +221,36 @@ class TerminalToolsPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _PanelAction(
+                child: XtActionButton(
                   icon: LucideIcons.copy,
                   label: 'Copy',
-                  onTap: onCopy,
+                  variant: XtActionVariant.secondary,
+                  height: 34,
+                  expand: true,
+                  onPressed: onCopy,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _PanelAction(
+                child: XtActionButton(
                   icon: LucideIcons.eraser,
                   label: 'Clear',
-                  onTap: onClear,
+                  variant: XtActionVariant.secondary,
+                  height: 34,
+                  expand: true,
+                  onPressed: onClear,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _PanelAction(
+          XtActionButton(
             icon: LucideIcons.refreshCw,
             label: 'Reconnect',
-            onTap: onReconnect,
+            variant: XtActionVariant.secondary,
+            height: 34,
+            expand: true,
+            onPressed: onReconnect,
           ),
         ],
       ),
@@ -242,74 +266,11 @@ class _PanelLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.6,
-        color: Color(0xFF8A8A8A),
-      ),
-    );
-  }
-}
-
-class _StepButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _StepButton({super.key, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 30,
-        height: 30,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF1B1B1B),
-          borderRadius: BorderRadius.circular(TermiusRadius.menu),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 17, color: Color(0xFFD4D4D4)),
-        ),
-      ),
-    );
-  }
-}
-
-class _PanelAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _PanelAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1B1B1B),
-          borderRadius: BorderRadius.circular(TermiusRadius.menu),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14, color: const Color(0xFFD4D4D4)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFD4D4D4)),
-            ),
-          ],
-        ),
+        color: XtColors.textTertiary(context),
       ),
     );
   }
@@ -328,8 +289,6 @@ class _ResourceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.mutedForeground;
     final message = switch (state) {
       'unsupported' => 'Not available on this host',
       'unavailable' => 'No /proc stats from this host',
@@ -340,10 +299,18 @@ class _ResourceSection extends StatelessWidget {
       _ => null,
     };
     if (message != null) {
+      // Warnings stay quiet (secondary text); unsupported states are tertiary
+      // because they are informational rather than an error.
+      final warning = state == 'stale' || state == 'paused';
       return Text(
         message,
         key: const ValueKey('terminal-resource-empty'),
-        style: TextStyle(fontSize: 12, color: muted),
+        style: TextStyle(
+          fontSize: 12,
+          color: warning
+              ? XtColors.textSecondary(context)
+              : XtColors.textTertiary(context),
+        ),
       );
     }
     final data = sample!;
@@ -372,7 +339,13 @@ class _ResourceSection extends StatelessWidget {
         if (user.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text(user, style: TextStyle(fontSize: 12, color: muted)),
+            child: Text(
+              user,
+              style: TextStyle(
+                fontSize: 12,
+                color: XtColors.textTertiary(context),
+              ),
+            ),
           ),
         _ResourceMeter(
           key: const ValueKey('terminal-resource-cpu'),
@@ -437,7 +410,10 @@ class _ResourceSection extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'GPU: unavailable',
-            style: TextStyle(fontSize: 11, color: muted),
+            style: TextStyle(
+              fontSize: 11,
+              color: XtColors.textTertiary(context),
+            ),
           ),
         ],
       ],
@@ -469,8 +445,6 @@ class _ResourceMeter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.mutedForeground;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -481,14 +455,17 @@ class _ResourceMeter extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 12, color: muted),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: XtColors.textSecondary(context),
+                ),
               ),
             ),
             Text(
               value,
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textPrimary(context),
               ),
             ),
           ],
@@ -499,8 +476,8 @@ class _ResourceMeter extends StatelessWidget {
           child: LinearProgressIndicator(
             value: fraction.clamp(0.0, 1.0),
             minHeight: 4,
-            backgroundColor: const Color(0xFF262626),
-            color: const Color(0xFFFFFFFF),
+            backgroundColor: XtColors.hairline(context),
+            color: XtColors.accent(context),
           ),
         ),
       ],

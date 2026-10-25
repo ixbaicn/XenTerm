@@ -19,7 +19,8 @@ import '../../data/hosts.dart';
 import '../../theme/app_fonts.dart';
 import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import 'connection_prompt.dart';
 import 'terminal_tools_panel.dart';
 
@@ -272,7 +273,7 @@ class _TerminalViewState extends State<TerminalView> {
         Expanded(
           child: Container(
             key: const ValueKey('terminal-view'),
-            color: const Color(0xFF0A0A0A),
+            color: XtColors.terminal(context),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final cols = ((constraints.maxWidth - inset * 2) / cellWidth)
@@ -308,10 +309,12 @@ class _TerminalViewState extends State<TerminalView> {
                           ),
                         ),
                         if (_starting)
-                          const Center(
+                          Center(
                             child: Text(
                               'Connecting…',
-                              style: TextStyle(color: Color(0xFFA6A6A6)),
+                              style: TextStyle(
+                                color: XtColors.textSecondary(context),
+                              ),
                             ),
                           ),
                         if (_error != null)
@@ -324,16 +327,16 @@ class _TerminalViewState extends State<TerminalView> {
                                   Text(
                                     'Terminal unavailable\n$_error',
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Color(0xFFA6A6A6),
+                                    style: TextStyle(
+                                      color: XtColors.dangerText(context),
                                       fontSize: 13,
                                     ),
                                   ),
                                   const SizedBox(height: 12),
-                                  Button(
-                                    style: const ButtonStyle.outline(),
+                                  XtActionButton(
+                                    label: 'Retry',
+                                    variant: XtActionVariant.secondary,
                                     onPressed: _reconnect,
-                                    child: const Text('Retry'),
                                   ),
                                 ],
                               ),
@@ -558,6 +561,10 @@ class _TerminalPainter extends CustomPainter {
     required this.lineHeight,
   });
 
+  // The terminal surface and its default ink stay fixed in both themes: a
+  // terminal is expected to be dark, and these are the fallback colours the
+  // ANSI palette below is drawn against. They are deliberately not theme
+  // tokens, unlike every surrounding piece of chrome.
   static const _defaultFg = Color(0xFFDDDDDD);
   static const _defaultBg = Color(0xFF0A0A0A);
   static const _cursorColor = Color(0xFFFFFFFF);
@@ -649,6 +656,8 @@ class _TerminalPainter extends CustomPainter {
     String query,
   ) {
     final text = ((row['text'] as String?) ?? '').toLowerCase();
+    // Search highlight is painted over terminal content, so it is a fixed
+    // translucent wash rather than a theme surface.
     final paint = Paint()..color = const Color(0x40FFFFFF);
     var index = 0;
     while ((index = text.indexOf(query, index)) != -1) {
@@ -749,12 +758,9 @@ class _StatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    return XtCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
+      radius: XtRadius.field,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -762,7 +768,7 @@ class _StatusCard extends StatelessWidget {
             title,
             style: theme.typography.semiBold.copyWith(
               fontSize: 14,
-              color: theme.colorScheme.foreground,
+              color: XtColors.textPrimary(context),
             ),
           ),
           if (detail.isNotEmpty) ...[
@@ -772,15 +778,15 @@ class _StatusCard extends StatelessWidget {
               textAlign: TextAlign.center,
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
-                color: theme.colorScheme.mutedForeground,
+                color: XtColors.textSecondary(context),
               ),
             ),
           ],
           const SizedBox(height: 10),
-          Button(
-            style: const ButtonStyle.primary(),
+          XtActionButton(
+            label: actionLabel,
+            variant: XtActionVariant.primary,
             onPressed: onAction,
-            child: Text(actionLabel),
           ),
         ],
       ),

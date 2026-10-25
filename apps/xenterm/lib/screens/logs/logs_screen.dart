@@ -7,7 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
-import '../../widgets/lucide_extra_icons.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 
 typedef LogLoader = Future<List<SessionLogEntry>> Function();
@@ -132,118 +133,138 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(34, 18, 34, 0),
-                child: Row(
-                  children: [
-                    Text(
-                      'Session logs',
-                      style: theme.typography.semiBold.copyWith(
-                        fontSize: 16,
-                        color: theme.colorScheme.foreground,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${_logs.length}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.mutedForeground,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconToggleButton(
-                      icon: LucideIcons.refreshCw,
-                      onPressed: () => _reload(),
-                    ),
-                    if (_logs.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      IconToggleButton(
-                        key: const ValueKey('logs-clear'),
-                        icon: LucideIcons.trash2,
-                        onPressed: () =>
-                            setState(() => _confirmClear = !_confirmClear),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (_confirmClear)
-                Container(
-                  margin: const EdgeInsets.fromLTRB(34, 10, 34, 0),
-                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B1B1B),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        LucideIcons.triangleAlert,
-                        size: 16,
-                        color: Color(0xFFE5484D),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Delete all ${_logs.length} session logs? This cannot '
-                          'be undone.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: theme.colorScheme.foreground,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The viewer takes at most 560px and always leaves the list room to
+        // breathe, so a 940px-wide window keeps both panes usable.
+        final viewerWidth = (constraints.maxWidth - 420).clamp(320.0, 560.0);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(34, 18, 34, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  'Session logs',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.typography.semiBold.copyWith(
+                                    fontSize: 16,
+                                    color: XtColors.textPrimary(context),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${_logs.length}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: XtColors.textTertiary(context),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                      Button(
-                        key: const ValueKey('logs-clear-confirm'),
-                        style: const ButtonStyle.primary(),
-                        onPressed: _deleteAll,
-                        child: const Text('Delete all'),
-                      ),
-                      const SizedBox(width: 6),
-                      GhostButton(
-                        onPressed: () => setState(() => _confirmClear = false),
-                        child: const Text('Cancel'),
-                      ),
-                    ],
+                        IconToggleButton(
+                          icon: LucideIcons.refreshCw,
+                          onPressed: () => _reload(),
+                        ),
+                        if (_logs.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          IconToggleButton(
+                            key: const ValueKey('logs-clear'),
+                            icon: LucideIcons.trash2,
+                            onPressed: () =>
+                                setState(() => _confirmClear = !_confirmClear),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
-              const Divider(height: 20, color: Color(0xFF1F1F1F)),
-              Expanded(child: _body(theme)),
-            ],
-          ),
-        ),
-        if (_open != null)
-          SizedBox(
-            width: 560,
-            child: _LogViewer(
-              entry: _open!,
-              content: _content,
-              reading: _reading,
-              onDelete: () => _delete(_open!),
-              onClose: () => setState(() {
-                _open = null;
-                _content = null;
-              }),
+                  if (_confirmClear)
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(34, 10, 34, 0),
+                      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                      decoration: BoxDecoration(
+                        color: XtColors.dangerTint(context),
+                        borderRadius: BorderRadius.circular(XtRadius.field),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            LucideIcons.triangleAlert,
+                            size: 16,
+                            color: XtColors.dangerText(context),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Delete all ${_logs.length} session logs? This '
+                              'cannot be undone.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: XtColors.textPrimary(context),
+                              ),
+                            ),
+                          ),
+                          XtActionButton(
+                            key: const ValueKey('logs-clear-confirm'),
+                            label: 'Delete all',
+                            variant: XtActionVariant.danger,
+                            onPressed: _deleteAll,
+                          ),
+                          const SizedBox(width: 6),
+                          XtActionButton(
+                            label: 'Cancel',
+                            onPressed: () =>
+                                setState(() => _confirmClear = false),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 34),
+                    child: XtDivider(),
+                  ),
+                  Expanded(child: _body(theme)),
+                ],
+              ),
             ),
-          ),
-      ],
+            if (_open != null)
+              SizedBox(
+                width: viewerWidth,
+                child: _LogViewer(
+                  entry: _open!,
+                  content: _content,
+                  reading: _reading,
+                  onDelete: () => _delete(_open!),
+                  onClose: () => setState(() {
+                    _open = null;
+                    _content = null;
+                  }),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Center(
+      return Center(
         child: Text(
           'Loading session logs…',
-          style: TextStyle(color: Color(0xFFA6A6A6)),
+          style: TextStyle(color: XtColors.textTertiary(context)),
         ),
       );
     }
@@ -255,46 +276,24 @@ class _LogsScreenState extends State<LogsScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFA6A6A6)),
+              style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
-            Button(
-              style: const ButtonStyle.outline(),
+            XtActionButton(
+              label: 'Retry',
+              variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
-              child: const Text('Retry'),
             ),
           ],
         ),
       );
     }
     if (_logs.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipboardClockIcon(
-              size: 30,
-              color: theme.colorScheme.mutedForeground,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'No session logs yet',
-              style: theme.typography.semiBold.copyWith(
-                fontSize: 15,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Enable “Save session logs” in Settings → Logs to record new sessions.',
-              textAlign: TextAlign.center,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ],
-        ),
+      return XtEmptyState(
+        icon: LucideIcons.clipboardList,
+        title: 'No session logs yet',
+        message:
+            'Enable “Save session logs” in Settings → Logs to record new sessions.',
       );
     }
     return ListView(
@@ -337,24 +336,23 @@ class _LogRowState extends State<_LogRow> {
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    final background = widget.selected
-        ? const Color(0xFF262626)
-        : _hover
-        ? const Color(0xFF1B1B1B)
-        : const Color(0xFF111111);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: widget.onTap,
-        child: Container(
+        child: AnimatedContainer(
+          duration: XtMotion.micro,
+          curve: XtMotion.easeOut,
           height: 56,
           margin: const EdgeInsets.only(bottom: 2),
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(8),
+            color: widget.selected
+                ? XtColors.selected(context)
+                : (_hover ? XtColors.hover(context) : Colors.transparent),
+            borderRadius: BorderRadius.circular(XtRadius.card),
           ),
           child: Row(
             children: [
@@ -365,9 +363,9 @@ class _LogRowState extends State<_LogRow> {
                   children: [
                     Text(
                       _formatDate(entry.started),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
-                        color: Color(0xFFD4D4D4),
+                        color: XtColors.textPrimary(context),
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -379,31 +377,23 @@ class _LogRowState extends State<_LogRow> {
                       ].join('  ·  '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFFA6A6A6),
+                        color: XtColors.textSecondary(context),
                       ),
                     ),
                   ],
                 ),
               ),
               if (_hover)
-                Tooltip(
-                  tooltip: (_) => const Text('Delete log'),
-                  child: GestureDetector(
-                    key: ValueKey('log-row-delete-${entry.file}'),
-                    onTap: widget.onDelete,
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      alignment: Alignment.center,
-                      child: const Icon(
-                        LucideIcons.trash2,
-                        size: 14,
-                        color: Color(0xFFE5484D),
-                      ),
-                    ),
-                  ),
+                XtActionButton(
+                  key: ValueKey('log-row-delete-${entry.file}'),
+                  icon: LucideIcons.trash2,
+                  variant: XtActionVariant.danger,
+                  tooltip: 'Delete log',
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: widget.onDelete,
                 ),
             ],
           ),
@@ -444,17 +434,19 @@ class _LogViewer extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF111111),
-        border: Border(left: BorderSide(color: Color(0xFF1F1F1F))),
+      decoration: BoxDecoration(
+        color: XtColors.page(context),
+        border: Border(left: BorderSide(color: XtColors.hairline(context))),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: XtColors.hairline(context)),
+              ),
             ),
             child: Row(
               children: [
@@ -468,7 +460,7 @@ class _LogViewer extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: theme.typography.semiBold.copyWith(
                           fontSize: 15,
-                          color: theme.colorScheme.foreground,
+                          color: XtColors.textPrimary(context),
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -480,28 +472,42 @@ class _LogViewer extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5,
-                          color: theme.colorScheme.mutedForeground,
+                          color: XtColors.textTertiary(context),
                         ),
                       ),
                     ],
                   ),
                 ),
-                _ViewerAction(
+                XtActionButton(
                   key: const ValueKey('log-copy'),
                   icon: LucideIcons.copy,
+                  tooltip: 'Copy transcript',
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: content == null
                       ? null
                       : () => Clipboard.setData(
                           ClipboardData(text: content!.text),
                         ),
                 ),
-                _ViewerAction(
+                const SizedBox(width: 4),
+                XtActionButton(
                   key: const ValueKey('log-delete'),
                   icon: LucideIcons.trash2,
-                  color: const Color(0xFFE5484D),
+                  variant: XtActionVariant.danger,
+                  tooltip: 'Delete log',
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: onDelete,
                 ),
-                _ViewerAction(icon: LucideIcons.x, onPressed: onClose),
+                const SizedBox(width: 4),
+                XtActionButton(
+                  icon: LucideIcons.x,
+                  tooltip: 'Close viewer',
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: onClose,
+                ),
               ],
             ),
           ),
@@ -510,15 +516,17 @@ class _LogViewer extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF151515),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF1F1F1F)),
+                  color: XtColors.sunken(context),
+                  borderRadius: BorderRadius.circular(XtRadius.card),
+                  border: Border.all(color: XtColors.hairline(context)),
                 ),
                 child: reading
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'Opening transcript…',
-                          style: TextStyle(color: Color(0xFFA6A6A6)),
+                          style: TextStyle(
+                            color: XtColors.textTertiary(context),
+                          ),
                         ),
                       )
                     : (content?.text.isEmpty ?? true)
@@ -531,9 +539,9 @@ class _LogViewer extends StatelessWidget {
                                 ? 'This session produced no terminal output.'
                                 : 'Session closed: ${content!.closeReason}',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 13,
-                              color: Color(0xFFA6A6A6),
+                              color: XtColors.textTertiary(context),
                             ),
                           ),
                         ),
@@ -542,12 +550,12 @@ class _LogViewer extends StatelessWidget {
                         padding: const EdgeInsets.all(16),
                         child: Text(
                           content!.text,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Consolas',
-                            fontFamilyFallback: ['Menlo', 'Courier New'],
+                            fontFamilyFallback: const ['Menlo', 'Courier New'],
                             fontSize: 12.5,
                             height: 1.5,
-                            color: Color(0xFFDDDDDD),
+                            color: XtColors.textPrimary(context),
                           ),
                         ),
                       ),
@@ -555,37 +563,6 @@ class _LogViewer extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ViewerAction extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final Color color;
-
-  const _ViewerAction({
-    super.key,
-    required this.icon,
-    required this.onPressed,
-    this.color = const Color(0xFFD4D4D4),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        width: 30,
-        height: 30,
-        margin: const EdgeInsets.only(left: 4),
-        alignment: Alignment.center,
-        child: Icon(
-          icon,
-          size: 15,
-          color: onPressed == null ? const Color(0xFF6E6E6E) : color,
-        ),
       ),
     );
   }

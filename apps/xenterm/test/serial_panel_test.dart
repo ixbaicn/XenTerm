@@ -3,11 +3,11 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/serial_details_panel.dart';
-import 'package:xenterm_app/theme/termius_field.dart';
-import 'package:xenterm_app/theme/termius_theme.dart';
+import 'package:xenterm_app/theme/app_field.dart';
+import 'package:xenterm_app/theme/app_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
-  theme: ThemeData(colorScheme: termiusDarkScheme()),
+  theme: ThemeData(colorScheme: xtDarkScheme()),
   home: Scaffold(child: SizedBox(width: 360, height: 900, child: child)),
 );
 
@@ -39,7 +39,7 @@ void main() {
     // The first attached port is selected for a new connection.
     expect(
       tester
-          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .widget<XtField>(find.byKey(const ValueKey('serial-port')))
           .controller
           ?.text,
       'COM3',
@@ -54,7 +54,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .widget<XtField>(find.byKey(const ValueKey('serial-port')))
           .controller
           ?.text,
       'COM7',
@@ -72,6 +72,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('serial-parity')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Even').last);
+    await tester.pumpAndSettle();
+    // The select popup covers the panel after a pick; close it first.
+    await tester.tapAt(const Offset(4, 4));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const ValueKey('serial-user')), 'admin');

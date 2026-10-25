@@ -15,8 +15,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../terminal/core_settings.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import 'connection_prompt.dart';
 
 class SftpView extends StatefulWidget {
@@ -167,34 +168,21 @@ class _SftpViewState extends State<SftpView> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF0A0A0A),
+      color: XtColors.terminal(context),
       child: Column(
         children: [
-          Container(
+          XtPanelHeader(
+            title: 'SFTP · ${widget.host.label}',
             height: 40,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  'SFTP · ${widget.host.label}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFD4D4D4),
-                  ),
+            actions: [
+              if (_starting)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.5),
                 ),
-                const Spacer(),
-                if (_starting)
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 1.5),
-                  ),
-              ],
-            ),
+            ],
           ),
           Expanded(
             child: Row(
@@ -207,34 +195,21 @@ class _SftpViewState extends State<SftpView> {
                     onToggle: (path) => _bridge?.sftpToggleTree(_handle!, path),
                   ),
                 ),
-                Container(width: 1, color: const Color(0xFF1F1F1F)),
+                Container(width: 1, color: XtColors.hairline(context)),
                 Expanded(
                   child: Stack(
                     children: [
                       Positioned.fill(
                         child: _error != null
-                            ? Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        'SFTP unavailable\n$_error',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: Color(0xFFA6A6A6),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Button(
-                                        style: const ButtonStyle.outline(),
-                                        onPressed: _retry,
-                                        child: const Text('Retry'),
-                                      ),
-                                    ],
-                                  ),
+                            ? XtEmptyState(
+                                icon: LucideIcons.triangleAlert,
+                                danger: true,
+                                title: 'SFTP unavailable',
+                                message: _error,
+                                action: XtActionButton(
+                                  label: 'Retry',
+                                  variant: XtActionVariant.secondary,
+                                  onPressed: _retry,
                                 ),
                               )
                             : SftpBrowser(
@@ -297,12 +272,15 @@ class SftpTree extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: const Color(0xFF151515),
+      color: XtColors.sunken(context),
       child: nodes.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
                 'Folders',
-                style: TextStyle(fontSize: 11, color: Color(0xFF6E6E6E)),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: XtColors.textDisabled(context),
+                ),
               ),
             )
           : ListView.builder(
@@ -352,7 +330,7 @@ class _TreeRowState extends State<_TreeRow> {
         onTap: widget.onOpen,
         child: Container(
           height: 28,
-          color: _hover ? const Color(0xFF1B1B1B) : Colors.transparent,
+          color: _hover ? XtColors.hover(context) : Colors.transparent,
           padding: EdgeInsets.only(left: 6.0 + node.depth * 14),
           child: Row(
             children: [
@@ -367,24 +345,24 @@ class _TreeRowState extends State<_TreeRow> {
                               ? LucideIcons.chevronDown
                               : LucideIcons.chevronRight,
                           size: 13,
-                          color: const Color(0xFFA6A6A6),
+                          color: XtColors.textSecondary(context),
                         )
                       : null,
                 ),
               ),
-              const Icon(
+              Icon(
                 LucideIcons.folder,
                 size: 14,
-                color: Color(0xFFE0E0E0),
+                color: XtColors.textPrimary(context),
               ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   node.name,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
-                    color: Color(0xFFD4D4D4),
+                    color: XtColors.textPrimary(context),
                   ),
                 ),
               ),
@@ -468,52 +446,58 @@ class _SftpBrowserState extends State<SftpBrowser> {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           child: Row(
             children: [
-              _ToolAction(
+              XtIconButton(
                 icon: LucideIcons.arrowUp,
                 tooltip: 'Parent folder',
-                onTap: () => widget.onOpenDirectory?.call(_parent),
+                size: 30,
+                onPressed: () => widget.onOpenDirectory?.call(_parent),
               ),
-              _ToolAction(
+              XtIconButton(
                 icon: LucideIcons.refreshCw,
                 tooltip: 'Refresh',
-                onTap: widget.onRefresh,
+                size: 30,
+                onPressed: widget.onRefresh,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _path,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Consolas',
-                    fontFamilyFallback: ['Menlo', 'Courier New'],
+                    fontFamilyFallback: const ['Menlo', 'Courier New'],
                     fontSize: 12.5,
-                    color: Color(0xFFD4D4D4),
+                    color: XtColors.textPrimary(context),
                   ),
                 ),
               ),
               if (_selected != null && !_selected!.isDir) ...[
-                _ToolAction(
+                XtIconButton(
                   icon: LucideIcons.download,
                   tooltip: 'Download ${_selected!.name}',
-                  onTap: () => widget.onDownload?.call(_selected!),
+                  size: 30,
+                  onPressed: () => widget.onDownload?.call(_selected!),
                 ),
                 const SizedBox(width: 2),
               ],
               if (_selected != null)
-                _ToolAction(
+                XtIconButton(
                   icon: LucideIcons.trash2,
                   tooltip: 'Delete ${_selected!.name}',
-                  onTap: () => setState(() => _pendingDelete = _selected),
+                  size: 30,
+                  onPressed: () => setState(() => _pendingDelete = _selected),
                 ),
-              _ToolAction(
+              XtIconButton(
                 icon: LucideIcons.upload,
                 tooltip: 'Upload a file here',
-                onTap: widget.onUpload,
+                size: 30,
+                onPressed: widget.onUpload,
               ),
-              _ToolAction(
+              XtIconButton(
                 icon: LucideIcons.folderPlus,
                 tooltip: 'New folder',
-                onTap: () => setState(() {
+                size: 30,
+                onPressed: () => setState(() {
                   _creating = true;
                   _folderName.clear();
                 }),
@@ -527,7 +511,7 @@ class _SftpBrowserState extends State<SftpBrowser> {
             child: Row(
               children: [
                 Expanded(
-                  child: TermiusField(
+                  child: XtField(
                     key: const ValueKey('sftp-new-folder-name'),
                     controller: _folderName,
                     autofocus: true,
@@ -535,21 +519,21 @@ class _SftpBrowserState extends State<SftpBrowser> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Button(
-                  style: const ButtonStyle.primary(),
+                XtActionButton(
+                  label: 'Create',
+                  variant: XtActionVariant.primary,
                   onPressed: () {
                     final name = _folderName.text.trim();
                     if (name.isEmpty) return;
                     widget.onCreateFolder?.call(name);
                     setState(() => _creating = false);
                   },
-                  child: const Text('Create'),
                 ),
                 const SizedBox(width: 6),
-                Button(
-                  style: const ButtonStyle.outline(),
+                XtActionButton(
+                  label: 'Cancel',
+                  variant: XtActionVariant.secondary,
                   onPressed: () => setState(() => _creating = false),
-                  child: const Text('Cancel'),
                 ),
               ],
             ),
@@ -559,26 +543,28 @@ class _SftpBrowserState extends State<SftpBrowser> {
             margin: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0x33E5484D),
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
+              color: XtColors.dangerTint(context),
+              borderRadius: BorderRadius.circular(XtRadius.field),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     'Delete “${_pendingDelete!.name}”? This cannot be undone.',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
-                      color: Color(0xFFFF8A8D),
+                      color: XtColors.dangerText(context),
                     ),
                   ),
                 ),
-                TextButton(
+                XtActionButton(
+                  label: 'Cancel',
                   onPressed: () => setState(() => _pendingDelete = null),
-                  child: const Text('Cancel'),
                 ),
-                Button(
-                  style: const ButtonStyle.destructive(),
+                const SizedBox(width: 6),
+                XtActionButton(
+                  label: 'Delete',
+                  variant: XtActionVariant.danger,
                   onPressed: () {
                     widget.onDelete?.call(_pendingDelete!);
                     setState(() {
@@ -586,7 +572,6 @@ class _SftpBrowserState extends State<SftpBrowser> {
                       _selected = null;
                     });
                   },
-                  child: const Text('Delete'),
                 ),
               ],
             ),
@@ -596,12 +581,15 @@ class _SftpBrowserState extends State<SftpBrowser> {
             margin: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0x33E5484D),
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
+              color: XtColors.dangerTint(context),
+              borderRadius: BorderRadius.circular(XtRadius.field),
             ),
             child: Text(
               snapshot.error!,
-              style: const TextStyle(fontSize: 12.5, color: Color(0xFFFF8A8D)),
+              style: TextStyle(
+                fontSize: 12.5,
+                color: XtColors.dangerText(context),
+              ),
             ),
           ),
         Padding(
@@ -618,19 +606,23 @@ class _SftpBrowserState extends State<SftpBrowser> {
         const SizedBox(height: 4),
         Expanded(
           child: snapshot.loading && snapshot.entries.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'Loading folder…',
-                    style: TextStyle(color: Color(0xFFA6A6A6)),
+                    style: TextStyle(
+                      color: XtColors.textTertiary(context),
+                    ),
                   ),
                 )
               : snapshot.entries.isEmpty && snapshot.error != null
               ? const SizedBox.shrink()
               : snapshot.entries.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     'This folder is empty',
-                    style: TextStyle(color: Color(0xFFA6A6A6)),
+                    style: TextStyle(
+                      color: XtColors.textTertiary(context),
+                    ),
                   ),
                 )
               : ListView.builder(
@@ -660,6 +652,7 @@ class _SftpBrowserState extends State<SftpBrowser> {
   }
 }
 
+/// A column caption in the file table.
 class _Header extends StatelessWidget {
   final String text;
   const _Header(this.text);
@@ -668,41 +661,9 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A8A)),
-    );
-  }
-}
-
-class _ToolAction extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onTap;
-
-  const _ToolAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      tooltip: (_) => Text(tooltip),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 30,
-          height: 30,
-          margin: const EdgeInsets.only(right: 2),
-          alignment: Alignment.center,
-          child: Icon(
-            icon,
-            size: 15,
-            color: onTap == null
-                ? const Color(0xFF6E6E6E)
-                : const Color(0xFFD4D4D4),
-          ),
-        ),
+      style: TextStyle(
+        fontSize: 11,
+        color: XtColors.textTertiary(context),
       ),
     );
   }
@@ -733,9 +694,9 @@ class _EntryRowState extends State<_EntryRow> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     final background = widget.selected
-        ? const Color(0xFF262626)
+        ? XtColors.selected(context)
         : _hover
-        ? const Color(0xFF1B1B1B)
+        ? XtColors.hover(context)
         : Colors.transparent;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -757,17 +718,17 @@ class _EntryRowState extends State<_EntryRow> {
                       entry.isDir ? LucideIcons.folder : LucideIcons.file,
                       size: 15,
                       color: entry.isDir
-                          ? const Color(0xFFE0E0E0)
-                          : const Color(0xFFA6A6A6),
+                          ? XtColors.textPrimary(context)
+                          : XtColors.textSecondary(context),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         entry.name,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12.5,
-                          color: Color(0xFFD4D4D4),
+                          color: XtColors.textPrimary(context),
                         ),
                       ),
                     ),
@@ -778,9 +739,9 @@ class _EntryRowState extends State<_EntryRow> {
                 width: 90,
                 child: Text(
                   entry.isDir ? '—' : _formatSize(entry.size),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFFA6A6A6),
+                    color: XtColors.textSecondary(context),
                   ),
                 ),
               ),
@@ -788,9 +749,9 @@ class _EntryRowState extends State<_EntryRow> {
                 width: 140,
                 child: Text(
                   _formatDate(entry.modified),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFFA6A6A6),
+                    color: XtColors.textSecondary(context),
                   ),
                 ),
               ),
@@ -798,11 +759,11 @@ class _EntryRowState extends State<_EntryRow> {
                 width: 90,
                 child: Text(
                   entry.permissions,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Consolas',
-                    fontFamilyFallback: ['Menlo', 'Courier New'],
+                    fontFamilyFallback: const ['Menlo', 'Courier New'],
                     fontSize: 11.5,
-                    color: Color(0xFFA6A6A6),
+                    color: XtColors.textSecondary(context),
                   ),
                 ),
               ),
@@ -846,10 +807,12 @@ class _TransferStrip extends StatelessWidget {
     final fraction = latest.total == 0
         ? 0.0
         : (latest.transferred / latest.total).clamp(0.0, 1.0);
+    final failedColor = XtColors.danger(context);
+    final activeColor = XtColors.accent(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFF1F1F1F))),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: XtColors.hairline(context))),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -859,9 +822,7 @@ class _TransferStrip extends StatelessWidget {
               Icon(
                 latest.upload ? LucideIcons.upload : LucideIcons.download,
                 size: 14,
-                color: latest.state == 2
-                    ? const Color(0xFFE5484D)
-                    : const Color(0xFFFFFFFF),
+                color: latest.state == 2 ? failedColor : activeColor,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -872,27 +833,26 @@ class _TransferStrip extends StatelessWidget {
                       ? '${latest.name} ${latest.upload ? 'uploaded' : 'downloaded'}'
                       : '${latest.name} · ${(fraction * 100).round()}%',
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Color(0xFFD4D4D4),
+                    color: latest.state == 2
+                        ? failedColor
+                        : XtColors.textPrimary(context),
                   ),
                 ),
               ),
               if (active > 0)
                 Text(
                   '$active active',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Color(0xFFA6A6A6),
+                    color: XtColors.textTertiary(context),
                   ),
                 ),
               if (failed > 0)
                 Text(
                   '  $failed failed',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFFE5484D),
-                  ),
+                  style: TextStyle(fontSize: 11, color: failedColor),
                 ),
             ],
           ),
@@ -902,10 +862,8 @@ class _TransferStrip extends StatelessWidget {
             child: LinearProgressIndicator(
               value: latest.state == 0 ? fraction : 1,
               minHeight: 3,
-              color: latest.state == 2
-                  ? const Color(0xFFE5484D)
-                  : const Color(0xFFFFFFFF),
-              backgroundColor: const Color(0xFF1B1B1B),
+              color: latest.state == 2 ? failedColor : activeColor,
+              backgroundColor: XtColors.sunken(context),
             ),
           ),
         ],

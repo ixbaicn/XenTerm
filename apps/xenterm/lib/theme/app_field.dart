@@ -1,16 +1,17 @@
-/// The one Termius input field used by every screen.
+/// The one text field used by every screen.
 ///
-/// Filled `--main-form-bg` (#32364A), radius 10, 36px tall, no outline,
-/// placeholder in `--text-secondary`. Wrapping the stock widget once keeps
-/// search, host details, snippets, forwarding, serial and prompts from each
-/// drifting into a slightly different shade, height or radius.
+/// Filled with the theme's field colour, radius [XtRadius.field], 36px tall by
+/// default, no heavy outline and a quiet placeholder. Wrapping the stock widget
+/// once is what keeps search, host details, snippets, forwarding, serial and
+/// connection prompts from each drifting into a slightly different shade,
+/// height or radius.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-import 'termius_theme.dart';
+import 'app_theme.dart';
 
-class TermiusField extends StatelessWidget {
+class XtField extends StatelessWidget {
   final String placeholder;
   final String? initialValue;
   final TextEditingController? controller;
@@ -30,7 +31,7 @@ class TermiusField extends StatelessWidget {
   final TextAlign? textAlign;
   final EdgeInsetsGeometry? padding;
 
-  const TermiusField({
+  const XtField({
     super.key,
     required this.placeholder,
     this.initialValue,
@@ -42,7 +43,7 @@ class TermiusField extends StatelessWidget {
     this.autofocus = false,
     this.enabled = true,
     this.fontSize = 13.5,
-    this.height = 36,
+    this.height = XtMetrics.controlHeight,
     this.leading,
     this.trailing,
     this.keyboardType,
@@ -56,16 +57,15 @@ class TermiusField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final multiline = (maxLines ?? 1) > 1;
+    final radius = BorderRadius.circular(XtRadius.field);
+    final fill = theme.colorScheme.secondary;
     final field = TextField(
       controller: controller,
       initialValue: initialValue,
       focusNode: focusNode,
       placeholder: Text(
         placeholder,
-        style: TextStyle(
-          fontSize: fontSize,
-          color: theme.colorScheme.mutedForeground,
-        ),
+        style: TextStyle(fontSize: fontSize, color: XtColors.textTertiary(context)),
       ),
       onChanged: onChanged,
       onSubmitted: onSubmitted,
@@ -80,16 +80,13 @@ class TermiusField extends StatelessWidget {
           padding ??
           EdgeInsets.symmetric(horizontal: 10, vertical: multiline ? 9 : 8),
       border: Border.all(color: Colors.transparent),
-      borderRadius: BorderRadius.circular(TermiusRadius.field),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondary,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
+      borderRadius: radius,
+      decoration: BoxDecoration(color: fill, borderRadius: radius),
       style: theme.typography.normal.copyWith(
         fontSize: fontSize,
         color: enabled
-            ? theme.colorScheme.foreground
-            : theme.colorScheme.mutedForeground,
+            ? XtColors.textPrimary(context)
+            : XtColors.textDisabled(context),
       ),
     );
     if (leading == null && trailing == null && !multiline) {
@@ -101,10 +98,7 @@ class TermiusField extends StatelessWidget {
         left: leading == null ? 10 : 9,
         right: trailing == null ? 10 : 9,
       ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondary,
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
+      decoration: BoxDecoration(color: fill, borderRadius: radius),
       child: Row(
         children: [
           if (leading != null) ...[leading!, const SizedBox(width: 6)],

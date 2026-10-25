@@ -1,7 +1,6 @@
-/// The Hosts screen — faithful to the original screenshots:
-/// search+Connect row, split [New host|▾] + Terminal + Serial toolbar with
-/// grid/tag/keyboard/avatar/+ at right, a bold "主机" section title over the
-/// card grid, cards with colored OS chips and a hover edit-pencil.
+/// The Hosts screen: a search+Connect row, the split [New host|▾] + Terminal +
+/// Serial toolbar, a bold "主机" section title over the card grid, and cards
+/// with monochrome OS glyph tiles plus a hover edit-pencil.
 library;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -10,8 +9,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 import 'host_card.dart';
 import 'host_details_panel.dart';
@@ -385,7 +385,7 @@ class _HostsScreenState extends State<HostsScreen> {
     );
   }
 
-  /// The toolbar's Serial action: Termius's serial connection modal, where the
+  /// The toolbar's Serial action: opens the serial connection drawer, where the
   /// port and line parameters are chosen before the session exists. This path
   /// is a temporary tab (nothing is stored unless edited later).
   void _quickSerial() {
@@ -719,46 +719,37 @@ class _HostsScreenState extends State<HostsScreen> {
       children: [
         // The hosts content: search row, toolbar, section title, grid. The
         // drawer is its SIBLING, so it spans the full content height from the
-        // title bar down — exactly the original's RelativeSlider, whose
-        // header sits level with the search row instead of below the toolbar.
+        // title bar down; its header sits level with the search row instead of
+        // below the toolbar.
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Header band: search row + toolbar on --dark-grey-3 ──────
-              // The original's hosts header sits on a lighter surface than
-              // the page, and the rail shares that surface.
+              // ── Header band: search row + toolbar ──────────────────────
+              // The hosts header sits on the raised surface (the navigation
+              // rail shares it) instead of on the page background.
               Container(
-                color: const Color(0xFF1B1B1B), // --dark-grey-3
+                color: XtColors.surface(context),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Search + Connect (inside the field).
                     Padding(
                       padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                      child: TermiusField(
+                      child: XtField(
                         key: const ValueKey('host-search'),
                         controller: _search,
                         placeholder: 'Find a host or ssh user@hostname...',
                         onChanged: (v) => setState(() => _query = v),
-                        // Connect lives INSIDE the field; the original keeps it
-                        // a muted text button in every state (the blue Connect
-                        // is the drawer's).
-                        trailing: GhostButton(
+                        // Connect lives INSIDE the field and stays quiet; the
+                        // drawer's Connect is the screen's primary action.
+                        trailing: XtActionButton(
                           key: const ValueKey('quick-connect'),
-                          density: ButtonDensity.compact,
+                          label: 'Connect',
+                          height: 28,
                           onPressed: _query.trim().isEmpty
                               ? null
                               : _quickConnect,
-                          child: Text(
-                            'Connect',
-                            style: theme.typography.normal.copyWith(
-                              fontSize: 13,
-                              color: _query.trim().isEmpty
-                                  ? theme.colorScheme.mutedForeground
-                                  : theme.colorScheme.foreground,
-                            ),
-                          ),
                         ),
                       ),
                     ),
@@ -818,7 +809,7 @@ class _HostsScreenState extends State<HostsScreen> {
               if (_importNotice != null) _importBanner(theme),
               // ── Section titles + cards ──────────────────────────────────
               if (_groups.isEmpty || _query.trim().isNotEmpty)
-                _sectionTitle('Home', theme),
+                _sectionTitle('Home'),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
@@ -830,13 +821,20 @@ class _HostsScreenState extends State<HostsScreen> {
                           ),
                         )
                       : _loadError != null
-                      ? _ErrorState(message: _loadError!, onRetry: _reload)
+                      ? XtEmptyState(
+                          icon: LucideIcons.circleAlert,
+                          title: 'Could not load hosts',
+                          message: _loadError!,
+                          danger: true,
+                          action: XtActionButton(
+                            label: 'Retry',
+                            onPressed: _reload,
+                          ),
+                        )
                       : hosts.isEmpty && _groups.isEmpty
-                      ? const _EmptyState()
+                      ? _emptyState
                       : _groups.isEmpty || _query.trim().isNotEmpty
-                      ? (hosts.isEmpty
-                            ? const _EmptyState()
-                            : _layout == HostsLayout.cards
+                      ? (hosts.isEmpty ? _emptyState : _layout == HostsLayout.cards
                             ? _cardGrid(hosts)
                             : _rowList(hosts))
                       : _groupedList(theme),
@@ -845,9 +843,9 @@ class _HostsScreenState extends State<HostsScreen> {
             ],
           ),
         ),
-        // The details drawer: a 340px panel revealed from the right exactly
-        // like Termius's RelativeSlider (min-width 0→340, 200ms). It spans
-        // the whole content height; the hosts column reflows beside it.
+        // The details drawer: a 340px panel revealed from the right
+        // (width 0→340, 200ms). It spans the whole content height; the hosts
+        // column reflows beside it.
         _DrawerSlider(
           open: _drawerOpen,
           child: _serialPanelOpen
@@ -914,7 +912,7 @@ class _HostsScreenState extends State<HostsScreen> {
   Widget _groupEditorBar(ThemeData theme) {
     final renaming = _renaming;
     return Container(
-      color: const Color(0xFF1B1B1B),
+      color: XtColors.surface(context),
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -924,14 +922,14 @@ class _HostsScreenState extends State<HostsScreen> {
               Icon(
                 renaming == null ? LucideIcons.folderPlus : LucideIcons.pencil,
                 size: 16,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textSecondary(context),
               ),
               const SizedBox(width: 8),
               Text(
                 renaming == null ? 'New group' : 'Rename group',
                 style: theme.typography.medium.copyWith(
                   fontSize: 14,
-                  color: theme.colorScheme.foreground,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
             ],
@@ -940,7 +938,7 @@ class _HostsScreenState extends State<HostsScreen> {
           Row(
             children: [
               Expanded(
-                child: TermiusField(
+                child: XtField(
                   key: const ValueKey('group-name'),
                   controller: _groupName,
                   autofocus: true,
@@ -949,17 +947,17 @@ class _HostsScreenState extends State<HostsScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              Button(
+              XtActionButton(
                 key: const ValueKey('group-save'),
+                label: 'Save',
+                variant: XtActionVariant.primary,
                 onPressed: _saveGroup,
-                style: const ButtonStyle.primary(),
-                child: const Text('Save'),
               ),
               const SizedBox(width: 8),
-              GhostButton(
+              XtActionButton(
                 key: const ValueKey('group-cancel'),
+                label: 'Cancel',
                 onPressed: _closeGroupEditor,
-                child: const Text('Cancel'),
               ),
             ],
           ),
@@ -969,7 +967,7 @@ class _HostsScreenState extends State<HostsScreen> {
               _groupError!,
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
-                color: theme.colorScheme.destructive,
+                color: XtColors.dangerText(context),
               ),
             ),
           ],
@@ -981,7 +979,9 @@ class _HostsScreenState extends State<HostsScreen> {
   Widget _importBanner(ThemeData theme) {
     return Container(
       key: const ValueKey('import-banner'),
-      color: _importError ? const Color(0xFF241414) : const Color(0xFF1F1F1F),
+      color: _importError
+          ? XtColors.dangerTint(context)
+          : XtColors.sunken(context),
       padding: const EdgeInsets.fromLTRB(18, 8, 10, 8),
       child: Row(
         children: [
@@ -993,8 +993,8 @@ class _HostsScreenState extends State<HostsScreen> {
                 : LucideIcons.circleCheck,
             size: 15,
             color: _importError
-                ? theme.colorScheme.destructive
-                : const Color(0xFFFFFFFF),
+                ? XtColors.dangerText(context)
+                : XtColors.textPrimary(context),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1002,37 +1002,26 @@ class _HostsScreenState extends State<HostsScreen> {
               _importNotice!,
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textPrimary(context),
               ),
             ),
           ),
-          GestureDetector(
+          XtIconButton(
             key: const ValueKey('import-dismiss'),
-            onTap: () => setState(() => _importNotice = null),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Icon(
-                LucideIcons.x,
-                size: 14,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
+            icon: LucideIcons.x,
+            size: 24,
+            iconSize: 14,
+            onPressed: () => setState(() => _importNotice = null),
           ),
         ],
       ),
     );
   }
 
-  Widget _sectionTitle(String title, ThemeData theme) {
-    return Padding(
+  Widget _sectionTitle(String title) {
+    return XtSectionTitle(
+      title,
       padding: const EdgeInsets.fromLTRB(18, 15, 0, 12),
-      child: Text(
-        title,
-        style: theme.typography.bold.copyWith(
-          fontSize: 18,
-          color: theme.colorScheme.foreground,
-        ),
-      ),
     );
   }
 
@@ -1077,7 +1066,7 @@ class _HostsScreenState extends State<HostsScreen> {
       children: [
         for (final section in sections) ...[
           if (section.name == null)
-            _sectionTitle('Home', theme)
+            _sectionTitle('Home')
           else
             _deletingGroup == section.name
                 ? _deleteGroupBar(section.name!, theme)
@@ -1113,7 +1102,7 @@ class _HostsScreenState extends State<HostsScreen> {
                         'No hosts in this group yet.',
                         style: theme.typography.normal.copyWith(
                           fontSize: 12,
-                          color: theme.colorScheme.mutedForeground,
+                          color: XtColors.textTertiary(context),
                         ),
                       ),
                     )
@@ -1131,15 +1120,16 @@ class _HostsScreenState extends State<HostsScreen> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
+        color: XtColors.surface(context),
+        borderRadius: BorderRadius.circular(XtRadius.field),
+        border: Border.all(color: XtColors.hairline(context)),
       ),
       child: Row(
         children: [
           Icon(
             LucideIcons.triangleAlert,
             size: 16,
-            color: theme.colorScheme.destructive,
+            color: XtColors.danger(context),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1147,20 +1137,20 @@ class _HostsScreenState extends State<HostsScreen> {
               'Delete “$name”? Its hosts become ungrouped.',
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textPrimary(context),
               ),
             ),
           ),
-          Button(
+          XtActionButton(
             key: const ValueKey('group-delete-confirm'),
+            label: 'Delete',
+            variant: XtActionVariant.danger,
             onPressed: () => _deleteGroupNamed(name),
-            style: const ButtonStyle.primary(),
-            child: const Text('Delete'),
           ),
           const SizedBox(width: 8),
-          GhostButton(
+          XtActionButton(
+            label: 'Cancel',
             onPressed: () => setState(() => _deletingGroup = null),
-            child: const Text('Cancel'),
           ),
         ],
       ),
@@ -1171,12 +1161,19 @@ class _HostsScreenState extends State<HostsScreen> {
   /// stored session.
   Host _displayed(Host host) => host.copyWith(os: hostOsRegistry.of(host.id));
 
+  /// The empty Home placeholder: the core returned no hosts to show.
+  Widget get _emptyState => const XtEmptyState(
+    icon: LucideIcons.server,
+    title: 'No hosts yet',
+    message: 'Hosts saved by the XenTerm core appear here.',
+  );
+
   Widget _cardGrid(List<Host> hosts, {bool shrinkWrap = false}) {
     return LayoutBuilder(
       builder: (context, constraints) {
         const gap = 10.0;
-        // Keep cards wide enough to read when the window shrinks; the original
-        // squeezes columns down to an unusable width instead.
+        // Keep cards wide enough to read when the window shrinks; a fixed
+        // column count squeezes them down to an unusable width instead.
         const minCardWidth = 260.0;
         final available = constraints.maxWidth;
         final columns = available.isFinite
@@ -1278,210 +1275,85 @@ class _GroupHeaderState extends State<_GroupHeader> {
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      child: XtHoverRow(
+        height: 38,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.only(left: 4, right: 4),
         onTap: widget.onToggle,
-        child: Container(
-          height: 38,
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.only(left: 4, right: 4),
-          child: Row(
-            children: [
-              AnimatedRotation(
-                turns: widget.collapsed ? -0.25 : 0,
-                duration: TermiusMotion.micro,
-                curve: TermiusMotion.easeOut,
-                child: Icon(
-                  LucideIcons.chevronDown,
-                  size: 16,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(
-                widget.collapsed ? LucideIcons.folder : LucideIcons.folderOpen,
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: widget.collapsed ? -0.25 : 0,
+              duration: XtMotion.micro,
+              curve: XtMotion.easeOut,
+              child: Icon(
+                LucideIcons.chevronDown,
                 size: 16,
-                color: const Color(0xFFA6A6A6),
+                color: XtColors.textSecondary(context),
               ),
-              const SizedBox(width: 8),
-              Text(
-                widget.name,
-                style: theme.typography.semiBold.copyWith(
-                  fontSize: 15,
-                  color: theme.colorScheme.foreground,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${widget.count}',
-                style: theme.typography.normal.copyWith(
-                  fontSize: 12,
-                  color: theme.colorScheme.mutedForeground,
-                ),
-              ),
-              const Spacer(),
-              AnimatedOpacity(
-                opacity: _hovering ? 1 : 0,
-                duration: TermiusMotion.micro,
-                child: Row(
-                  children: [
-                    _HeaderAction(
-                      key: ValueKey('group-add-${widget.name}'),
-                      icon: LucideIcons.plus,
-                      tooltip: 'New host in ${widget.name}',
-                      onTap: widget.onAdd,
-                    ),
-                    _HeaderAction(
-                      key: ValueKey('group-rename-${widget.name}'),
-                      icon: LucideIcons.pencil,
-                      tooltip: 'Rename group',
-                      onTap: widget.onRename,
-                    ),
-                    _HeaderAction(
-                      key: ValueKey('group-delete-${widget.name}'),
-                      icon: LucideIcons.trash2,
-                      tooltip: 'Delete group',
-                      onTap: widget.onDelete,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderAction extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _HeaderAction({
-    super.key,
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Tooltip(
-      tooltip: (_) => Text(tooltip),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 28,
-          height: 28,
-          margin: const EdgeInsets.only(left: 2),
-          alignment: Alignment.center,
-          child: Icon(icon, size: 15, color: theme.colorScheme.mutedForeground),
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            LucideIcons.server,
-            size: 34,
-            color: theme.colorScheme.mutedForeground,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'No hosts yet',
-            style: theme.typography.semiBold.copyWith(
-              fontSize: 16,
-              color: theme.colorScheme.foreground,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Hosts saved by the XenTerm core appear here.',
-            style: theme.typography.normal.copyWith(
-              fontSize: 13,
-              color: theme.colorScheme.mutedForeground,
+            const SizedBox(width: 6),
+            Icon(
+              widget.collapsed ? LucideIcons.folder : LucideIcons.folderOpen,
+              size: 16,
+              color: XtColors.textSecondary(context),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-
-  const _ErrorState({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            LucideIcons.circleAlert,
-            size: 30,
-            color: theme.colorScheme.destructive,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Could not load hosts',
-            style: theme.typography.semiBold.copyWith(
-              fontSize: 16,
-              color: theme.colorScheme.foreground,
+            const SizedBox(width: 8),
+            Text(
+              widget.name,
+              style: theme.typography.semiBold.copyWith(
+                fontSize: 15,
+                color: XtColors.textPrimary(context),
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Text(
-              message,
-              textAlign: TextAlign.center,
+            const SizedBox(width: 8),
+            Text(
+              '${widget.count}',
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
-                color: theme.colorScheme.mutedForeground,
+                color: XtColors.textTertiary(context),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          GhostButton(
-            density: ButtonDensity.compact,
-            onPressed: onRetry,
-            child: Text(
-              'Retry',
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.foreground,
+            const Spacer(),
+            AnimatedOpacity(
+              opacity: _hovering ? 1 : 0,
+              duration: XtMotion.micro,
+              child: Row(
+                children: [
+                  XtIconButton(
+                    key: ValueKey('group-add-${widget.name}'),
+                    icon: LucideIcons.plus,
+                    tooltip: 'New host in ${widget.name}',
+                    onPressed: widget.onAdd,
+                    size: 28,
+                  ),
+                  XtIconButton(
+                    key: ValueKey('group-rename-${widget.name}'),
+                    icon: LucideIcons.pencil,
+                    tooltip: 'Rename group',
+                    onPressed: widget.onRename,
+                    size: 28,
+                  ),
+                  XtIconButton(
+                    key: ValueKey('group-delete-${widget.name}'),
+                    icon: LucideIcons.trash2,
+                    tooltip: 'Delete group',
+                    onPressed: widget.onDelete,
+                    size: 28,
+                  ),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Termius's RelativeSlider: the panel is laid out at its full width and the
+/// A relative slider: the panel is laid out at its full width and the
 /// container's width animates 0↔340 with the content anchored right, so the
-/// drawer slides in/out instead of stretching its children. 200ms, ease —
-/// the exact `sliderAnimationDuration` and default timing function.
+/// drawer slides in/out instead of stretching its children (200ms, ease-out).
 class _DrawerSlider extends StatefulWidget {
   final bool open;
   final Widget child;
@@ -1496,8 +1368,8 @@ class _DrawerSliderState extends State<_DrawerSlider>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: TermiusMotion.micro,
-    reverseDuration: TermiusMotion.micro,
+    duration: XtMotion.micro,
+    reverseDuration: XtMotion.micro,
     value: widget.open ? 1 : 0,
   );
 

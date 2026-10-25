@@ -10,8 +10,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 
 typedef ForwardLoader = Future<List<ForwardRule>> Function();
@@ -235,7 +236,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                             'Tunnels & Jumps',
                             style: theme.typography.bold.copyWith(
                               fontSize: 18,
-                              color: theme.colorScheme.foreground,
+                              color: XtColors.textPrimary(context),
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -243,24 +244,18 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                             'Port forwards and the jump hosts their sessions use.',
                             style: theme.typography.normal.copyWith(
                               fontSize: 12,
-                              color: theme.colorScheme.mutedForeground,
+                              color: XtColors.textSecondary(context),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Button(
+                    XtActionButton(
                       key: const ValueKey('forward-new'),
-                      style: const ButtonStyle.primary(),
+                      icon: LucideIcons.plus,
+                      label: 'New rule',
+                      variant: XtActionVariant.primary,
                       onPressed: _openNew,
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(LucideIcons.plus, size: 14),
-                          SizedBox(width: 6),
-                          Text('New rule'),
-                        ],
-                      ),
                     ),
                     const SizedBox(width: 6),
                     IconToggleButton(
@@ -284,7 +279,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
               if (_searching)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: TermiusField(
+                  child: XtField(
                     key: const ValueKey('forward-search'),
                     controller: _search,
                     autofocus: true,
@@ -301,14 +296,14 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0x22FFFFFF),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                      color: XtColors.selected(context),
+                      borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
                       _notice!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFFE0E0E0),
+                        color: XtColors.textPrimary(context),
                       ),
                     ),
                   ),
@@ -316,9 +311,14 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 860),
-                    child: _body(theme),
+                  // Center loosens the scroll view's tight width so the
+                  // ConstrainedBox cap actually applies; without it the cards
+                  // stretch to the window edge.
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 860),
+                      child: _body(theme),
+                    ),
                   ),
                 ),
               ),
@@ -327,8 +327,8 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
         ),
         ClipRect(
           child: AnimatedContainer(
-            duration: TermiusMotion.micro,
-            curve: TermiusMotion.easeOut,
+            duration: XtMotion.micro,
+            curve: XtMotion.easeOut,
             width: _drawerOpen ? 340 : 0,
             child: _drawerOpen
                 ? OverflowBox(
@@ -355,12 +355,12 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
+      return Padding(
+        padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
             'Loading port forwards…',
-            style: TextStyle(color: Color(0xFFA6A6A6)),
+            style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
       );
@@ -373,13 +373,13 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFA6A6A6)),
+              style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
-            Button(
-              style: const ButtonStyle.outline(),
+            XtActionButton(
+              label: 'Retry',
+              variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
-              child: const Text('Retry'),
             ),
           ],
         ),
@@ -397,7 +397,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                 'Active tunnels',
                 style: theme.typography.semiBold.copyWith(
                   fontSize: 15,
-                  color: theme.colorScheme.foreground,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
               const SizedBox(width: 8),
@@ -405,7 +405,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                 '${_tunnels.length}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: theme.colorScheme.mutedForeground,
+                  color: XtColors.textTertiary(context),
                 ),
               ),
             ],
@@ -424,7 +424,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
               'Port forwarding',
               style: theme.typography.semiBold.copyWith(
                 fontSize: 15,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textPrimary(context),
               ),
             ),
             const SizedBox(width: 8),
@@ -432,14 +432,14 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
               '${_rules.length}',
               style: TextStyle(
                 fontSize: 12,
-                color: theme.colorScheme.mutedForeground,
+                color: XtColors.textTertiary(context),
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
         if (rules.isEmpty)
-          _EmptyBlock(
+          XtEmptyState(
             icon: LucideIcons.arrowLeftRight,
             title: _rules.isEmpty ? 'No forwarding rules' : 'No matches',
             message: _rules.isEmpty
@@ -464,7 +464,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                 'Jump chains',
                 style: theme.typography.semiBold.copyWith(
                   fontSize: 15,
-                  color: theme.colorScheme.foreground,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
               const SizedBox(width: 8),
@@ -472,14 +472,14 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                 '${_jumps.length}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: theme.colorScheme.mutedForeground,
+                  color: XtColors.textTertiary(context),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           if (_jumps.isEmpty)
-            const _EmptyBlock(
+            const XtEmptyState(
               icon: LucideIcons.route,
               title: 'No jump hosts configured',
               message:
@@ -497,10 +497,10 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     );
   }
 
-  static Color kindColor(String kind) => switch (kind) {
-    'local' => const Color(0xFFFFFFFF),
-    'remote' => const Color(0xFFFFFFFF),
-    _ => const Color(0xFFE0E0E0),
+  static Color kindColor(BuildContext context, String kind) => switch (kind) {
+    'local' => XtColors.accent(context),
+    'remote' => XtColors.accent(context),
+    _ => XtColors.textSecondary(context),
   };
 
   static String kindLabel(String kind) => switch (kind) {
@@ -508,58 +508,6 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     'remote' => 'Remote',
     _ => 'Dynamic',
   };
-}
-
-class _EmptyBlock extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-
-  const _EmptyBlock({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 22, color: theme.colorScheme.mutedForeground),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.typography.semiBold.copyWith(
-                    fontSize: 14,
-                    color: theme.colorScheme.foreground,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  message,
-                  style: theme.typography.normal.copyWith(
-                    fontSize: 12,
-                    color: theme.colorScheme.mutedForeground,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _JumpCard extends StatelessWidget {
@@ -570,64 +518,63 @@ class _JumpCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      key: ValueKey('jump-${chain.sessionId}'),
+    return SizedBox(
       height: 66,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFFFF).withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(TermiusRadius.menu),
+      child: XtCard(
+        key: ValueKey('jump-${chain.sessionId}'),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        radius: XtRadius.cardLarge,
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: XtColors.selected(context),
+                borderRadius: BorderRadius.circular(XtRadius.menu),
+              ),
+              child: Icon(
+                LucideIcons.route,
+                size: 18,
+                color: XtColors.textPrimary(context),
+              ),
             ),
-            child: const Icon(
-              LucideIcons.route,
-              size: 18,
-              color: Color(0xFFFFFFFF),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  chain.sessionName,
-                  style: theme.typography.semiBold.copyWith(
-                    fontSize: 14,
-                    color: theme.colorScheme.foreground,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chain.sessionName,
+                    style: theme.typography.semiBold.copyWith(
+                      fontSize: 14,
+                      color: XtColors.textPrimary(context),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  chain.path,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.mutedForeground,
+                  const SizedBox(height: 3),
+                  Text(
+                    chain.path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: XtColors.textTertiary(context),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Text(
-            'via ${chain.jumps.length} jump${chain.jumps.length == 1 ? '' : 's'}',
-            style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.mutedForeground,
+            Text(
+              'via ${chain.jumps.length} jump${chain.jumps.length == 1 ? '' : 's'}',
+              style: TextStyle(
+                fontSize: 11,
+                color: XtColors.textTertiary(context),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -655,128 +602,98 @@ class _RuleCardState extends State<_RuleCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final rule = widget.rule;
-    final color = _ForwardsScreenState.kindColor(rule.kind);
+    final color = _ForwardsScreenState.kindColor(context, rule.kind);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Container(
-        key: ValueKey('forward-${rule.sessionId}-${rule.index}'),
+      child: SizedBox(
         height: 76,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: _hover ? const Color(0xFF2E2E2E) : const Color(0xFF1B1B1B),
-          borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(TermiusRadius.menu),
+        child: XtCard(
+          key: ValueKey('forward-${rule.sessionId}-${rule.index}'),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          radius: XtRadius.cardLarge,
+          interactive: true,
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Color.alphaBlend(
+                    color.withValues(alpha: 0.16),
+                    XtColors.surface(context),
+                  ),
+                  borderRadius: BorderRadius.circular(XtRadius.menu),
+                ),
+                child: Icon(
+                  LucideIcons.arrowLeftRight,
+                  size: 20,
+                  color: color,
+                ),
               ),
-              child: Icon(LucideIcons.arrowLeftRight, size: 20, color: color),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          rule.name.isEmpty ? rule.bind : rule.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.semiBold.copyWith(
-                            fontSize: 15,
-                            color: theme.colorScheme.foreground,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            rule.name.isEmpty ? rule.bind : rule.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.semiBold.copyWith(
+                              fontSize: 15,
+                              color: XtColors.textPrimary(context),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
+                        const SizedBox(width: 8),
+                        XtBadge(
+                          label: _ForwardsScreenState.kindLabel(rule.kind),
                         ),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _ForwardsScreenState.kindLabel(rule.kind),
-                          style: TextStyle(fontSize: 11, color: color),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    rule.target.isEmpty
-                        ? '${rule.bind}  ·  ${rule.sessionName}'
-                        : '${rule.bind}  →  ${rule.target}  ·  ${rule.sessionName}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: Color(0xFFA6A6A6),
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 3),
+                    Text(
+                      rule.target.isEmpty
+                          ? '${rule.bind}  ·  ${rule.sessionName}'
+                          : '${rule.bind}  →  ${rule.target}  ·  ${rule.sessionName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: XtColors.textSecondary(context),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (_hover)
-              Row(
-                children: [
-                  _CardAction(icon: LucideIcons.pencil, onTap: widget.onEdit),
-                  _CardAction(
-                    icon: LucideIcons.trash2,
-                    destructive: true,
-                    onTap: widget.onDelete,
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CardAction extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool destructive;
-
-  const _CardAction({
-    required this.icon,
-    required this.onTap,
-    this.destructive = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 30,
-        height: 30,
-        margin: const EdgeInsets.only(left: 4),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF161616),
-          borderRadius: BorderRadius.circular(TermiusRadius.menu),
-        ),
-        child: Icon(
-          icon,
-          size: 14,
-          color: destructive
-              ? const Color(0xFFE5484D)
-              : const Color(0xFFD4D4D4),
+              if (_hover)
+                Row(
+                  children: [
+                    XtActionButton(
+                      icon: LucideIcons.pencil,
+                      onPressed: widget.onEdit,
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tooltip: 'Edit rule',
+                    ),
+                    const SizedBox(width: 4),
+                    XtActionButton(
+                      icon: LucideIcons.trash2,
+                      variant: XtActionVariant.danger,
+                      onPressed: widget.onDelete,
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tooltip: 'Delete rule',
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -903,52 +820,50 @@ class _ForwardEditorState extends State<ForwardEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
+    return XtCard(
       margin: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
-      ),
+      padding: EdgeInsets.zero,
+      border: false,
+      radius: XtRadius.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
+          XtPanelHeader(
+            title: widget.rule == null ? 'New rule' : 'Forwarding rule',
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 15),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF2E2E2E))),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.rule == null ? 'New rule' : 'Forwarding rule',
-                    style: theme.typography.semiBold.copyWith(
-                      fontSize: 16,
-                      color: const Color(0xFFA6A6A6),
-                    ),
-                  ),
+            actions: [
+              if (widget.rule != null)
+                XtActionButton(
+                  key: const ValueKey('forward-delete'),
+                  icon: _deleting
+                      ? LucideIcons.loaderCircle
+                      : LucideIcons.trash2,
+                  variant: XtActionVariant.danger,
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  tooltip: 'Delete rule',
+                  onPressed: _deleting ? null : _delete,
                 ),
-                if (widget.rule != null)
-                  _HeaderButton(
-                    key: const ValueKey('forward-delete'),
-                    icon: LucideIcons.trash2,
-                    destructive: true,
-                    busy: _deleting,
-                    onTap: _delete,
-                  ),
-                const SizedBox(width: 6),
-                _HeaderButton(
-                  key: const ValueKey('forward-save'),
-                  icon: LucideIcons.check,
-                  busy: _saving,
-                  onTap: _save,
-                ),
-                const SizedBox(width: 6),
-                _HeaderButton(icon: LucideIcons.x, onTap: widget.onClose),
-              ],
-            ),
+              const SizedBox(width: 6),
+              XtActionButton(
+                key: const ValueKey('forward-save'),
+                icon: _saving ? LucideIcons.loaderCircle : LucideIcons.check,
+                variant: XtActionVariant.secondary,
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                tooltip: 'Save rule',
+                onPressed: _saving ? null : _save,
+              ),
+              const SizedBox(width: 6),
+              XtActionButton(
+                icon: LucideIcons.x,
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                tooltip: 'Close',
+                onPressed: widget.onClose,
+              ),
+            ],
           ),
           Expanded(
             child: ListView(
@@ -958,75 +873,83 @@ class _ForwardEditorState extends State<ForwardEditor> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0x33E5484D),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                      color: XtColors.dangerTint(context),
+                      borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
                       _error!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFFFF8A8D),
+                        color: XtColors.dangerText(context),
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
                 ],
-                _Choice(
-                  key: const ValueKey('forward-host'),
-                  label: 'Host',
-                  value: _hostLabel(),
-                  options: [for (final host in widget.hosts) host.id],
-                  optionLabels: {
-                    for (final host in widget.hosts)
-                      host.id: '${host.label} · ${host.address}',
-                  },
-                  onSelected: (value) => setState(() => _sessionId = value),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const XtFieldLabel('Host'),
+                    XtSelectField<String>(
+                      key: const ValueKey('forward-host'),
+                      value: _sessionId,
+                      options: {
+                        for (final host in widget.hosts)
+                          host.id: '${host.label} · ${host.address}',
+                      },
+                      onChanged: (value) => setState(() => _sessionId = value),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
-                _Choice(
-                  key: const ValueKey('forward-kind'),
-                  label: 'Type',
-                  value: _kind,
-                  options: const ['local', 'remote', 'dynamic'],
-                  optionLabels: const {
-                    'local': 'Local',
-                    'remote': 'Remote',
-                    'dynamic': 'Dynamic (SOCKS5)',
-                  },
-                  onSelected: (value) => setState(() => _kind = value),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const XtFieldLabel('Type'),
+                    XtSelectField<String>(
+                      key: const ValueKey('forward-kind'),
+                      value: _kind,
+                      options: const {
+                        'local': 'Local',
+                        'remote': 'Remote',
+                        'dynamic': 'Dynamic (SOCKS5)',
+                      },
+                      onChanged: (value) => setState(() => _kind = value),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 10),
-                _Field(
+                XtField(
                   key: const ValueKey('forward-name'),
                   controller: _name,
                   placeholder: 'Name (optional)',
                 ),
                 const SizedBox(height: 10),
-                _Field(
+                XtField(
                   key: const ValueKey('forward-bind-addr'),
                   controller: _bindAddr,
                   placeholder: 'Listen address',
                 ),
                 const SizedBox(height: 10),
-                _Field(
+                XtField(
                   key: const ValueKey('forward-bind-port'),
                   controller: _bindPort,
+                  keyboardType: TextInputType.number,
                   placeholder: 'Listen port',
-                  number: true,
                 ),
                 if (_kind != 'dynamic') ...[
                   const SizedBox(height: 10),
-                  _Field(
+                  XtField(
                     key: const ValueKey('forward-target-host'),
                     controller: _host,
                     placeholder: 'Target host',
                   ),
                   const SizedBox(height: 10),
-                  _Field(
+                  XtField(
                     key: const ValueKey('forward-target-port'),
                     controller: _hostPort,
+                    keyboardType: TextInputType.number,
                     placeholder: 'Target port',
-                    number: true,
                   ),
                 ],
               ],
@@ -1036,219 +959,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
       ),
     );
   }
-
-  String _hostLabel() {
-    for (final host in widget.hosts) {
-      if (host.id == _sessionId) return '${host.label} · ${host.address}';
-    }
-    return widget.hosts.isEmpty ? 'No SSH hosts' : widget.hosts.first.label;
-  }
 }
-
-class _Field extends StatelessWidget {
-  final TextEditingController controller;
-  final String placeholder;
-  final bool number;
-
-  const _Field({
-    super.key,
-    required this.controller,
-    required this.placeholder,
-    this.number = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TermiusField(
-      controller: controller,
-      keyboardType: number ? TextInputType.number : TextInputType.text,
-      placeholder: placeholder,
-    );
-  }
-}
-
-class _Choice extends StatefulWidget {
-  final String label;
-  final String value;
-  final List<String> options;
-  final Map<String, String> optionLabels;
-  final ValueChanged<String> onSelected;
-
-  const _Choice({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.options,
-    required this.optionLabels,
-    required this.onSelected,
-  });
-
-  @override
-  State<_Choice> createState() => _ChoiceState();
-}
-
-class _ChoiceState extends State<_Choice> {
-  final OverlayPortalController _menu = OverlayPortalController();
-  final LayerLink _link = LayerLink();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          widget.label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A8A)),
-        ),
-        const SizedBox(height: 6),
-        CompositedTransformTarget(
-          link: _link,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _menu.isShowing ? _menu.hide() : _menu.show(),
-            child: Container(
-              height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF161616),
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.optionLabels[widget.value] ?? widget.value,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFFD4D4D4),
-                      ),
-                    ),
-                  ),
-                  const Icon(
-                    LucideIcons.chevronDown,
-                    size: 12,
-                    color: Color(0xFFA6A6A6),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        OverlayPortal(controller: _menu, overlayChildBuilder: _overlay),
-      ],
-    );
-  }
-
-  Widget _overlay(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _menu.hide,
-            child: const ColoredBox(color: Colors.transparent),
-          ),
-        ),
-        CompositedTransformFollower(
-          link: _link,
-          targetAnchor: Alignment.bottomLeft,
-          followerAnchor: Alignment.topLeft,
-          offset: const Offset(0, 6),
-          showWhenUnlinked: false,
-          child: Container(
-            width: 280,
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1B1B1B),
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x66000000),
-                  blurRadius: 16,
-                  offset: Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final option in widget.options)
-                  GestureDetector(
-                    onTap: () {
-                      widget.onSelected(option);
-                      _menu.hide();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      child: Text(
-                        widget.optionLabels[option] ?? option,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: option == widget.value
-                              ? const Color(0xFFFFFFFF)
-                              : const Color(0xFFD4D4D4),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeaderButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool destructive;
-  final bool busy;
-
-  const _HeaderButton({
-    super.key,
-    required this.icon,
-    required this.onTap,
-    this.destructive = false,
-    this.busy = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      child: Container(
-        width: 28,
-        height: 28,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2E2E2E),
-          borderRadius: BorderRadius.circular(TermiusRadius.menu),
-        ),
-        child: busy
-            ? const SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              )
-            : Icon(
-                icon,
-                size: 14,
-                color: destructive
-                    ? const Color(0xFFE5484D)
-                    : const Color(0xFFD4D4D4),
-              ),
-      ),
-    );
-  }
-}
-
 
 /// One live tunnel: what it binds locally and where it lands, with the
 /// session's own status text.
@@ -1260,13 +971,12 @@ class _TunnelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = tunnel.active ? const Color(0xFFFFFFFF) : const Color(0xFFE5484D);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-      ),
+    final color = tunnel.active
+        ? XtColors.accent(context)
+        : XtColors.danger(context);
+    return XtCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      radius: XtRadius.field,
       child: Row(
         children: [
           Container(
@@ -1287,7 +997,7 @@ class _TunnelCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.typography.medium.copyWith(
                     fontSize: 13,
-                    color: theme.colorScheme.foreground,
+                    color: XtColors.textPrimary(context),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1298,7 +1008,7 @@ class _TunnelCard extends StatelessWidget {
                     fontFamily: 'Consolas',
                     fontFamilyFallback: const ['Menlo', 'Courier New'],
                     fontSize: 11,
-                    color: theme.colorScheme.mutedForeground,
+                    color: XtColors.textTertiary(context),
                   ),
                 ),
               ],
@@ -1307,7 +1017,10 @@ class _TunnelCard extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             tunnel.status,
-            style: TextStyle(fontSize: 11, color: theme.colorScheme.mutedForeground),
+            style: TextStyle(
+              fontSize: 11,
+              color: XtColors.textTertiary(context),
+            ),
           ),
         ],
       ),

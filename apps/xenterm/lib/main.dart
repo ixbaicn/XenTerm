@@ -5,7 +5,7 @@ import 'package:window_manager/window_manager.dart';
 import 'data/hosts.dart';
 import 'shell/root_shell.dart';
 import 'terminal/core_settings.dart';
-import 'theme/termius_theme.dart';
+import 'theme/app_theme.dart';
 import 'theme/app_fonts.dart';
 
 Future<void> main() async {
@@ -14,7 +14,7 @@ Future<void> main() async {
   await fonts.load();
   await windowManager.ensureInitialized();
 
-  // Termius draws its own titlebar (the tab pills live in it), so the native
+  // The shell draws its own titlebar (session tabs live in it), so the native
   // frame is hidden; dragging is re-provided by the shell's drag region and
   // the platform's resize borders stay active.
   const options = WindowOptions(
@@ -92,11 +92,10 @@ class _XenTermAppState extends State<XenTermApp> {
       title: 'XenTerm',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: _lightTheme ? termiusLightScheme() : termiusDarkScheme(),
+        colorScheme: _lightTheme ? xtLightScheme() : xtDarkScheme(),
         typography: const Typography.geist().scale(_fonts.uiSize / 14),
-        // Termius's corner scale starts at the shadcn defaults' midpoint;
-        // spec-exact radii (8/10/15) are applied at the call sites via
-        // TermiusRadius, so the multiplier only styles library internals.
+        // The app's own radii (8/10/15) are applied at the call sites via
+        // XtRadius; the multiplier only styles library internals.
         radius: 0.5,
       ),
       home: DefaultTextEditingShortcuts(

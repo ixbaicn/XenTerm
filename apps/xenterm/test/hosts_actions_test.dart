@@ -1,17 +1,26 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:simple_icons/simple_icons.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/host_card.dart';
 import 'package:xenterm_app/screens/hosts/host_details_panel.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
-import 'package:xenterm_app/theme/termius_field.dart';
-import 'package:xenterm_app/theme/termius_theme.dart';
+import 'package:xenterm_app/theme/app_field.dart';
+import 'package:xenterm_app/theme/app_theme.dart';
+import 'package:xenterm_app/widgets/primitives.dart';
 
 Widget _app(Widget child) => ShadcnApp(
-  theme: ThemeData(colorScheme: termiusDarkScheme()),
+  theme: ThemeData(colorScheme: xtDarkScheme()),
   home: Scaffold(child: SizedBox(width: 1400, height: 900, child: child)),
 );
+
+/// Select popups stay mounted after a pick; a tap at the top-left hits their
+/// overlay barrier and closes them so they do not cover the panel below.
+Future<void> _dismissPopup(WidgetTester tester) async {
+  await tester.tapAt(const Offset(4, 4));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets('quick connect parses user@host:port and opens the new session', (
@@ -222,7 +231,7 @@ void main() {
     expect(find.text('Serial Connection'), findsOne);
     expect(
       tester
-          .widget<TermiusField>(find.byKey(const ValueKey('serial-port')))
+          .widget<XtField>(find.byKey(const ValueKey('serial-port')))
           .controller
           ?.text,
       'COM3',
@@ -246,7 +255,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       ShadcnApp(
-        theme: ThemeData(colorScheme: termiusDarkScheme()),
+        theme: ThemeData(colorScheme: xtDarkScheme()),
         home: Scaffold(
           child: SizedBox(
             width: 700,
@@ -568,6 +577,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Private key').last);
     await tester.pumpAndSettle();
+    await _dismissPopup(tester);
     expect(find.byKey(const ValueKey('host-key-import')), findsOneWidget);
     expect(find.byKey(const ValueKey('host-key-content')), findsOneWidget);
     expect(find.byKey(const ValueKey('host-password')), findsNothing);
@@ -651,16 +661,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('host-kind')));
     await tester.pumpAndSettle();
-    // The overlay option list hangs off the anchor; in the test's layer tree
-    // the follower link is not hit-testable, so tap by computed position:
-    // first option sits just below the anchor's bottom edge.
-    final anchor = tester.getRect(find.byKey(const ValueKey('host-kind')));
-    // Third option row ('Serial' — SSH then Telnet come first): the list
-    // hangs bottomLeft+6 with 5px padding and ~32px rows.
-    await tester.tapAt(
-      Offset(
-        anchor.left + anchor.width / 2,
-        anchor.bottom + 6 + 5 + 32 * 2 + 16,
+    await tester.tap(
+      find.descendant(
+        of: find.byType(XtMenuPopup),
+        matching: find.text('Serial'),
       ),
     );
     await tester.pumpAndSettle();
@@ -728,6 +732,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Telnet').last);
     await tester.pumpAndSettle();
+    await _dismissPopup(tester);
     expect(savedKind, 'telnet');
     expect(find.text('Telnet on'), findsOneWidget);
 
@@ -743,6 +748,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('GBK / 简体中文').last);
     await tester.pumpAndSettle();
+    await _dismissPopup(tester);
     await tester.enterText(
       find.byKey(const ValueKey('host-address')),
       '10.0.0.9',
@@ -753,4 +759,55 @@ void main() {
     expect(savedEncoding, 'gbk');
   });
 
+  testWidgets('the hosts screen fits a 1280x720 window without overflow', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      ShadcnApp(
+        theme: ThemeData(colorScheme: xtDarkScheme()),
+        home: Scaffold(
+          child: HostsScreen(
+            loadHosts: () async => const [
+              Host(id: 'a', label: 'alpha', address: '10.0.0.1'),
+              Host(id: 'b', label: 'beta', address: '10.0.0.2'),
+              Host(id: 'c', label: 'gamma', address: '10.0.0.3'),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The drawer reflows the card column beside it rather than overflowing.
+    await tester.tap(find.byKey(const ValueKey('edit-a')));
+    await tester.pumpAndSettle();
+    expect(find.text('Host Details'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('host cards use a neutral server glyph until an OS is reported', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        HostsScreen(
+          loadHosts: () async => const [
+            Host(id: 'unknown-os', label: 'alpha', address: '10.0.0.1'),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // A host whose OS was never detected does not pretend to be a distro: the
+    // chip falls back to the neutral server glyph.
+    expect(find.byIcon(LucideIcons.server), findsOneWidget);
+    expect(find.byIcon(SimpleIcons.debian), findsNothing);
+  });
 }

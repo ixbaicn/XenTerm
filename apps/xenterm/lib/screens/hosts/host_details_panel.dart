@@ -1,20 +1,13 @@
-/// The host details drawer, laid out to match the reference client's host
-/// drawer (form cards, relative slider, same geometry):
+/// The host details drawer:
 ///
-/// - drawer width 340px, animated over 200ms, surface --dark-grey-2 #1D2033
-/// - header 56px, surface --dark-grey-3 #282B3D, bottom border --dark-grey-4,
-///   title "Host Details" 16px/600 in --dark-grey-7, then saved-check, ⋯, →|
-/// - body padding 15/15/85/15, 15px gap, cards --dark-grey-3 radius 10 with
-///   padding 15 20 20 and 10px between rows
-/// - field: 36px, 1px outline #8D91A540, radius 10, transparent fill,
-///   14px/450 text, placeholders --dark-grey-7
-/// - Address row: 36×36 OS chip (radius 8) then the field, no gap
-/// - General: Label / Parent Group (folder) / Tags (tag) / Backspace (keyboard,
-///   value "Default" right-aligned at --dark-grey-6)
-/// - Share this host: 10px padded ghost button, accent text + people icon
-/// - SSH card: "SSH on [22] port" over a 1px --dark-grey-5 divider, then
-///   "Credentials" with Username (person) and Password (key) fields
-/// - Connect bar: --dark-grey-2 band, 20/15 padding, full-width accent button
+/// - 340px wide, animated over 200ms, on the page surface;
+/// - a 56px panel header with the "Host Details" title and save / ⋯ / close
+///   actions;
+/// - body padding 15/15/85/15, 15px gaps and form cards with 10px between rows;
+/// - an Address row made of the OS glyph tile next to the hostname field;
+/// - a General card (label, parent group), a port row, credentials, encoding,
+///   jump host and expect/send triggers;
+/// - a Connect band at the bottom with the full-width primary action.
 library;
 
 import 'dart:io';
@@ -23,9 +16,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
-import '../../widgets/termius_choice.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import 'host_card.dart';
 import 'host_form_widgets.dart';
 
@@ -251,14 +244,28 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ColoredBox(
-      color: theme.colorScheme.background, // --dark-grey-2
+      color: XtColors.page(context),
       child: Column(
         children: [
-          _Header(
-            onClose: widget.onClose,
-            onSave: _save,
-            onDelete: _delete,
-            saving: _saving,
+          HostDrawerHeader(
+            title: 'Host Details',
+            actions: [
+              // The check persists the drawer's edits into the core store.
+              XtIconButton(
+                icon: LucideIcons.check,
+                size: 28,
+                iconSize: 15,
+                onPressed: _saving ? null : _save,
+              ),
+              const SizedBox(width: 4),
+              _MoreButton(onDelete: _delete),
+              XtIconButton(
+                icon: LucideIcons.arrowRightToLine,
+                size: 28,
+                iconSize: 16,
+                onPressed: widget.onClose,
+              ),
+            ],
           ),
           Expanded(
             child: SingleChildScrollView(
@@ -271,16 +278,14 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.destructive.withValues(
-                          alpha: 0.12,
-                        ),
-                        borderRadius: BorderRadius.circular(TermiusRadius.card),
+                        color: XtColors.dangerTint(context),
+                        borderRadius: BorderRadius.circular(XtRadius.card),
                       ),
                       child: Text(
                         _saveError!,
                         style: theme.typography.normal.copyWith(
                           fontSize: 12,
-                          color: theme.colorScheme.destructive,
+                          color: XtColors.dangerText(context),
                         ),
                       ),
                     ),
@@ -290,7 +295,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                     HostFormCard(
                       children: [
                         const HostSectionTitle('Connection type'),
-                        TermiusChoice<String>(
+                        XtSelectField<String>(
                           key: const ValueKey('host-kind'),
                           value: widget.host.protocol,
                           options: const {
@@ -315,7 +320,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                       const HostSectionTitle('Address'),
                       Row(
                         children: [
-                          _OsChip(host: widget.host),
+                          OsChipTile(host: widget.host, size: 36, iconSize: 20),
                           Expanded(
                             child: HostPanelField(
                               key: const ValueKey('host-address'),
@@ -336,7 +341,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                         controller: _label,
                         placeholder: 'Label',
                       ),
-                      TermiusChoice<String>(
+                      XtSelectField<String>(
                         key: const ValueKey('host-group'),
                         value: _groupValue,
                         options: {
@@ -371,7 +376,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             const SizedBox(height: 12),
                           const HostSectionTitle('Authentication'),
                           const SizedBox(height: 6),
-                          TermiusChoice<String>(
+                          XtSelectField<String>(
                             key: const ValueKey('host-auth'),
                             value: _auth,
                             options: const {
@@ -399,21 +404,32 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: _ImportKeyButton(
+                                  child: XtActionButton(
                                     key: const ValueKey('host-key-import'),
-                                    busy: _importingKey,
-                                    onTap: _importKey,
+                                    icon: _importingKey
+                                        ? LucideIcons.loaderCircle
+                                        : LucideIcons.fileUp,
+                                    label: _importingKey
+                                        ? 'Importing…'
+                                        : 'Import key file…',
+                                    variant: XtActionVariant.secondary,
+                                    height: 34,
+                                    expand: true,
+                                    onPressed: _importingKey ? null : _importKey,
                                   ),
                                 ),
                                 if (widget.host.hasKey &&
                                     _keyContent.text.trim().isEmpty &&
                                     !_clearKey) ...[
                                   const SizedBox(width: 8),
-                                  _KeyClearChip(
+                                  XtActionButton(
                                     key: const ValueKey('host-key-clear'),
-                                    onClear: () => setState(
-                                      () => _clearKey = true,
-                                    ),
+                                    icon: LucideIcons.trash2,
+                                    label: 'Clear',
+                                    variant: XtActionVariant.danger,
+                                    height: 34,
+                                    onPressed: () =>
+                                        setState(() => _clearKey = true),
                                   ),
                                 ],
                               ],
@@ -427,7 +443,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                   key: const ValueKey('host-key-clear-note'),
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: theme.colorScheme.mutedForeground,
+                                    color: XtColors.textTertiary(context),
                                   ),
                                 ),
                               )
@@ -441,11 +457,11 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                   key: const ValueKey('host-key-stored'),
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: theme.colorScheme.mutedForeground,
+                                    color: XtColors.textTertiary(context),
                                   ),
                                 ),
                               ),
-                            TermiusField(
+                            XtField(
                               key: const ValueKey('host-key-content'),
                               controller: _keyContent,
                               height: 110,
@@ -465,15 +481,8 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                     !h.ephemeral,
                               )) ...[
                             const SizedBox(height: 14),
-                            Text(
-                              'Jump host',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.mutedForeground,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            TermiusChoice<String>(
+                            const XtFieldLabel('Jump host'),
+                            XtSelectField<String>(
                               key: const ValueKey('host-jump'),
                               value: _jumpId,
                               options: {
@@ -491,7 +500,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                           const SizedBox(height: 14),
                           const HostSectionTitle('Encoding'),
                           const SizedBox(height: 6),
-                          TermiusChoice<String>(
+                          XtSelectField<String>(
                             key: const ValueKey('host-encoding'),
                             value: _encoding,
                             options: const {
@@ -522,7 +531,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                         'stored securely; a blank field keeps the saved value.',
                         style: TextStyle(
                           fontSize: 12,
-                          color: theme.colorScheme.mutedForeground,
+                          color: XtColors.textTertiary(context),
                         ),
                       ),
                       if (_triggers.isEmpty)
@@ -533,7 +542,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             key: const ValueKey('host-triggers-empty'),
                             style: TextStyle(
                               fontSize: 12,
-                              color: hostTitleGrey,
+                              color: XtColors.textTertiary(context),
                             ),
                           ),
                         )
@@ -550,23 +559,14 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             }),
                           ),
                       const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: Button(
-                          key: const ValueKey('host-trigger-add'),
-                          style: const ButtonStyle.ghost(),
-                          onPressed: () => setState(() {
-                            _triggers.add(const SessionTriggerRule(expect: ''));
-                          }),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(LucideIcons.plus, size: 14),
-                              SizedBox(width: 6),
-                              Text('Add trigger'),
-                            ],
-                          ),
-                        ),
+                      XtActionButton(
+                        key: const ValueKey('host-trigger-add'),
+                        icon: LucideIcons.plus,
+                        label: 'Add trigger',
+                        expand: true,
+                        onPressed: () => setState(() {
+                          _triggers.add(const SessionTriggerRule(expect: ''));
+                        }),
                       ),
                     ],
                   ),
@@ -574,83 +574,16 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
               ),
             ),
           ),
-          // connectButton: --dark-grey-2 band, padding 20px 15px, full width.
+          // The Connect band: page surface, 20/15 padding, full-width primary.
           Container(
-            color: theme.colorScheme.background,
+            color: XtColors.page(context),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
-            child: SizedBox(
-              width: double.infinity,
-              height: 36,
-              child: Button(
-                onPressed: widget.onConnect,
-                style: const ButtonStyle.primary(),
-                child: const Text('Connect'),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The 56px header: title in --dark-grey-7 16px/600, save check, ⋯, →|.
-class _Header extends StatelessWidget {
-  final VoidCallback onClose;
-  final VoidCallback onSave;
-  final VoidCallback onDelete;
-  final bool saving;
-
-  const _Header({
-    required this.onClose,
-    required this.onSave,
-    required this.onDelete,
-    required this.saving,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      height: 56,
-      padding: const EdgeInsets.only(left: 15, right: 10),
-      decoration: const BoxDecoration(
-        color: hostCardSurface,
-        border: Border(bottom: BorderSide(color: hostHeaderBorder)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 5),
-              child: Text(
-                'Host Details',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.typography.semiBold.copyWith(
-                  fontSize: 16,
-                  color: hostTitleGrey,
-                ),
-              ),
-            ),
-          ),
-          // The check persists the drawer's edits into the core store.
-          _HeaderIcon(
-            onPressed: saving ? null : onSave,
-            child: Icon(
-              LucideIcons.check,
-              size: 15,
-              color: saving ? hostTextDisabled : Colors.white,
-            ),
-          ),
-          const SizedBox(width: 5),
-          _MoreButton(onDelete: onDelete),
-          _HeaderIcon(
-            onPressed: onClose,
-            child: const Icon(
-              LucideIcons.arrowRightToLine,
-              size: 16,
-              color: hostTitleGrey,
+            child: XtActionButton(
+              label: 'Connect',
+              variant: XtActionVariant.primary,
+              height: XtMetrics.controlHeight,
+              expand: true,
+              onPressed: widget.onConnect,
             ),
           ),
         ],
@@ -660,7 +593,7 @@ class _Header extends StatelessWidget {
 }
 
 /// The ⋯ menu: currently just "Remove host" (a real store delete through the
-/// bridge). Anchored under the button like the toolbar menus.
+/// bridge). It hangs off the button's bottom-right edge like the toolbar menus.
 class _MoreButton extends StatefulWidget {
   final VoidCallback onDelete;
 
@@ -675,7 +608,6 @@ class _MoreButtonState extends State<_MoreButton> {
   final LayerLink _link = LayerLink();
 
   Widget _menuChild(BuildContext context) {
-    final theme = Theme.of(context);
     return Stack(
       children: [
         Positioned.fill(
@@ -693,28 +625,19 @@ class _MoreButtonState extends State<_MoreButton> {
           showWhenUnlinked: false,
           child: Align(
             alignment: Alignment.topRight,
-            child: Container(
+            child: XtMenuPopup(
               width: 180,
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: hostCardSurface,
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66000000),
-                    blurRadius: 16,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: _MoreItem(
-                label: 'Remove host',
-                onTap: () {
-                  _menu.hide();
-                  widget.onDelete();
-                },
-                theme: theme,
-              ),
+              children: [
+                XtMenuEntry(
+                  icon: LucideIcons.trash2,
+                  label: 'Remove host',
+                  danger: true,
+                  onTap: () {
+                    _menu.hide();
+                    widget.onDelete();
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -729,176 +652,18 @@ class _MoreButtonState extends State<_MoreButton> {
       overlayChildBuilder: _menuChild,
       child: CompositedTransformTarget(
         link: _link,
-        child: IconButton.ghost(
+        child: XtIconButton(
+          icon: LucideIcons.ellipsis,
+          size: 28,
+          iconSize: 15,
           onPressed: () => _menu.isShowing ? _menu.hide() : _menu.show(),
-          icon: const Icon(LucideIcons.ellipsis, size: 15, color: hostTitleGrey),
-          size: ButtonSize.small,
         ),
       ),
     );
   }
 }
 
-class _MoreItem extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final ThemeData theme;
-
-  const _MoreItem({
-    required this.label,
-    required this.onTap,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        height: 36,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        alignment: Alignment.centerLeft,
-        child: Row(
-          children: [
-            Icon(
-              LucideIcons.trash2,
-              size: 15,
-              color: theme.colorScheme.destructive,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.destructive,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderIcon extends StatelessWidget {
-  final VoidCallback? onPressed;
-  final Widget child;
-
-  const _HeaderIcon({required this.onPressed, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton.ghost(
-      onPressed: onPressed,
-      icon: child,
-      size: ButtonSize.small,
-    );
-  }
-}
-
-/// 36×36 OS chip, radius 8 — the entity icon block of the Address row.
-class _OsChip extends StatelessWidget {
-  final Host host;
-
-  const _OsChip({required this.host});
-
-  @override
-  Widget build(BuildContext context) {
-    final chip = osChipFor(host.os);
-    return Container(
-      width: 36,
-      height: 36,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: chip.fill,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(chip.glyph, size: 20, color: Colors.white),
-    );
-  }
-}
-
-/// The key-auth import control: looks like a field, acts like a button.
-class _ImportKeyButton extends StatelessWidget {
-  final bool busy;
-  final VoidCallback onTap;
-
-  const _ImportKeyButton({super.key, this.busy = false, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: busy ? null : onTap,
-      child: Container(
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.secondary,
-          borderRadius: BorderRadius.circular(TermiusRadius.field),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              busy ? LucideIcons.loaderCircle : LucideIcons.fileUp,
-              size: 14,
-              color: hostTextDisabled,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              busy ? 'Importing…' : 'Import key file…',
-              style: theme.typography.normal.copyWith(
-                fontSize: 13.5,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Small destructive chip dropping a stored key on the next save.
-class _KeyClearChip extends StatelessWidget {
-  final VoidCallback onClear;
-
-  const _KeyClearChip({super.key, required this.onClear});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onClear,
-      child: Container(
-        height: 34,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.destructive.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(TermiusRadius.field),
-        ),
-        child: Row(
-          children: [
-            Icon(LucideIcons.trash2, size: 13, color: theme.colorScheme.destructive),
-            const SizedBox(width: 6),
-            Text(
-              'Clear',
-              style: theme.typography.normal.copyWith(
-                fontSize: 12,
-                color: theme.colorScheme.destructive,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// "SSH on [22] port" with a 1px --dark-grey-5 divider underneath.
+/// "SSH on [22] port" over a hairline divider.
 class _PortRow extends StatelessWidget {
   final TextEditingController controller;
   final String label;
@@ -908,39 +673,42 @@ class _PortRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.only(bottom: 10),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: hostDivider)),
-      ),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: theme.typography.normal.copyWith(
-              fontSize: 16,
-              color: theme.colorScheme.foreground,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: theme.typography.normal.copyWith(
+                  fontSize: 16,
+                  color: XtColors.textPrimary(context),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 79,
+                child: HostPanelField(
+                  controller: controller,
+                  placeholder: '22',
+                  height: 28,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'port',
+                style: theme.typography.normal.copyWith(
+                  fontSize: 16,
+                  color: XtColors.textPrimary(context),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 79,
-            child: HostPanelField(
-              controller: controller,
-              placeholder: '22',
-              height: 28,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'port',
-            style: theme.typography.normal.copyWith(
-              fontSize: 16,
-              color: theme.colorScheme.foreground,
-            ),
-          ),
-        ],
-      ),
+        ),
+        const XtDivider(),
+      ],
     );
   }
 }
@@ -1002,19 +770,14 @@ class _TriggerRowState extends State<_TriggerRow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final kept =
         widget.rule.hasResponse &&
         widget.rule.draftResponse.isEmpty &&
         !widget.rule.clearResponse;
-    return Container(
+    return XtCard(
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: hostCardSurface,
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
-        border: Border.all(color: hostDivider),
-      ),
+      radius: XtRadius.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1040,7 +803,7 @@ class _TriggerRowState extends State<_TriggerRow> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Switch(
+                    XtSwitch(
                       value: widget.rule.appendEnter,
                       onChanged: (value) => _push(appendEnter: value),
                     ),
@@ -1049,7 +812,7 @@ class _TriggerRowState extends State<_TriggerRow> {
                       'Enter',
                       style: TextStyle(
                         fontSize: 12,
-                        color: theme.colorScheme.mutedForeground,
+                        color: XtColors.textTertiary(context),
                       ),
                     ),
                   ],
@@ -1059,7 +822,7 @@ class _TriggerRowState extends State<_TriggerRow> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Switch(
+                    XtSwitch(
                       value: widget.rule.repeat,
                       onChanged: (value) => _push(repeat: value),
                     ),
@@ -1068,17 +831,18 @@ class _TriggerRowState extends State<_TriggerRow> {
                       'Repeat',
                       style: TextStyle(
                         fontSize: 12,
-                        color: theme.colorScheme.mutedForeground,
+                        color: XtColors.textTertiary(context),
                       ),
                     ),
                   ],
                 ),
               ),
-              Button(
+              XtIconButton(
                 key: const ValueKey('trigger-remove'),
-                style: const ButtonStyle.ghost(),
+                icon: LucideIcons.trash2,
+                size: 28,
+                iconSize: 14,
                 onPressed: widget.onRemoved,
-                child: const Icon(LucideIcons.trash2, size: 14),
               ),
             ],
           ),

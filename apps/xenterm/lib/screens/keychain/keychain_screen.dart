@@ -9,8 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 
 typedef KeyLoader = Future<List<KeyInfo>> Function();
@@ -208,7 +209,7 @@ class _KeychainScreenState extends State<KeychainScreen> {
         if (_searching)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: TermiusField(
+            child: XtField(
               key: const ValueKey('keychain-search'),
               controller: _search,
               autofocus: true,
@@ -219,9 +220,11 @@ class _KeychainScreenState extends State<KeychainScreen> {
         const SectionTitle(text: 'Keychain'),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: _body(theme),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: _body(theme),
+            ),
           ),
         ),
       ],
@@ -230,12 +233,12 @@ class _KeychainScreenState extends State<KeychainScreen> {
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
+      return Padding(
+        padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
             'Loading keys…',
-            style: TextStyle(color: Color(0xFFA6A6A6)),
+            style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
       );
@@ -248,13 +251,13 @@ class _KeychainScreenState extends State<KeychainScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFA6A6A6)),
+              style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
-            Button(
-              style: const ButtonStyle.outline(),
+            XtActionButton(
+              label: 'Retry',
+              variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
-              child: const Text('Retry'),
             ),
           ],
         ),
@@ -262,36 +265,12 @@ class _KeychainScreenState extends State<KeychainScreen> {
     }
     final keys = _filtered;
     if (keys.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Icon(
-              LucideIcons.keyRound,
-              size: 30,
-              color: theme.colorScheme.mutedForeground,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _keys.isEmpty ? 'No SSH keys yet' : 'No matches',
-              style: theme.typography.semiBold.copyWith(
-                fontSize: 15,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _keys.isEmpty
-                  ? 'Set a private key path on a host to see it here.'
-                  : 'Try a different search.',
-              textAlign: TextAlign.center,
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ],
-        ),
+      return XtEmptyState(
+        icon: LucideIcons.keyRound,
+        title: _keys.isEmpty ? 'No SSH keys yet' : 'No matches',
+        message: _keys.isEmpty
+            ? 'Set a private key path on a host to see it here.'
+            : 'Try a different search.',
       );
     }
     return Column(
@@ -303,12 +282,15 @@ class _KeychainScreenState extends State<KeychainScreen> {
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF161616),
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
+              color: XtColors.selected(context),
+              borderRadius: BorderRadius.circular(XtRadius.field),
             ),
             child: Text(
               _notice!,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFD4D4D4)),
+              style: TextStyle(
+                fontSize: 12,
+                color: XtColors.textPrimary(context),
+              ),
             ),
           ),
         for (final key in keys)
@@ -363,42 +345,36 @@ class _KeyEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
+    return XtCard(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-      ),
+      radius: XtRadius.cardLarge,
       child: Row(
         children: [
-          const Icon(LucideIcons.keyRound, size: 18, color: Color(0xFFFFFFFF)),
+          Icon(
+            LucideIcons.keyRound,
+            size: 18,
+            color: XtColors.textPrimary(context),
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: TermiusField(
+            child: XtField(
               key: const ValueKey('key-path'),
               controller: controller,
               placeholder: 'Path to the private key',
             ),
           ),
           const SizedBox(width: 8),
-          Button(
+          XtActionButton(
             key: const ValueKey('key-save'),
-            style: const ButtonStyle.primary(),
+            label: 'Save',
+            variant: XtActionVariant.primary,
             onPressed: saving ? null : onSave,
-            child: const Text('Save'),
           ),
           const SizedBox(width: 6),
-          GhostButton(
+          XtActionButton(
             key: const ValueKey('key-cancel'),
+            label: 'Cancel',
             onPressed: saving ? null : onCancel,
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
           ),
         ],
       ),
@@ -422,19 +398,15 @@ class _KeyDeleteBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
+    return XtCard(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-      ),
+      radius: XtRadius.cardLarge,
       child: Row(
         children: [
           Icon(
             LucideIcons.triangleAlert,
             size: 16,
-            color: theme.colorScheme.destructive,
+            color: XtColors.danger(context),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -442,64 +414,22 @@ class _KeyDeleteBar extends StatelessWidget {
               'Remove “$label” from its hosts? The key file stays on disk.',
               style: TextStyle(
                 fontSize: 12.5,
-                color: theme.colorScheme.foreground,
+                color: XtColors.textPrimary(context),
               ),
             ),
           ),
-          Button(
+          XtActionButton(
             key: const ValueKey('key-delete-confirm'),
-            style: const ButtonStyle.primary(),
+            label: 'Remove',
+            variant: XtActionVariant.danger,
             onPressed: busy ? null : onDelete,
-            child: const Text('Remove'),
           ),
           const SizedBox(width: 6),
-          GhostButton(
+          XtActionButton(
+            label: 'Cancel',
             onPressed: busy ? null : onCancel,
-            child: const Text('Cancel'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _KeyAction extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final bool destructive;
-
-  const _KeyAction({
-    super.key,
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    this.destructive = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      tooltip: (_) => Text(tooltip),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 30,
-          height: 30,
-          margin: const EdgeInsets.only(left: 4),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFF161616),
-            borderRadius: BorderRadius.circular(TermiusRadius.menu),
-          ),
-          child: Icon(
-            icon,
-            size: 14,
-            color: destructive
-                ? const Color(0xFFE5484D)
-                : const Color(0xFFD4D4D4),
-          ),
-        ),
       ),
     );
   }
@@ -528,117 +458,110 @@ class _KeyCardState extends State<KeyCard> {
       'locked' => 'Encrypted key · unlocked on connect',
       _ => key.fingerprint.isEmpty ? 'Key' : key.fingerprint,
     };
+    final statusColor = key.status == 'missing'
+        ? XtColors.danger(context)
+        : key.status == 'available'
+        ? XtColors.textSecondary(context)
+        : XtColors.textPrimary(context);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Container(
-        key: ValueKey('key-${key.sessionId}'),
+      child: SizedBox(
         height: 76,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: _hover ? const Color(0xFF2E2E2E) : const Color(0xFF1B1B1B),
-          borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFFFF).withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(TermiusRadius.menu),
+        child: XtCard(
+          key: ValueKey('key-${key.sessionId}'),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          radius: XtRadius.cardLarge,
+          interactive: true,
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: XtColors.selected(context),
+                  borderRadius: BorderRadius.circular(XtRadius.menu),
+                ),
+                child: Icon(
+                  LucideIcons.keyRound,
+                  size: 20,
+                  color: XtColors.textPrimary(context),
+                ),
               ),
-              child: const Icon(
-                LucideIcons.keyRound,
-                size: 20,
-                color: Color(0xFFFFFFFF),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          key.title,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.typography.semiBold.copyWith(
-                            fontSize: 15,
-                            color: theme.colorScheme.foreground,
-                          ),
-                        ),
-                      ),
-                      if (key.keyType.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF161616),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
                           child: Text(
-                            _algorithmLabel(key.keyType),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFFA6A6A6),
+                            key.title,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.typography.semiBold.copyWith(
+                              fontSize: 15,
+                              color: XtColors.textPrimary(context),
                             ),
                           ),
                         ),
+                        if (key.keyType.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          XtBadge(label: _algorithmLabel(key.keyType)),
+                        ],
                       ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '$statusLine  ·  ${key.sessionName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: statusColor),
+                    ),
+                  ],
+                ),
+              ),
+              if (_hover && key.source == 'file')
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.onEdit != null)
+                      XtActionButton(
+                        key: ValueKey('key-edit-${key.sessionId}'),
+                        icon: LucideIcons.pencil,
+                        tooltip: 'Edit key path',
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        onPressed: widget.onEdit,
+                      ),
+                    if (widget.onDelete != null) ...[
+                      const SizedBox(width: 4),
+                      XtActionButton(
+                        key: ValueKey('key-delete-${key.sessionId}'),
+                        icon: LucideIcons.trash2,
+                        variant: XtActionVariant.danger,
+                        tooltip: 'Remove key reference',
+                        height: 30,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        onPressed: widget.onDelete,
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '$statusLine  ·  ${key.sessionName}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: key.status == 'available'
-                          ? const Color(0xFFA6A6A6)
-                          : const Color(0xFFE0E0E0),
+                    const SizedBox(width: 4),
+                    XtActionButton(
+                      key: ValueKey('key-copy-${key.sessionId}'),
+                      icon: LucideIcons.copy,
+                      tooltip: 'Copy key file name',
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      onPressed: () =>
+                          Clipboard.setData(ClipboardData(text: key.fullPath)),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            if (_hover && key.source == 'file')
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (widget.onEdit != null)
-                    _KeyAction(
-                      key: ValueKey('key-edit-${key.sessionId}'),
-                      icon: LucideIcons.pencil,
-                      tooltip: 'Edit key path',
-                      onTap: widget.onEdit!,
-                    ),
-                  if (widget.onDelete != null)
-                    _KeyAction(
-                      key: ValueKey('key-delete-${key.sessionId}'),
-                      icon: LucideIcons.trash2,
-                      tooltip: 'Remove key reference',
-                      destructive: true,
-                      onTap: widget.onDelete!,
-                    ),
-                  _KeyAction(
-                    key: ValueKey('key-copy-${key.sessionId}'),
-                    icon: LucideIcons.copy,
-                    tooltip: 'Copy key file name',
-                    onTap: () =>
-                        Clipboard.setData(ClipboardData(text: key.fullPath)),
-                  ),
-                ],
-              ),
-          ],
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,16 +1,16 @@
 /// Serial connection details in the right-hand host drawer: pick a detected
 /// port (or type one), set the line parameters, and optionally store the
-/// console login some serial servers ask for. This is the same drawer the SSH
-/// host editor uses — no modal — matching the original Termius flow.
+/// console login some serial servers ask for. It uses the same drawer as the
+/// SSH host editor, with the same header and form cards.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
-import '../../widgets/termius_choice.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import 'host_form_widgets.dart';
 
 /// The values the panel hands back; the screen owns persistence.
@@ -182,7 +182,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
     final theme = Theme.of(context);
     final editing = widget.host != null;
     return Container(
-      color: const Color(0xFF111111),
+      color: XtColors.page(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -190,17 +190,12 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
             title: editing ? 'Serial Details' : 'Serial Connection',
             leading: LucideIcons.ethernetPort,
             actions: [
-              GestureDetector(
+              XtIconButton(
                 key: const ValueKey('serial-cancel'),
-                onTap: widget.onClose,
-                child: const Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Icon(
-                    LucideIcons.arrowRightToLine,
-                    size: 16,
-                    color: hostTitleGrey,
-                  ),
-                ),
+                icon: LucideIcons.arrowRightToLine,
+                size: 28,
+                iconSize: 16,
+                onPressed: widget.onClose,
               ),
             ],
           ),
@@ -214,7 +209,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                     HostFormCard(
                       children: [
                         const HostSectionTitle('Connection type'),
-                        TermiusChoice<String>(
+                        XtSelectField<String>(
                           key: const ValueKey('serial-kind'),
                           value: 'serial',
                           options: const {'ssh': 'SSH', 'serial': 'Serial'},
@@ -236,42 +231,31 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                       ),
                       Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: Row(
                               children: [
                                 Icon(
                                   LucideIcons.ethernetPort,
                                   size: 14,
-                                  color: hostTextDisabled,
+                                  color: XtColors.textTertiary(context),
                                 ),
-                                SizedBox(width: 6),
+                                const SizedBox(width: 6),
                                 Text(
                                   'Port',
-                                  style: TextStyle(fontSize: 13),
-                                ),
-                              ],
-                            ),
-                          ),
-                          GestureDetector(
-                            key: const ValueKey('serial-refresh'),
-                            onTap: _refreshPorts,
-                            child: Row(
-                              children: [
-                                Icon(
-                                  LucideIcons.refreshCw,
-                                  size: 12,
-                                  color: theme.colorScheme.mutedForeground,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _loadingPorts ? 'Scanning…' : 'Refresh',
                                   style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.colorScheme.mutedForeground,
+                                    fontSize: 13,
+                                    color: XtColors.textSecondary(context),
                                   ),
                                 ),
                               ],
                             ),
+                          ),
+                          XtActionButton(
+                            key: const ValueKey('serial-refresh'),
+                            icon: LucideIcons.refreshCw,
+                            label: _loadingPorts ? 'Scanning…' : 'Refresh',
+                            height: 28,
+                            onPressed: _refreshPorts,
                           ),
                         ],
                       ),
@@ -284,7 +268,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                         onRefresh: _refreshPorts,
                       ),
                       const HostSectionTitle('Parent group'),
-                      TermiusChoice<String>(
+                      XtSelectField<String>(
                         key: const ValueKey('serial-group'),
                         value: _group,
                         options: {
@@ -295,7 +279,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             setState(() => _group = value),
                       ),
                       const HostSectionTitle('Baud rate'),
-                      TermiusChoice<int>(
+                      XtSelectField<int>(
                         key: const ValueKey('serial-baud'),
                         value: _baud,
                         options: {
@@ -311,11 +295,11 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           children: [
                             AnimatedRotation(
                               turns: _advanced ? 0.25 : 0,
-                              duration: TermiusMotion.micro,
+                              duration: XtMotion.micro,
                               child: Icon(
                                 LucideIcons.chevronRight,
                                 size: 15,
-                                color: theme.colorScheme.mutedForeground,
+                                color: XtColors.textTertiary(context),
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -323,7 +307,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                               'Advanced',
                               style: theme.typography.medium.copyWith(
                                 fontSize: 13,
-                                color: theme.colorScheme.foreground,
+                                color: XtColors.textPrimary(context),
                               ),
                             ),
                             const Spacer(),
@@ -331,7 +315,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                               '$_dataBits${_parityLetter(_parity)}$_stopBits',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: theme.colorScheme.mutedForeground,
+                                color: XtColors.textTertiary(context),
                               ),
                             ),
                           ],
@@ -342,7 +326,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             const HostSectionTitle('Data bits'),
-                            TermiusChoice<int>(
+                            XtSelectField<int>(
                               key: const ValueKey('serial-data-bits'),
                               value: _dataBits,
                               options: const {5: '5', 6: '6', 7: '7', 8: '8'},
@@ -351,7 +335,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             ),
                             const SizedBox(height: 12),
                             const HostSectionTitle('Stop bits'),
-                            TermiusChoice<int>(
+                            XtSelectField<int>(
                               key: const ValueKey('serial-stop-bits'),
                               value: _stopBits,
                               options: const {1: '1', 2: '2'},
@@ -360,7 +344,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             ),
                             const SizedBox(height: 12),
                             const HostSectionTitle('Parity'),
-                            TermiusChoice<String>(
+                            XtSelectField<String>(
                               key: const ValueKey('serial-parity'),
                               value: _parity,
                               options: const {
@@ -373,7 +357,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             ),
                             const SizedBox(height: 12),
                             const HostSectionTitle('Flow control'),
-                            TermiusChoice<String>(
+                            XtSelectField<String>(
                               key: const ValueKey('serial-flow'),
                               value: _flow,
                               options: const {
@@ -391,7 +375,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                               'shell. When set, the app answers those prompts.',
                               style: TextStyle(
                                 fontSize: 11,
-                                color: theme.colorScheme.mutedForeground,
+                                color: XtColors.textTertiary(context),
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -421,7 +405,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                       _error ?? widget.error!,
                       style: theme.typography.normal.copyWith(
                         fontSize: 12,
-                        color: theme.colorScheme.destructive,
+                        color: XtColors.dangerText(context),
                       ),
                     ),
                   ],
@@ -429,23 +413,19 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
               ),
             ),
           ),
-          // Same band + button as the SSH drawer's Connect bar.
+          // The same band + full-width primary action as the SSH drawer.
           Container(
-            color: theme.colorScheme.background,
+            color: XtColors.page(context),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
-            child: SizedBox(
-              width: double.infinity,
-              height: 36,
-              child: Button(
-                key: const ValueKey('serial-connect'),
-                style: const ButtonStyle.primary(),
-                onPressed: _submit,
-                child: Text(
-                  editing
-                      ? 'Save & connect'
-                      : (widget.saveMode ? 'Save' : 'Connect'),
-                ),
-              ),
+            child: XtActionButton(
+              key: const ValueKey('serial-connect'),
+              label: editing
+                  ? 'Save & connect'
+                  : (widget.saveMode ? 'Save' : 'Connect'),
+              variant: XtActionVariant.primary,
+              height: XtMetrics.controlHeight,
+              expand: true,
+              onPressed: _submit,
             ),
           ),
         ],
@@ -517,14 +497,14 @@ class _PortComboFieldState extends State<_PortComboField> {
             if (constraints.maxWidth.isFinite) {
               _width = constraints.maxWidth;
             }
-            return TermiusField(
+            return XtField(
               key: const ValueKey('serial-port'),
               controller: widget.controller,
               placeholder: 'COM3 or /dev/ttyUSB0',
-              leading: const Icon(
+              leading: Icon(
                 LucideIcons.ethernetPort,
                 size: 14,
-                color: Color(0xFFA6A6A6),
+                color: XtColors.textTertiary(context),
               ),
               trailing: GestureDetector(
                 key: const ValueKey('serial-port-toggle'),
@@ -545,9 +525,7 @@ class _PortComboFieldState extends State<_PortComboField> {
                                 ? LucideIcons.chevronUp
                                 : LucideIcons.chevronDown,
                             size: 15,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .mutedForeground,
+                            color: XtColors.textTertiary(context),
                           ),
                   ),
                 ),
@@ -560,7 +538,6 @@ class _PortComboFieldState extends State<_PortComboField> {
   }
 
   Widget _overlay(BuildContext context) {
-    final theme = Theme.of(context);
     final screen = MediaQuery.sizeOf(context);
     final box = _anchorContext?.findRenderObject() as RenderBox?;
     var maxHeight = 260.0;
@@ -586,122 +563,68 @@ class _PortComboFieldState extends State<_PortComboField> {
           showWhenUnlinked: false,
           child: Align(
             alignment: Alignment.topLeft,
-            child: Container(
+            child: XtMenuPopup(
               width: _width > 0 ? _width : 320,
-              constraints: BoxConstraints(maxHeight: maxHeight),
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1B1B1B),
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (widget.ports.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 10,
-                        ),
-                        child: Text(
-                          widget.loading
-                              ? 'Scanning serial ports…'
-                              : 'No serial ports detected — type a device path',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.mutedForeground,
-                          ),
-                        ),
-                      )
-                    else
-                      for (final port in widget.ports)
-                        GestureDetector(
-                          key: ValueKey('serial-port-${port.name}'),
-                          onTap: () => _pick(port),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: widget.controller.text == port.name
-                                  ? theme.colorScheme.muted
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    port.name,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: theme.colorScheme.foreground,
-                                    ),
-                                  ),
-                                ),
-                                if (widget.controller.text == port.name) ...[
-                                  Icon(
-                                    LucideIcons.check,
-                                    size: 13,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                  const SizedBox(width: 6),
-                                ],
-                                Text(
-                                  port.kind,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: theme.colorScheme.mutedForeground,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    const Divider(height: 9, color: Color(0xFF3A3A3A)),
-                    GestureDetector(
-                      key: const ValueKey('serial-port-refresh'),
-                      onTap: () {
-                        _menu.hide();
-                        widget.onRefresh();
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              LucideIcons.refreshCw,
-                              size: 13,
-                              color: theme.colorScheme.mutedForeground,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Refresh ports',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.mutedForeground,
-                              ),
-                            ),
-                          ],
-                        ),
+              maxHeight: maxHeight,
+              children: [
+                if (widget.ports.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 10,
+                    ),
+                    child: Text(
+                      widget.loading
+                          ? 'Scanning serial ports…'
+                          : 'No serial ports detected — type a device path',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: XtColors.textTertiary(context),
                       ),
                     ),
-                  ],
+                  )
+                else
+                  for (final port in widget.ports)
+                    XtMenuEntry(
+                      key: ValueKey('serial-port-${port.name}'),
+                      label: port.name,
+                      selected: widget.controller.text == port.name,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.controller.text == port.name) ...[
+                            Icon(
+                              LucideIcons.check,
+                              size: 13,
+                              color: XtColors.accent(context),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(
+                            port.kind,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: XtColors.textTertiary(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                      onTap: () => _pick(port),
+                    ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: const XtDivider(),
                 ),
-              ),
+                XtMenuEntry(
+                  key: const ValueKey('serial-port-refresh'),
+                  icon: LucideIcons.refreshCw,
+                  label: 'Refresh ports',
+                  onTap: () {
+                    _menu.hide();
+                    widget.onRefresh();
+                  },
+                ),
+              ],
             ),
           ),
         ),

@@ -1,24 +1,22 @@
-/// The custom titlebar: Termius's 51px tab strip — the WHOLE bar is a drag
-/// surface (window_manager's DragToMoveArea; the previous hand-rolled
-/// onPanStart only covered two small widgets, which is why the window could
-/// not be dragged — a desktop-critical bug), with the pills and window
+/// The custom titlebar: a 50px tab strip where the WHOLE bar is a drag
+/// surface (window_manager's DragToMoveArea), with the tabs, pills and window
 /// controls as interactive children on top of it.
 ///
-/// Reference values: container height 51, padding
-/// 11px 10px 10px 9px, gap 5, background --dark-grey-1, border-bottom
-/// --dark-grey-4; each pill radius 10, padding 6px 10px, 20px icon + label
-/// with gap 10, weight 450.
+/// Two sibling layers, not a wrapper: the drag/double-click surface sits
+/// behind the interactive row so a pill click never waits for the double-tap
+/// timeout.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../data/hosts.dart';
-import '../theme/termius_theme.dart';
+import '../theme/app_theme.dart';
+import '../widgets/primitives.dart';
 
 class TitleBar extends StatelessWidget {
-  /// Open terminal sessions, rendered as tabs in the ONE title bar — the
-  /// original never stacks a second tab strip inside the terminal.
+  /// Open terminal sessions, rendered as tabs in the ONE title bar — the shell
+  /// never stacks a second tab strip inside the terminal.
   final List<Host> openHosts;
   final String? activeHostId;
   final ValueChanged<String>? onSelectHost;
@@ -42,11 +40,6 @@ class TitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    // Two sibling layers, not a wrapper: the drag/double-click surface sits
-    // BEHIND the interactive row. Previously the whole bar was wrapped in a
-    // GestureDetector with onDoubleTap, so every pill/control tap had to wait
-    // for the double-tap timeout (~300ms) — the "laggy close button" bug.
     return SizedBox(
       height: 50,
       child: Stack(
@@ -63,7 +56,7 @@ class TitleBar extends StatelessWidget {
                   }
                 },
                 child: ColoredBox(
-                  color: termiusTitleBarColor(theme.colorScheme.brightness),
+                  color: xtTitleBarColor(Theme.of(context).brightness),
                 ),
               ),
             ),
@@ -72,7 +65,13 @@ class TitleBar extends StatelessWidget {
             padding: const EdgeInsets.only(left: 10),
             child: Row(
               children: [
-                _SidebarToggle(onPressed: onToggleSidebar),
+                XtIconButton(
+                  key: const ValueKey('toggle-sidebar'),
+                  icon: LucideIcons.list,
+                  iconSize: 14,
+                  size: 30,
+                  onPressed: onToggleSidebar,
+                ),
                 const SizedBox(width: 5),
                 _SftpPill(
                   active: showSftp,
@@ -83,7 +82,7 @@ class TitleBar extends StatelessWidget {
                   Container(
                     width: 1,
                     height: 22,
-                    color: const Color(0xFF2E2E2E),
+                    color: XtColors.hairline(context),
                   ),
                 ],
                 for (final host in openHosts) ...[
@@ -96,8 +95,10 @@ class TitleBar extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(width: 5),
-                _PillButton(
+                XtIconButton(
                   icon: LucideIcons.plus,
+                  iconSize: 14,
+                  size: 30,
                   onPressed: onNewTab ?? () {},
                 ),
                 const Spacer(),
@@ -111,9 +112,9 @@ class TitleBar extends StatelessWidget {
   }
 }
 
-/// One open session tab, styled from the original's terminal-tab state:
-/// 30px tall, radius 10, 5/8 padding, 14px icon; the active tab uses the
-/// terminal accent (green) on --dark-grey-3, inactive tabs stay quiet.
+/// One open session tab: 36px tall, radius 10, active tab filled above the
+/// titlebar. The close affordance only intercepts the pointer on the active
+/// tab so an inactive tab still selects on click.
 class _SessionTab extends StatefulWidget {
   final Host host;
   final bool active;
@@ -132,17 +133,17 @@ class _SessionTab extends StatefulWidget {
 }
 
 class _SessionTabState extends State<_SessionTab> {
-  static const _accent = Color(0xFFFFFFFF);
-  static const _activeFill = Color(0xFF242424);
-
   bool _hovering = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final fg = widget.active
-        ? _accent
-        : (_hovering ? theme.colorScheme.foreground : _muted);
+        ? XtColors.textPrimary(context)
+        : (_hovering ? XtColors.textPrimary(context) : XtColors.textSecondary(context));
+    final background = widget.active
+        ? XtColors.hoverStrong(context)
+        : (_hovering ? XtColors.hover(context) : Colors.transparent);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
@@ -152,16 +153,14 @@ class _SessionTabState extends State<_SessionTab> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onSelect,
         child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
+          duration: XtMotion.micro,
+          curve: XtMotion.easeOut,
           height: 36,
           constraints: const BoxConstraints(maxWidth: 240),
           padding: const EdgeInsets.only(left: 10, right: 10),
           decoration: BoxDecoration(
-            color: widget.active
-                ? _activeFill
-                : (_hovering ? const Color(0xFF262626) : Colors.transparent),
-            borderRadius: BorderRadius.circular(TermiusRadius.field),
+            color: background,
+            borderRadius: BorderRadius.circular(XtRadius.field),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -197,51 +196,8 @@ class _SessionTabState extends State<_SessionTab> {
   }
 }
 
-const _muted = Color(0xFFA6A6A6);
-
-/// The hamburger: toggles the left navigation rail (Termius collapses it in
-/// the terminal window; the same button brings it back).
-class _SidebarToggle extends StatefulWidget {
-  final VoidCallback? onPressed;
-
-  const _SidebarToggle({this.onPressed});
-
-  @override
-  State<_SidebarToggle> createState() => _SidebarToggleState();
-}
-
-class _SidebarToggleState extends State<_SidebarToggle> {
-  bool _hovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        key: const ValueKey('toggle-sidebar'),
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          width: 30,
-          height: 30,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: _hovering ? const Color(0xFF262626) : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: const Icon(LucideIcons.list, size: 14, color: _muted),
-        ),
-      ),
-    );
-  }
-}
-
-/// The SFTP tab from the original: a filled --dark-grey-3 chip with the
-/// folder icon and label; it toggles the active terminal's SFTP view.
+/// The SFTP tab: a filled chip with the folder icon and label; it toggles the
+/// active terminal's SFTP view and is disabled while no session is open.
 class _SftpPill extends StatefulWidget {
   final bool active;
   final VoidCallback? onTap;
@@ -258,15 +214,14 @@ class _SftpPillState extends State<_SftpPill> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fg = widget.active
-        ? theme.colorScheme.foreground
-        : (widget.onTap == null
-              ? const Color(0xFF6E6E6E)
-              : (_hovering ? theme.colorScheme.foreground : _muted));
+    final enabled = widget.onTap != null;
+    final fg = !enabled
+        ? XtColors.textDisabled(context)
+        : (widget.active || _hovering
+              ? XtColors.textPrimary(context)
+              : XtColors.textSecondary(context));
     return MouseRegion(
-      cursor: widget.onTap == null
-          ? SystemMouseCursors.basic
-          : SystemMouseCursors.click,
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
@@ -274,13 +229,15 @@ class _SftpPillState extends State<_SftpPill> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
+          duration: XtMotion.micro,
+          curve: XtMotion.easeOut,
           height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF161616),
-            borderRadius: BorderRadius.circular(TermiusRadius.field),
+            color: widget.active
+                ? XtColors.selected(context)
+                : XtColors.sunken(context),
+            borderRadius: BorderRadius.circular(XtRadius.field),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -302,52 +259,7 @@ class _SftpPillState extends State<_SftpPill> {
   }
 }
 
-/// A square icon-only pill (the new-tab +).
-class _PillButton extends StatefulWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _PillButton({required this.icon, required this.onPressed});
-
-  @override
-  State<_PillButton> createState() => _PillButtonState();
-}
-
-class _PillButtonState extends State<_PillButton> {
-  bool _hovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 30,
-          width: 30,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: _hovering ? theme.colorScheme.secondary : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.field),
-          ),
-          child: Icon(
-            widget.icon,
-            size: 14,
-            color: theme.colorScheme.mutedForeground,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// min / max / close, the Windows trio, drawn — the frame is hidden.
+/// min / max / close, the Windows trio, drawn — the native frame is hidden.
 class _WindowControls extends StatelessWidget {
   const _WindowControls();
 
@@ -368,7 +280,8 @@ class _WindowControls extends StatelessWidget {
         ),
         _ControlButton(
           icon: LucideIcons.x,
-          hoverColor: const Color(0xFFE81123), // Windows close red
+          // Windows' own close-button red, kept as the platform convention.
+          hoverColor: const Color(0xFFE81123),
           onTap: windowManager.close,
         ),
       ],
@@ -396,8 +309,8 @@ class _ControlButtonState extends State<_ControlButton> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
@@ -412,8 +325,8 @@ class _ControlButtonState extends State<_ControlButton> {
             color: _hovering
                 ? (widget.hoverColor != null
                       ? Colors.white
-                      : theme.colorScheme.foreground)
-                : theme.colorScheme.mutedForeground,
+                      : XtColors.textPrimary(context))
+                : XtColors.textSecondary(context),
           ),
         ),
       ),

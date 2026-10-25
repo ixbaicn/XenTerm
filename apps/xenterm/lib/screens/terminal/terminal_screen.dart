@@ -4,6 +4,7 @@ import '../../data/hosts.dart';
 import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
 import '../../theme/app_fonts.dart';
+import '../../theme/app_theme.dart';
 import 'sftp_view.dart';
 import 'terminal_view.dart';
 
@@ -55,9 +56,8 @@ class _TerminalScreenState extends State<TerminalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
-      color: scheme.background,
+      color: XtColors.page(context),
       child: Stack(
         children: [
           Positioned.fill(

@@ -1,17 +1,18 @@
-/// Shared toolbar widgets — the split [icon Label | ▾] button, the ghost
-/// icon+label action, and the square icon toggle — one implementation for
-/// every screen's toolbar row (hosts, keychain, logs, port forwarding…).
+/// Toolbar building blocks shared by every screen: the split [icon Label | ▾]
+/// button, the ghost icon+label action, the square icon toggle and the section
+/// title.
+///
+/// Each one is a thin, API-stable wrapper over the single implementation in
+/// [primitives] — the old file carried its own copy of the hover colours,
+/// popup surface and radii, which is exactly how the screens drifted apart.
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-import '../theme/termius_theme.dart';
+import '../theme/app_theme.dart';
+import 'primitives.dart';
 
-/// [+ Label | ▾] — the original is TWO segments 2px apart (source:
-/// `toolbarButtonWithMenu { display:flex; gap:2px }`, main radius 8/2/2/8,
-/// menu button square, radius 2/8/8/2). The chevron rotates 180° while open.
-/// Its dropdown carries New Group / Import / the cloud integrations, the
-/// integrations tagged with the upgrade badge.
+/// One entry of a [SplitButton] menu.
 class SplitMenuEntry {
   final IconData icon;
   final String label;
@@ -23,13 +24,12 @@ class SplitMenuEntry {
   });
 }
 
+/// [+ Label | ▾] — two segments 2px apart; the chevron rotates while open and
+/// an empty [menuItems] list hides the chevron entirely.
 class SplitButton extends StatefulWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
-
-  /// Real menu entries. A null/empty list hides the chevron entirely instead
-  /// of showing a menu whose items do nothing.
   final List<SplitMenuEntry>? menuItems;
 
   const SplitButton({
@@ -48,18 +48,17 @@ class _SplitButtonState extends State<SplitButton> {
   final OverlayPortalController _menu = OverlayPortalController();
   final LayerLink _link = LayerLink();
 
-  void _toggleMenu() {
+  void _toggleMenu() => setState(() {
     if (_menu.isShowing) {
       _menu.hide();
     } else {
       _menu.show();
     }
-  }
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const outer = Radius.circular(TermiusRadius.card); // 8
+    const outer = Radius.circular(XtRadius.card);
     const inner = Radius.circular(2);
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -76,13 +75,17 @@ class _SplitButtonState extends State<SplitButton> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon, size: 14, color: theme.colorScheme.foreground),
+              Icon(
+                widget.icon,
+                size: 14,
+                color: XtColors.textPrimary(context),
+              ),
               const SizedBox(width: 8),
               Text(
                 widget.label,
-                style: theme.typography.medium.copyWith(
+                style: Theme.of(context).typography.medium.copyWith(
                   fontSize: 14,
-                  color: theme.colorScheme.foreground,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
             ],
@@ -103,12 +106,12 @@ class _SplitButtonState extends State<SplitButton> {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: AnimatedRotation(
                 turns: _menu.isShowing ? 0.5 : 0,
-                duration: TermiusMotion.micro,
-                curve: TermiusMotion.easeOut,
+                duration: XtMotion.micro,
+                curve: XtMotion.easeOut,
                 child: Icon(
                   LucideIcons.chevronDown,
                   size: 14,
-                  color: theme.colorScheme.foreground,
+                  color: XtColors.textPrimary(context),
                 ),
               ),
             ),
@@ -120,13 +123,12 @@ class _SplitButtonState extends State<SplitButton> {
   }
 
   Widget _overlay(BuildContext context) {
-    final theme = Theme.of(context);
     return Stack(
       children: [
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _menu.hide,
+            onTap: () => setState(_menu.hide),
             child: const ColoredBox(color: Colors.transparent),
           ),
         ),
@@ -134,40 +136,23 @@ class _SplitButtonState extends State<SplitButton> {
           link: _link,
           targetAnchor: Alignment.bottomLeft,
           followerAnchor: Alignment.topLeft,
-          offset: const Offset(0, 8), // source: menu marginTop 8px
+          offset: const Offset(0, 8),
           showWhenUnlinked: false,
           child: Align(
             alignment: Alignment.topLeft,
-            child: Container(
+            child: XtMenuPopup(
               width: 300,
-              padding: const EdgeInsets.all(5),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1B1B1B), // --card-c
-                borderRadius: BorderRadius.circular(TermiusRadius.field),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66000000),
-                    blurRadius: 18,
-                    offset: Offset(0, 8),
+              children: [
+                for (final item in widget.menuItems!)
+                  XtMenuEntry(
+                    icon: item.icon,
+                    label: item.label,
+                    onTap: () {
+                      setState(_menu.hide);
+                      item.onTap();
+                    },
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (final item in widget.menuItems!)
-                    _MenuEntry(
-                      icon: item.icon,
-                      label: item.label,
-                      onTap: () {
-                        _menu.hide();
-                        item.onTap();
-                      },
-                      theme: theme,
-                    ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
@@ -207,15 +192,15 @@ class _SplitSegmentState extends State<_SplitSegment> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 36,
+          duration: XtMotion.micro,
+          curve: XtMotion.easeOut,
+          height: XtMetrics.controlHeight,
           padding: widget.padding,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: _hovering
-                ? const Color(0xFF3A3A3A)
-                : const Color(0xFF2E2E2E),
+                ? XtColors.hoverStrong(context)
+                : XtColors.field(context),
             borderRadius: widget.radius,
           ),
           child: widget.child,
@@ -225,69 +210,8 @@ class _SplitSegmentState extends State<_SplitSegment> {
   }
 }
 
-/// One dropdown row: 16px icon, 14px label.
-class _MenuEntry extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final ThemeData theme;
-
-  const _MenuEntry({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.theme,
-  });
-
-  @override
-  State<_MenuEntry> createState() => _MenuEntryState();
-}
-
-class _MenuEntryState extends State<_MenuEntry> {
-  bool _hovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = widget.theme;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 40,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: _hovering ? const Color(0xFF3A3A3A) : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: Row(
-            children: [
-              Icon(widget.icon, size: 16, color: const Color(0xFFA6A6A6)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  style: theme.typography.medium.copyWith(
-                    fontSize: 14,
-                    color: theme.colorScheme.foreground,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Ghost toolbar action: icon + label, hover chip.
-class GhostAction extends StatefulWidget {
+class GhostAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
@@ -300,93 +224,26 @@ class GhostAction extends StatefulWidget {
   });
 
   @override
-  State<GhostAction> createState() => _GhostActionState();
-}
-
-class _GhostActionState extends State<GhostAction> {
-  bool _hovering = false;
-
-  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: _hovering ? theme.colorScheme.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(widget.icon, size: 15, color: theme.colorScheme.foreground),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: theme.typography.normal.copyWith(
-                  fontSize: 14,
-                  color: theme.colorScheme.foreground,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return XtActionButton(
+      icon: icon,
+      label: label,
+      onPressed: onPressed,
+      variant: XtActionVariant.ghost,
     );
   }
 }
 
 /// Square icon toggle (grid/tag/search/keyboard…).
-class IconToggleButton extends StatefulWidget {
+class IconToggleButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onPressed;
 
   const IconToggleButton({super.key, required this.icon, this.onPressed});
 
   @override
-  State<IconToggleButton> createState() => _IconToggleButtonState();
-}
-
-class _IconToggleButtonState extends State<IconToggleButton> {
-  bool _hovering = false;
-
-  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovering = true),
-      onExit: (_) => setState(() => _hovering = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: AnimatedContainer(
-          duration: TermiusMotion.micro,
-          curve: TermiusMotion.easeOut,
-          height: 32,
-          width: 32,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: _hovering ? theme.colorScheme.accent : Colors.transparent,
-            borderRadius: BorderRadius.circular(TermiusRadius.card),
-          ),
-          child: Icon(
-            widget.icon,
-            size: 15,
-            color: theme.colorScheme.foreground,
-          ),
-        ),
-      ),
-    );
+    return XtIconButton(icon: icon, onPressed: onPressed);
   }
 }
 
@@ -397,17 +254,5 @@ class SectionTitle extends StatelessWidget {
   const SectionTitle({super.key, required this.text});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(32, 16, 0, 12),
-      child: Text(
-        text,
-        style: theme.typography.bold.copyWith(
-          fontSize: 18,
-          color: theme.colorScheme.foreground,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => XtSectionTitle(text);
 }

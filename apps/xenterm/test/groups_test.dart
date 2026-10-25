@@ -3,11 +3,11 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
 import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
-import 'package:xenterm_app/theme/termius_field.dart';
-import 'package:xenterm_app/theme/termius_theme.dart';
+import 'package:xenterm_app/theme/app_field.dart';
+import 'package:xenterm_app/theme/app_theme.dart';
 
 Widget _app(Widget child) => ShadcnApp(
-  theme: ThemeData(colorScheme: termiusDarkScheme()),
+  theme: ThemeData(colorScheme: xtDarkScheme()),
   home: Scaffold(child: SizedBox(width: 1400, height: 900, child: child)),
 );
 
@@ -177,7 +177,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TermiusField>(find.byKey(const ValueKey('group-name')))
+          .widget<XtField>(find.byKey(const ValueKey('group-name')))
           .controller
           ?.text,
       'Production',

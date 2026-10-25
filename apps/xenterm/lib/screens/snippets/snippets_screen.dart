@@ -7,8 +7,9 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
 
 typedef SnippetLoader = Future<List<QuickCommand>> Function();
@@ -203,7 +204,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
               if (_searching)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: TermiusField(
+                  child: XtField(
                     key: const ValueKey('snippet-search'),
                     controller: _search,
                     autofocus: true,
@@ -220,14 +221,14 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0x22FFFFFF),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                      color: XtColors.selected(context),
+                      borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
                       _notice!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFFE0E0E0),
+                        color: XtColors.textPrimary(context),
                       ),
                     ),
                   ),
@@ -235,9 +236,11 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
               const SectionTitle(text: 'Snippets'),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: _body(theme),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 760),
+                    child: _body(theme),
+                  ),
                 ),
               ),
             ],
@@ -245,8 +248,8 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
         ),
         ClipRect(
           child: AnimatedContainer(
-            duration: TermiusMotion.micro,
-            curve: TermiusMotion.easeOut,
+            duration: XtMotion.micro,
+            curve: XtMotion.easeOut,
             width: _drawerOpen ? 340 : 0,
             child: _drawerOpen
                 ? OverflowBox(
@@ -270,12 +273,12 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
 
   Widget _body(ThemeData theme) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(32),
+      return Padding(
+        padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
             'Loading snippets…',
-            style: TextStyle(color: Color(0xFFA6A6A6)),
+            style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
       );
@@ -288,13 +291,13 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFA6A6A6)),
+              style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
-            Button(
-              style: const ButtonStyle.outline(),
+            XtActionButton(
+              label: 'Retry',
+              variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
-              child: const Text('Retry'),
             ),
           ],
         ),
@@ -302,35 +305,12 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
     }
     final snippets = _filtered;
     if (snippets.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Icon(
-              LucideIcons.braces,
-              size: 30,
-              color: theme.colorScheme.mutedForeground,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _snippets.isEmpty ? 'No snippets yet' : 'No matches',
-              style: theme.typography.semiBold.copyWith(
-                fontSize: 15,
-                color: theme.colorScheme.foreground,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _snippets.isEmpty
-                  ? 'Save commands here; the connected terminal sidebar runs them.'
-                  : 'Try a different search.',
-              style: theme.typography.normal.copyWith(
-                fontSize: 13,
-                color: theme.colorScheme.mutedForeground,
-              ),
-            ),
-          ],
-        ),
+      return XtEmptyState(
+        icon: LucideIcons.braces,
+        title: _snippets.isEmpty ? 'No snippets yet' : 'No matches',
+        message: _snippets.isEmpty
+            ? 'Save commands here; the connected terminal sidebar runs them.'
+            : 'Try a different search.',
       );
     }
     return Column(
@@ -373,17 +353,13 @@ class _SnippetCardState extends State<_SnippetCard> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onEdit,
-        child: Container(
+      child: SizedBox(
+        height: 76,
+        child: XtCard(
           key: ValueKey('snippet-${widget.snippet.index}'),
-          height: 76,
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: _hover ? const Color(0xFF2E2E2E) : const Color(0xFF1B1B1B),
-            borderRadius: BorderRadius.circular(TermiusRadius.cardLarge),
-          ),
+          radius: XtRadius.cardLarge,
+          onTap: widget.onEdit,
           child: Row(
             children: [
               Container(
@@ -391,13 +367,13 @@ class _SnippetCardState extends State<_SnippetCard> {
                 height: 44,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161616),
-                  borderRadius: BorderRadius.circular(TermiusRadius.menu),
+                  color: XtColors.sunken(context),
+                  borderRadius: BorderRadius.circular(XtRadius.menu),
                 ),
-                child: const Icon(
+                child: Icon(
                   LucideIcons.terminal,
                   size: 20,
-                  color: Color(0xFFFFFFFF),
+                  color: XtColors.textPrimary(context),
                 ),
               ),
               const SizedBox(width: 14),
@@ -414,29 +390,13 @@ class _SnippetCardState extends State<_SnippetCard> {
                             overflow: TextOverflow.ellipsis,
                             style: theme.typography.semiBold.copyWith(
                               fontSize: 15,
-                              color: theme.colorScheme.foreground,
+                              color: XtColors.textPrimary(context),
                             ),
                           ),
                         ),
                         if (widget.snippet.group.isNotEmpty) ...[
                           const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF161616),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              widget.snippet.group,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFFA6A6A6),
-                              ),
-                            ),
-                          ),
+                          XtBadge(label: widget.snippet.group),
                         ],
                       ],
                     ),
@@ -445,68 +405,44 @@ class _SnippetCardState extends State<_SnippetCard> {
                       widget.snippet.command,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'Consolas',
-                        fontFamilyFallback: ['Menlo', 'Courier New'],
+                        fontFamilyFallback: const ['Menlo', 'Courier New'],
                         fontSize: 12.5,
-                        color: Color(0xFFA6A6A6),
+                        color: XtColors.textSecondary(context),
                       ),
                     ),
                   ],
                 ),
               ),
               if (_hover) ...[
-                _CardAction(
+                XtActionButton(
                   icon: LucideIcons.play,
                   tooltip: 'Run',
-                  onTap: widget.onEdit,
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: widget.onEdit,
                 ),
-                _CardAction(
+                const SizedBox(width: 4),
+                XtActionButton(
                   icon: LucideIcons.pencil,
                   tooltip: 'Edit',
-                  onTap: widget.onEdit,
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: widget.onEdit,
                 ),
-                _CardAction(
+                const SizedBox(width: 4),
+                XtActionButton(
                   icon: LucideIcons.trash2,
+                  variant: XtActionVariant.danger,
                   tooltip: 'Delete',
-                  onTap: widget.onDelete,
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  onPressed: widget.onDelete,
                 ),
               ],
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CardAction extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-
-  const _CardAction({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      tooltip: (_) => Text(tooltip),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 30,
-          height: 30,
-          margin: const EdgeInsets.only(left: 4),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFF161616),
-            borderRadius: BorderRadius.circular(TermiusRadius.menu),
-          ),
-          child: Icon(icon, size: 14, color: const Color(0xFFD4D4D4)),
         ),
       ),
     );
@@ -603,51 +539,50 @@ class _SnippetEditorState extends State<SnippetEditor> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    return XtCard(
       margin: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
-      ),
+      padding: EdgeInsets.zero,
+      border: false,
+      radius: XtRadius.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
+          XtPanelHeader(
+            title: widget.snippet == null ? 'New snippet' : 'Snippet',
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 15),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFF2E2E2E))),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.snippet == null ? 'New snippet' : 'Snippet',
-                    style: theme.typography.semiBold.copyWith(
-                      fontSize: 16,
-                      color: const Color(0xFFA6A6A6),
-                    ),
-                  ),
+            actions: [
+              if (widget.snippet != null)
+                XtActionButton(
+                  key: const ValueKey('snippet-delete'),
+                  icon: _deleting
+                      ? LucideIcons.loaderCircle
+                      : LucideIcons.trash2,
+                  variant: XtActionVariant.danger,
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 7),
+                  tooltip: 'Delete snippet',
+                  onPressed: _deleting ? null : _delete,
                 ),
-                if (widget.snippet != null)
-                  _HeaderButton(
-                    key: const ValueKey('snippet-delete'),
-                    icon: LucideIcons.trash2,
-                    destructive: true,
-                    busy: _deleting,
-                    onTap: _delete,
-                  ),
-                const SizedBox(width: 6),
-                _HeaderButton(
-                  key: const ValueKey('snippet-save'),
-                  icon: LucideIcons.check,
-                  busy: _saving,
-                  onTap: _save,
-                ),
-                const SizedBox(width: 6),
-                _HeaderButton(icon: LucideIcons.x, onTap: widget.onClose),
-              ],
-            ),
+              const SizedBox(width: 6),
+              XtActionButton(
+                key: const ValueKey('snippet-save'),
+                icon: _saving ? LucideIcons.loaderCircle : LucideIcons.check,
+                variant: XtActionVariant.secondary,
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                tooltip: 'Save snippet',
+                onPressed: _saving ? null : _save,
+              ),
+              const SizedBox(width: 6),
+              XtActionButton(
+                icon: LucideIcons.x,
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                tooltip: 'Close',
+                onPressed: widget.onClose,
+              ),
+            ],
           ),
           Expanded(
             child: ListView(
@@ -657,54 +592,56 @@ class _SnippetEditorState extends State<SnippetEditor> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0x33E5484D),
-                      borderRadius: BorderRadius.circular(TermiusRadius.field),
+                      color: XtColors.dangerTint(context),
+                      borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
                       _error!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFFFF8A8D),
+                        color: XtColors.dangerText(context),
                       ),
                     ),
                   ),
                   const SizedBox(height: 12),
                 ],
-                _Field(
+                XtField(
                   key: const ValueKey('snippet-name'),
                   controller: _name,
-                  placeholder: 'Name',
                   autofocus: true,
+                  placeholder: 'Name',
                 ),
                 const SizedBox(height: 10),
-                _Field(
+                XtField(
                   key: const ValueKey('snippet-group'),
                   controller: _group,
                   placeholder: 'Group (optional)',
                 ),
                 const SizedBox(height: 10),
-                _Field(
+                XtField(
                   key: const ValueKey('snippet-command'),
                   controller: _command,
                   placeholder: 'Command',
-                  multiline: true,
+                  maxLines: 8,
+                  minLines: 3,
                 ),
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         'Press Enter after running',
-                        style: TextStyle(
+                        style: theme.typography.normal.copyWith(
                           fontSize: 13,
-                          color: Color(0xFFD4D4D4),
+                          color: XtColors.textPrimary(context),
                         ),
                       ),
                     ),
-                    Switch(
+                    XtSwitch(
                       key: const ValueKey('snippet-send-enter'),
                       value: _sendEnter,
-                      onChanged: (value) => setState(() => _sendEnter = value),
+                      onChanged: (value) =>
+                          setState(() => _sendEnter = value),
                     ),
                   ],
                 ),
@@ -712,76 +649,6 @@ class _SnippetEditorState extends State<SnippetEditor> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  final TextEditingController controller;
-  final String placeholder;
-  final bool multiline;
-  final bool autofocus;
-
-  const _Field({
-    super.key,
-    required this.controller,
-    required this.placeholder,
-    this.multiline = false,
-    this.autofocus = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TermiusField(
-      controller: controller,
-      autofocus: autofocus,
-      maxLines: multiline ? 8 : 1,
-      minLines: multiline ? 3 : 1,
-      placeholder: placeholder,
-    );
-  }
-}
-
-class _HeaderButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool destructive;
-  final bool busy;
-
-  const _HeaderButton({
-    super.key,
-    required this.icon,
-    required this.onTap,
-    this.destructive = false,
-    this.busy = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      child: Container(
-        width: 28,
-        height: 28,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF2E2E2E),
-          borderRadius: BorderRadius.circular(TermiusRadius.menu),
-        ),
-        child: busy
-            ? const SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              )
-            : Icon(
-                icon,
-                size: 14,
-                color: destructive
-                    ? const Color(0xFFE5484D)
-                    : const Color(0xFFD4D4D4),
-              ),
       ),
     );
   }

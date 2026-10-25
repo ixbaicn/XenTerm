@@ -5,8 +5,9 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-import '../../theme/termius_field.dart';
-import '../../theme/termius_theme.dart';
+import '../../theme/app_field.dart';
+import '../../theme/app_theme.dart';
+import '../../widgets/primitives.dart';
 
 class ConnectionPromptBanner extends StatefulWidget {
   final Map<String, dynamic> prompt;
@@ -54,7 +55,10 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
           widget.prompt['changed'] == true
               ? 'Host key CHANGED for ${widget.prompt['host']}:${widget.prompt['port']} — possible MITM.'
               : 'Unknown host key for ${widget.prompt['host']}:${widget.prompt['port']}',
-          style: theme.typography.medium.copyWith(fontSize: 13),
+          style: theme.typography.medium.copyWith(
+            fontSize: 13,
+            color: XtColors.textPrimary(context),
+          ),
         ),
       );
       fields.add(
@@ -64,7 +68,7 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
             '${widget.prompt['key_type']}  ${widget.prompt['fingerprint']}',
             style: theme.typography.normal.copyWith(
               fontSize: 12,
-              color: theme.colorScheme.mutedForeground,
+              color: XtColors.textSecondary(context),
             ),
           ),
         ),
@@ -81,7 +85,10 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
       fields.add(
         Text(
           '${widget.prompt['prompt'] ?? 'Verification code'}',
-          style: theme.typography.medium.copyWith(fontSize: 13),
+          style: theme.typography.medium.copyWith(
+            fontSize: 13,
+            color: XtColors.textPrimary(context),
+          ),
         ),
       );
       fields.add(
@@ -89,19 +96,9 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
       );
     }
 
-    return Container(
+    return XtCard(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1B1B1B),
-        borderRadius: BorderRadius.circular(TermiusRadius.field),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x66000000),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
+      radius: XtRadius.field,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -110,20 +107,20 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
+              XtActionButton(
+                label: 'Cancel',
                 onPressed: () => widget.onAnswer(false),
-                child: const Text('Cancel'),
               ),
               const SizedBox(width: 8),
-              Button(
-                style: const ButtonStyle.primary(),
+              XtActionButton(
+                label: kind == 'host_key' ? 'Trust' : 'Continue',
+                variant: XtActionVariant.primary,
                 onPressed: () => widget.onAnswer(
                   true,
                   username: _user.text,
                   password: _password.text,
                   text: _text.text,
                 ),
-                child: Text(kind == 'host_key' ? 'Trust' : 'Continue'),
               ),
             ],
           ),
@@ -139,7 +136,7 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
   }) {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: TermiusField(
+      child: XtField(
         controller: controller,
         obscure: obscure,
         placeholder: hint,
