@@ -6,6 +6,7 @@ import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/hosts/host_card.dart';
 import 'package:xenterm_app/screens/hosts/host_details_panel.dart';
 import 'package:xenterm_app/screens/hosts/hosts_screen.dart';
+import 'package:xenterm_app/screens/hosts/serial_details_panel.dart';
 import 'package:xenterm_app/theme/app_field.dart';
 import 'package:xenterm_app/theme/app_theme.dart';
 import 'package:xenterm_app/widgets/primitives.dart';
@@ -810,4 +811,127 @@ void main() {
     expect(find.byIcon(LucideIcons.server), findsOneWidget);
     expect(find.byIcon(SimpleIcons.debian), findsNothing);
   });
+
+  testWidgets('a saved serial connection is deleted like an SSH host', (
+    tester,
+  ) async {
+    final deletes = <String>[];
+    await tester.pumpWidget(
+      _app(
+        SerialDetailsPanel(
+          host: const Host(
+            id: 'serial-1',
+            label: 'console',
+            address: 'COM3',
+            protocol: 'serial',
+            baudRate: 115200,
+          ),
+          loadPorts: () async => const <SerialPortInfo>[],
+          onSubmit: (_) {},
+          onClose: () {},
+          onDelete: (host) async {
+            deletes.add(host.id);
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('host-remove-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(XtMenuPopup),
+        matching: find.text('Remove host'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(deletes, ['serial-1']);
+  });
+
+  testWidgets('deleting a serial host from the drawer removes it from the list', (
+    tester,
+  ) async {
+    var hosts = const [
+      Host(
+        id: 'serial-2',
+        label: 'console-2',
+        address: 'COM4',
+        protocol: 'serial',
+        baudRate: 115200,
+      ),
+    ];
+    String? deleted;
+    await tester.pumpWidget(
+      _app(
+        HostsScreen(
+          loadHosts: () async => hosts,
+          loadSerialPorts: () async => const <SerialPortInfo>[],
+          deleteSession: (id) async {
+            deleted = id;
+            hosts = const [];
+            return const CoreWriteResult(ok: true);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('edit-serial-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('Serial Details'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('host-remove-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(XtMenuPopup),
+        matching: find.text('Remove host'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(deleted, 'serial-2');
+    // The drawer stays mounted while it slides shut, so assert on the card.
+    expect(find.byKey(const ValueKey('edit-serial-2')), findsNothing);
+  });
+
+  testWidgets('a Telnet connection also exposes the shared Remove host menu', (
+    tester,
+  ) async {
+    String? deleted;
+    await tester.pumpWidget(
+      _app(
+        HostDetailsPanel(
+          host: const Host(
+            id: 'telnet-1',
+            label: 'switch',
+            address: '192.168.0.2',
+            port: 23,
+            protocol: 'telnet',
+          ),
+          hosts: const [],
+          onClose: () {},
+          onConnect: () {},
+          onDelete: (host) async {
+            deleted = host.id;
+            return null;
+          },
+          onSave: (host, password, clearPassword, keyInline, clearKey) async {
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('host-remove-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(XtMenuPopup),
+        matching: find.text('Remove host'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(deleted, 'telnet-1');
+  });
 }
+
+

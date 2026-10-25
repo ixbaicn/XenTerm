@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/lucide_extra_icons.dart';
 import '../widgets/primitives.dart';
 import 'title_bar.dart';
+import '../l10n/app_language.dart';
 import '../screens/hosts/hosts_screen.dart';
 import '../screens/forwards/forwards_screen.dart';
 import '../screens/known_hosts/known_hosts_screen.dart';
@@ -254,7 +255,7 @@ class _NavRail extends StatelessWidget {
                 ),
                 _ => null,
               },
-              label: title,
+              label: AppLanguage.tr(context, title),
               selected: destination == active,
               onTap: () => onSelect(destination),
             ),
@@ -263,7 +264,7 @@ class _NavRail extends StatelessWidget {
           const SizedBox(height: 4),
           _RailItem(
             icon: material.Icons.settings_outlined,
-            label: 'Settings',
+            label: AppLanguage.tr(context, 'Settings'),
             selected: active == NavDestination.settings,
             onTap: () => onSelect(NavDestination.settings),
           ),

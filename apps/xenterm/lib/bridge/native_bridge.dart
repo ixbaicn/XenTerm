@@ -89,7 +89,12 @@ class NativeBridge {
       final override = Platform.environment['XENTERM_BRIDGE_PATH'];
       final lib = override != null && override.isNotEmpty
           ? DynamicLibrary.open(override)
-          : DynamicLibrary.open(_defaultName());
+          : DynamicLibrary.open(
+              libraryPathForExecutable(
+                Platform.resolvedExecutable,
+                _defaultName(),
+              ),
+            );
       _instance = NativeBridge._(lib);
     } catch (_) {
       _instance = null;
@@ -102,6 +107,12 @@ class NativeBridge {
     if (Platform.isMacOS) return 'libxenterm_bridge.dylib';
     return 'libxenterm_bridge.so';
   }
+
+  /// Linux's loader does not search the working directory for a bare library
+  /// name, even when the library sits next to the executable. Resolve it from
+  /// the executable's own directory so a bundle launched from anywhere works.
+  static String libraryPathForExecutable(String executable, String name) =>
+      File(executable).parent.uri.resolve(name).toFilePath();
 
   late final _PtrFn _version = _lib.lookupFunction<_PtrFnC, _PtrFn>(
     'xenterm_core_version',

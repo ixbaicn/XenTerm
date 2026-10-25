@@ -859,6 +859,11 @@ class _HostsScreenState extends State<HostsScreen> {
                       _serialHost == null ? _switchDraftToSsh : null,
                   onSubmit: _submitSerial,
                   onClose: _closeSerialPanel,
+                  // A saved serial session deletes through the same core path
+                  // as SSH/Telnet/local; a draft has no stored id.
+                  onDelete: _serialHost != null && _serialHost!.id.isNotEmpty
+                      ? _deleteHostToCore
+                      : null,
                 )
               : _drawerHost == null
               ? const SizedBox.shrink()

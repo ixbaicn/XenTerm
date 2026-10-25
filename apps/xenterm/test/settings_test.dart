@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
+import 'package:xenterm_app/l10n/app_language.dart';
 import 'package:xenterm_app/screens/settings/settings_screen.dart';
 import 'package:xenterm_app/terminal/core_settings.dart';
 import 'package:xenterm_app/theme/app_fonts.dart';
@@ -43,6 +44,67 @@ Future<void> _pumpAtWindow(
 }
 
 void main() {
+  testWidgets(
+    'language menu switches settings labels without changing values',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final fonts = AppFonts();
+      addTearDown(fonts.dispose);
+      final controller = CoreSettingsController()
+        ..settings = const CoreSettings()
+        ..loaded = true;
+      addTearDown(controller.dispose);
+      var language = 'en';
+      var savedLanguage = 'en';
+      await tester.pumpWidget(
+        ShadcnApp(
+          theme: ThemeData(colorScheme: xtDarkScheme()),
+          home: StatefulBuilder(
+            builder: (context, setState) => AppLanguage(
+              code: language,
+              onChanged: (code) => setState(() {
+                language = code;
+                savedLanguage = code;
+              }),
+              child: Scaffold(
+                child: SizedBox(
+                  width: 1200,
+                  height: 900,
+                  child: SettingsScreen(
+                    lightTheme: false,
+                    onThemeChanged: (_) {},
+                    fonts: fonts,
+                    settings: controller,
+                    saveSettings: (_) async => null,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Language'), findsOneWidget);
+      await tester.tap(find.text('English'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(XtMenuPopup),
+          matching: find.text('简体中文'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(savedLanguage, 'zh');
+      expect(find.text('终端设置'), findsOneWidget);
+      expect(find.text('方块'), findsOneWidget);
+      // The selection changed the labels, not the stored settings.
+      expect(controller.settings.cursorStyle, 'block');
+      expect(controller.settings.lineSpacing, 1.0);
+    },
+  );
+
   testWidgets('renderer settings save through the core callback', (
     tester,
   ) async {
@@ -164,3 +226,4 @@ void main() {
     expect(plus.left, greaterThanOrEqualTo(0));
   });
 }
+

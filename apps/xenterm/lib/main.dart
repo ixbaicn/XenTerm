@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'data/hosts.dart';
+import 'l10n/app_language.dart';
 import 'shell/root_shell.dart';
 import 'terminal/core_settings.dart';
 import 'theme/app_theme.dart';
@@ -50,7 +51,9 @@ class XenTermApp extends StatefulWidget {
 
 class _XenTermAppState extends State<XenTermApp> {
   static const _themeKey = 'xenterm.theme.light';
+  static const _languageKey = 'xenterm.language';
   bool _lightTheme = false;
+  String _language = 'en';
   late final AppFonts _fonts = widget.fonts ?? AppFonts();
   late final CoreSettingsController _settings =
       widget.settings ?? CoreSettingsController();
@@ -61,12 +64,29 @@ class _XenTermAppState extends State<XenTermApp> {
     _fonts.addListener(_changed);
     if (widget.settings == null) _settings.load();
     _restoreTheme();
+    _restoreLanguage();
   }
 
   Future<void> _restoreTheme() async {
     final prefs = await SharedPreferences.getInstance();
     final light = prefs.getBool(_themeKey);
     if (light != null && mounted) setState(() => _lightTheme = light);
+  }
+
+  Future<void> _restoreLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final code = prefs.getString(_languageKey);
+    if (mounted && AppLanguage.supported.containsKey(code)) {
+      setState(() => _language = code!);
+    }
+  }
+
+  void _setLanguage(String code) {
+    if (!AppLanguage.supported.containsKey(code)) return;
+    setState(() => _language = code);
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setString(_languageKey, code),
+    );
   }
 
   void _setTheme(bool light) {
@@ -98,18 +118,22 @@ class _XenTermAppState extends State<XenTermApp> {
         // XtRadius; the multiplier only styles library internals.
         radius: 0.5,
       ),
-      home: DefaultTextEditingShortcuts(
-        child: DefaultTextStyle.merge(
-        style: TextStyle(
-          fontFamily: _fonts.uiFamily.isEmpty ? null : _fonts.uiFamily,
-          fontSize: _fonts.uiSize,
-        ),
-          child: RootShell(
-            lightTheme: _lightTheme,
-            onThemeChanged: _setTheme,
-            fonts: _fonts,
-            settings: _settings,
-            hostsLoader: widget.hostsLoader,
+      home: AppLanguage(
+        code: _language,
+        onChanged: _setLanguage,
+        child: DefaultTextEditingShortcuts(
+          child: DefaultTextStyle.merge(
+            style: TextStyle(
+              fontFamily: _fonts.uiFamily.isEmpty ? null : _fonts.uiFamily,
+              fontSize: _fonts.uiSize,
+            ),
+            child: RootShell(
+              lightTheme: _lightTheme,
+              onThemeChanged: _setTheme,
+              fonts: _fonts,
+              settings: _settings,
+              hostsLoader: widget.hostsLoader,
+            ),
           ),
         ),
       ),

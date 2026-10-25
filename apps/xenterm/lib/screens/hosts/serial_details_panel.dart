@@ -64,6 +64,11 @@ class SerialDetailsPanel extends StatefulWidget {
   /// values are not lost when a save fails.
   final String? error;
 
+  /// Deletes this saved serial session through the core. Absent while creating
+  /// a draft (there is nothing stored to delete yet); provided for an existing
+  /// host, exactly like the SSH/Telnet/local drawer's "Remove host" action.
+  final Future<String?> Function(Host)? onDelete;
+
   const SerialDetailsPanel({
     super.key,
     this.host,
@@ -74,6 +79,7 @@ class SerialDetailsPanel extends StatefulWidget {
     this.saveMode = false,
     this.groups = const [],
     this.error,
+    this.onDelete,
   });
 
   @override
@@ -177,6 +183,14 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
     );
   }
 
+  Future<void> _delete() async {
+    final host = widget.host;
+    final delete = widget.onDelete;
+    if (host == null || delete == null) return;
+    final error = await delete(host);
+    if (mounted && error != null) setState(() => _error = error);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -190,6 +204,12 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
             title: editing ? 'Serial Details' : 'Serial Connection',
             leading: LucideIcons.ethernetPort,
             actions: [
+              // Saved serial sessions delete exactly like the SSH drawer;
+              // drafts have nothing stored yet, so the menu is hidden.
+              if (editing && widget.onDelete != null) ...[
+                HostRemoveMenu(onDelete: _delete),
+                const SizedBox(width: 4),
+              ],
               XtIconButton(
                 key: const ValueKey('serial-cancel'),
                 icon: LucideIcons.arrowRightToLine,

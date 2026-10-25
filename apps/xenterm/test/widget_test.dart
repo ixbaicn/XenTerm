@@ -96,4 +96,18 @@ void main() {
     expect(fonts.terminalSize, 16);
     expect(fonts.uiSize, 14);
   });
+
+  testWidgets('the saved UI language is restored on launch', (tester) async {
+    SharedPreferences.setMockInitialValues({'xenterm.language': 'zh'});
+    final fonts = AppFonts();
+    addTearDown(fonts.dispose);
+    await tester.pumpWidget(
+      XenTermApp(fonts: fonts, hostsLoader: () async => kSampleHosts),
+    );
+    await tester.pumpAndSettle();
+    // The navigation rail follows the persisted choice immediately.
+    expect(find.text('首页'), findsWidgets);
+    expect(find.text('密钥管理'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
+  });
 }

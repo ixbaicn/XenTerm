@@ -112,3 +112,84 @@ class HostDrawerHeader extends StatelessWidget {
     return XtPanelHeader(title: title, leading: leading, actions: actions);
   }
 }
+
+/// The ⋯ menu with a destructive "Remove host" entry, shared by every drawer
+/// kind (SSH/Telnet/local and serial) so deleting a connection works the same
+/// way regardless of its protocol.
+class HostRemoveMenu extends StatefulWidget {
+  final Future<void> Function() onDelete;
+
+  const HostRemoveMenu({super.key, required this.onDelete});
+
+  @override
+  State<HostRemoveMenu> createState() => _HostRemoveMenuState();
+}
+
+class _HostRemoveMenuState extends State<HostRemoveMenu> {
+  final OverlayPortalController _menu = OverlayPortalController();
+  final LayerLink _link = LayerLink();
+
+  void _toggle() => setState(() {
+    if (_menu.isShowing) {
+      _menu.hide();
+    } else {
+      _menu.show();
+    }
+  });
+
+  Widget _menuChild(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _menu.hide(),
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        CompositedTransformFollower(
+          link: _link,
+          targetAnchor: Alignment.bottomRight,
+          followerAnchor: Alignment.topRight,
+          offset: const Offset(0, 6),
+          showWhenUnlinked: false,
+          child: Align(
+            alignment: Alignment.topRight,
+            child: XtMenuPopup(
+              width: 180,
+              children: [
+                XtMenuEntry(
+                  icon: LucideIcons.trash2,
+                  label: 'Remove host',
+                  danger: true,
+                  onTap: () {
+                    _menu.hide();
+                    widget.onDelete();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OverlayPortal(
+      controller: _menu,
+      overlayChildBuilder: _menuChild,
+      child: CompositedTransformTarget(
+        link: _link,
+        child: XtIconButton(
+          key: const ValueKey('host-remove-menu'),
+          icon: LucideIcons.ellipsis,
+          size: 28,
+          iconSize: 15,
+          onPressed: _toggle,
+        ),
+      ),
+    );
+  }
+}

@@ -19,10 +19,21 @@ src="$repo/target/release/$lib"
 
 for cfg in Debug Release; do
   dst="$repo/apps/xenterm/build/windows/x64/runner/$cfg"
-  # macOS/Linux Flutter builds land under build/<platform>/; extend when those
-  # runners are wired. The Windows layout is the one this project ships.
+  # Windows runner layout.
   if [ -d "$dst" ]; then
     cp -f "$src" "$dst/"
     echo "copied -> $cfg"
   fi
 done
+
+# Linux desktop builds put the executable in a bundle directory; the bridge has
+# to sit next to it (the loader does not search the working directory).
+if [ "$(uname -s)" = "Linux" ]; then
+  for cfg in debug profile release; do
+    dst="$repo/apps/xenterm/build/linux/x64/$cfg/bundle"
+    if [ -d "$dst" ]; then
+      cp -f "$src" "$dst/"
+      echo "copied -> linux/$cfg/bundle"
+    fi
+  done
+fi

@@ -10,6 +10,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../l10n/app_language.dart';
 import '../theme/app_theme.dart';
 
 /// A surface card: theme surface fill, hairline border and [XtRadius.card].
@@ -427,7 +428,7 @@ class XtSwitchRow extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  label,
+                  AppLanguage.tr(context, label),
                   style: theme.typography.medium.copyWith(
                     fontSize: 13,
                     color: XtColors.textPrimary(context),
@@ -440,7 +441,7 @@ class XtSwitchRow extends StatelessWidget {
           if (description != null) ...[
             const SizedBox(height: 4),
             Text(
-              description!,
+              AppLanguage.tr(context, description!),
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
                 color: XtColors.textTertiary(context),
@@ -778,7 +779,7 @@ class _XtSelectFieldState<T> extends State<XtSelectField<T>> {
       childrenBuilder: (context, close) => [
         for (final entry in widget.options.entries)
           XtMenuEntry(
-            label: entry.value,
+            label: AppLanguage.tr(context, entry.value),
             selected: entry.key == widget.value,
             trailing: entry.key == widget.value
                 ? Icon(
@@ -810,7 +811,7 @@ class _XtSelectFieldState<T> extends State<XtSelectField<T>> {
               ],
               Expanded(
                 child: Text(
-                  label,
+                  AppLanguage.tr(context, label),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -856,7 +857,7 @@ class XtSelectRow<T> extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              label,
+              AppLanguage.tr(context, label),
               style: theme.typography.medium.copyWith(
                 fontSize: 13,
                 color: XtColors.textPrimary(context),
@@ -868,7 +869,7 @@ class XtSelectRow<T> extends StatelessWidget {
             childrenBuilder: (context, close) => [
               for (final entry in options.entries)
                 XtMenuEntry(
-                  label: entry.value,
+                  label: AppLanguage.tr(context, entry.value),
                   selected: entry.key == value,
                   onTap: () {
                     onChanged(entry.key);
@@ -883,7 +884,7 @@ class XtSelectRow<T> extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    options[value] ?? '$value',
+                    AppLanguage.tr(context, options[value] ?? '$value'),
                     style: theme.typography.medium.copyWith(
                       fontSize: 13,
                       color: XtColors.textPrimary(context),

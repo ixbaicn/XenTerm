@@ -24,7 +24,8 @@ rewrite and are kept for reference only.
 - **全新 Flutter 桌面界面** / A new Flutter desktop UI replaces the previous interface; hosts, terminal, SFTP, keychain, tunnels, snippets, known hosts, logs and settings all run on the new shell.
 - **单色主题** / A neutral monochrome theme: a 12-step grey scale on black with a white accent, plus a light theme.
 - **统一组件** / One shared component set for inputs, selects, buttons and dialogs across every screen.
-- **Windows MSI 安装包** / A Windows MSI installer alongside the portable zip.
+- **Windows MSI 安装包** / A Windows MSI installer alongside the portable zip; it creates Start-menu and desktop shortcuts with the real XenTerm icon.
+- **界面语言选择** / A persisted interface-language choice (English / 简体中文) in Settings, covering the navigation rail and the Settings screen.
 
 ### Changed / 改进
 - **仓库重组** / The repository is organised around `crates/xenterm` (Rust core) and `apps/xenterm` (Flutter UI), with the FFI bridge in `apps/xenterm/native`.
@@ -32,6 +33,10 @@ rewrite and are kept for reference only.
 
 ### Removed / 移除
 - **旧界面资源** / Removed the previous desktop UI sources, screenshots and component licences.
+
+### Fixed / 修复
+- **串口连接可删除** / Saved serial connections now offer the same "Remove host" action as SSH, Telnet and local sessions, from a shared drawer menu.
+- **Linux 启动找不到桥接库** / The Flutter bundle now loads `libxenterm_bridge.so` from the executable's directory instead of relying on the working directory.
 
 ## [0.7.3] - 2026-09-07
 

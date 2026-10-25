@@ -1,4 +1,4 @@
-/// The host details drawer:
+﻿/// The host details drawer:
 ///
 /// - 340px wide, animated over 200ms, on the page surface;
 /// - a 56px panel header with the "Host Details" title and save / ⋯ / close
@@ -258,7 +258,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                 onPressed: _saving ? null : _save,
               ),
               const SizedBox(width: 4),
-              _MoreButton(onDelete: _delete),
+              HostRemoveMenu(onDelete: _delete),
               XtIconButton(
                 icon: LucideIcons.arrowRightToLine,
                 size: 28,
@@ -587,77 +587,6 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// The ⋯ menu: currently just "Remove host" (a real store delete through the
-/// bridge). It hangs off the button's bottom-right edge like the toolbar menus.
-class _MoreButton extends StatefulWidget {
-  final VoidCallback onDelete;
-
-  const _MoreButton({required this.onDelete});
-
-  @override
-  State<_MoreButton> createState() => _MoreButtonState();
-}
-
-class _MoreButtonState extends State<_MoreButton> {
-  final OverlayPortalController _menu = OverlayPortalController();
-  final LayerLink _link = LayerLink();
-
-  Widget _menuChild(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _menu.hide,
-            child: const ColoredBox(color: Colors.transparent),
-          ),
-        ),
-        CompositedTransformFollower(
-          link: _link,
-          targetAnchor: Alignment.bottomRight,
-          followerAnchor: Alignment.topRight,
-          offset: const Offset(0, 6),
-          showWhenUnlinked: false,
-          child: Align(
-            alignment: Alignment.topRight,
-            child: XtMenuPopup(
-              width: 180,
-              children: [
-                XtMenuEntry(
-                  icon: LucideIcons.trash2,
-                  label: 'Remove host',
-                  danger: true,
-                  onTap: () {
-                    _menu.hide();
-                    widget.onDelete();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return OverlayPortal(
-      controller: _menu,
-      overlayChildBuilder: _menuChild,
-      child: CompositedTransformTarget(
-        link: _link,
-        child: XtIconButton(
-          icon: LucideIcons.ellipsis,
-          size: 28,
-          iconSize: 15,
-          onPressed: () => _menu.isShowing ? _menu.hide() : _menu.show(),
-        ),
       ),
     );
   }
