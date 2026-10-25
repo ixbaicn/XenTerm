@@ -83,7 +83,7 @@ sha2 = "0.10"
 des = "0.8"
 md5 = "0.7"
 # Enumerate installed system fonts for the Interface (font) settings picker.
-fontdb = "0.16"
+fontdb = "0.24"
 # Cross-platform serial port access for the Serial session type (#14, #17).
 # Opens COM3 / /dev/ttyUSB0 etc.; on Linux the default `libudev` feature is
 # used for port enumeration (CI installs libudev-dev).
