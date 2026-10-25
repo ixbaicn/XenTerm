@@ -28,6 +28,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Deliberately pinned for RUSTSEC-2026-0154 and the ring crypto backend;
+      # these need a reviewed migration rather than an automatic update run.
+      - dependency-name: "russh"
+      - dependency-name: "russh-sftp"
 
   - package-ecosystem: pub
     directory: "/apps/xenterm"
