@@ -23,7 +23,7 @@ class ImportedFont {
 
 /// Owns UI/terminal font choices. Imported font bytes stay in the application's
 /// support directory; only labels/paths and selections live in preferences.
-/// TODO(ffi/terminal): apply terminal font choices to the real terminal renderer.
+/// TerminalView reads these values for its cell measurement and painting.
 class AppFonts extends ChangeNotifier {
   static const _key = 'xenterm.fonts.v1';
   final List<ImportedFont> imported = [];

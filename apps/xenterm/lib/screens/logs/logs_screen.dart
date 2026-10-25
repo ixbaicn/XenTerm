@@ -1,240 +1,591 @@
-/// The Logs screen — the original's plan banner ("Logs are not available on
-/// your current plan. Upgrade"), the Date/User/Host/Saved table header, and
-/// session rows: date + time range, green user avatar + email + machine,
-/// host chip + name + detail, bookmark icon.
+/// Logs — real session transcripts recorded by the core when "Save session
+/// logs" is enabled in Settings. Rows open a read-only viewer; deletion removes
+/// the JSONL file. No plan/account content exists in this product.
 library;
 
+import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-import '../../data/hosts.dart';
-import '../../theme/termius_theme.dart';
+import '../../bridge/native_bridge.dart';
+import '../../widgets/lucide_extra_icons.dart';
+import '../../widgets/toolbar.dart';
 
-class LogsScreen extends StatelessWidget {
-  const LogsScreen({super.key});
+typedef LogLoader = Future<List<SessionLogEntry>> Function();
+typedef LogReader = Future<SessionLogContent> Function(String file);
+typedef LogDeleter = Future<CoreWriteResult> Function(String file);
+
+class LogsScreen extends StatefulWidget {
+  final LogLoader? loadLogs;
+  final LogReader? readLog;
+  final LogDeleter? deleteLog;
+
+  const LogsScreen({super.key, this.loadLogs, this.readLog, this.deleteLog});
+
+  @override
+  State<LogsScreen> createState() => _LogsScreenState();
+}
+
+class _LogsScreenState extends State<LogsScreen> {
+  List<SessionLogEntry> _logs = const [];
+  bool _loading = true;
+  String? _error;
+  SessionLogEntry? _open;
+  SessionLogContent? _content;
+  bool _reading = false;
+  bool _confirmClear = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final logs = await (widget.loadLogs ?? loadSessionLogsFromCore)();
+      if (!mounted) return;
+      setState(() {
+        _logs = logs;
+        _loading = false;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error is NativeBridgeError ? error.message : '$error';
+      });
+    }
+  }
+
+  Future<void> _openLog(SessionLogEntry entry) async {
+    setState(() {
+      _open = entry;
+      _content = null;
+      _reading = true;
+    });
+    try {
+      final content = await (widget.readLog ?? readSessionLogFromCore)(
+        entry.file,
+      );
+      if (!mounted || _open?.file != entry.file) return;
+      setState(() {
+        _content = content;
+        _reading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _reading = false;
+        _error = error is NativeBridgeError ? error.message : '$error';
+      });
+    }
+  }
+
+  Future<void> _delete(SessionLogEntry entry) async {
+    try {
+      final result = await (widget.deleteLog ?? deleteSessionLogFromCore)(
+        entry.file,
+      );
+      if (!result.ok) {
+        if (!mounted) return;
+        setState(() => _error = result.error ?? 'Could not delete the log');
+        return;
+      }
+      if (_open?.file == entry.file) {
+        setState(() {
+          _open = null;
+          _content = null;
+        });
+      }
+      await _reload(silent: true);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _deleteAll() async {
+    final entries = [..._logs];
+    for (final entry in entries) {
+      try {
+        await (widget.deleteLog ?? deleteSessionLogFromCore)(entry.file);
+      } catch (_) {
+        // Keep deleting the rest; the reload below surfaces what is left.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _confirmClear = false;
+      _open = null;
+      _content = null;
+    });
+    await _reload(silent: true);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final host = kSampleHosts.first;
-
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Plan banner ─────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.card,
-              borderRadius: BorderRadius.circular(TermiusRadius.field),
-            ),
-            child: Row(
-              children: [
-                Text('当前计划不支持日志。',
-                    style: theme.typography.normal.copyWith(
-                        fontSize: 14, color: theme.colorScheme.foreground)),
-                const SizedBox(width: 12),
-                GhostButton(
-                  density: ButtonDensity.compact,
-                  onPressed: () {},
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('升级',
-                          style: theme.typography.normal.copyWith(
-                              fontSize: 13,
-                              color: theme.colorScheme.foreground)),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(34, 18, 34, 0),
+                child: Row(
+                  children: [
+                    Text(
+                      'Session logs',
+                      style: theme.typography.semiBold.copyWith(
+                        fontSize: 16,
+                        color: theme.colorScheme.foreground,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${_logs.length}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.mutedForeground,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconToggleButton(
+                      icon: LucideIcons.refreshCw,
+                      onPressed: () => _reload(),
+                    ),
+                    if (_logs.isNotEmpty) ...[
                       const SizedBox(width: 6),
-                      const Icon(BootstrapIcons.arrowUpCircle,
-                          size: 13, color: Color(0xFF8D91A5)),
+                      IconToggleButton(
+                        key: const ValueKey('logs-clear'),
+                        icon: LucideIcons.trash2,
+                        onPressed: () =>
+                            setState(() => _confirmClear = !_confirmClear),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (_confirmClear)
+                Container(
+                  margin: const EdgeInsets.fromLTRB(34, 10, 34, 0),
+                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B1B1B),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        LucideIcons.triangleAlert,
+                        size: 16,
+                        color: Color(0xFFE5484D),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Delete all ${_logs.length} session logs? This cannot '
+                          'be undone.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: theme.colorScheme.foreground,
+                          ),
+                        ),
+                      ),
+                      Button(
+                        key: const ValueKey('logs-clear-confirm'),
+                        style: const ButtonStyle.primary(),
+                        onPressed: _deleteAll,
+                        child: const Text('Delete all'),
+                      ),
+                      const SizedBox(width: 6),
+                      GhostButton(
+                        onPressed: () => setState(() => _confirmClear = false),
+                        child: const Text('Cancel'),
+                      ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-        ),
-        // ── Table header ────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
-          child: Row(
-            children: [
-              _headerCell(context, '日期',
-                  trailing: BootstrapIcons.chevronDown, width: 170),
-              _headerCell(context, '用户', width: 320),
-              _headerCell(context, '主机', width: 260),
-              _headerCell(context, '收藏',
-                  trailing: BootstrapIcons.bookmark),
+              const Divider(height: 20, color: Color(0xFF1F1F1F)),
+              Expanded(child: _body(theme)),
             ],
           ),
         ),
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          height: 1,
-          color: theme.colorScheme.border,
-        ),
-        // ── Rows ────────────────────────────────────────────────────────
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            itemCount: 3,
-            itemBuilder: (context, index) {
-              const dates = [
-                ('2025年8月1日', '09:36 - 09:49'),
-                ('2025年7月13日', '17:33 - 17:38'),
-                ('2025年7月10日', '14:10 - 15:09'),
-              ];
-              final d = dates[index];
-              return _LogRow(
-                date: d.$1,
-                time: d.$2,
-                user: 'baizhanwl@qq.com',
-                machine: 'DESKTOP-PKS43FI',
-                hostLabel: host.label,
-                hostDetail: 'ssh, root, 阿里云',
-              );
-            },
+        if (_open != null)
+          SizedBox(
+            width: 560,
+            child: _LogViewer(
+              entry: _open!,
+              content: _content,
+              reading: _reading,
+              onDelete: () => _delete(_open!),
+              onClose: () => setState(() {
+                _open = null;
+                _content = null;
+              }),
+            ),
           ),
-        ),
       ],
     );
   }
 
-  Widget _headerCell(BuildContext context, String text,
-      {IconData? trailing, double? width}) {
-    final theme = Theme.of(context);
-    return SizedBox(
-      width: width,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(text,
-              style: theme.typography.normal.copyWith(
-                  fontSize: 14, color: theme.colorScheme.foreground)),
-          if (trailing != null) ...[
-            const SizedBox(width: 6),
-            Icon(trailing,
-                size: 12, color: theme.colorScheme.mutedForeground),
+  Widget _body(ThemeData theme) {
+    if (_loading) {
+      return const Center(
+        child: Text(
+          'Loading session logs…',
+          style: TextStyle(color: Color(0xFFA6A6A6)),
+        ),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFFA6A6A6)),
+            ),
+            const SizedBox(height: 12),
+            Button(
+              style: const ButtonStyle.outline(),
+              onPressed: () => _reload(),
+              child: const Text('Retry'),
+            ),
           ],
-        ],
-      ),
+        ),
+      );
+    }
+    if (_logs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipboardClockIcon(
+              size: 30,
+              color: theme.colorScheme.mutedForeground,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'No session logs yet',
+              style: theme.typography.semiBold.copyWith(
+                fontSize: 15,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Enable “Save session logs” in Settings → Logs to record new sessions.',
+              textAlign: TextAlign.center,
+              style: theme.typography.normal.copyWith(
+                fontSize: 13,
+                color: theme.colorScheme.mutedForeground,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 4),
+      children: [
+        for (final entry in _logs)
+          _LogRow(
+            key: ValueKey('log-${entry.file}'),
+            entry: entry,
+            selected: _open?.file == entry.file,
+            onTap: () => _openLog(entry),
+            onDelete: () => _delete(entry),
+          ),
+      ],
     );
   }
 }
 
-class _LogRow extends StatelessWidget {
-  final String date;
-  final String time;
-  final String user;
-  final String machine;
-  final String hostLabel;
-  final String hostDetail;
+class _LogRow extends StatefulWidget {
+  final SessionLogEntry entry;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   const _LogRow({
-    required this.date,
-    required this.time,
-    required this.user,
-    required this.machine,
-    required this.hostLabel,
-    required this.hostDetail,
+    super.key,
+    required this.entry,
+    required this.selected,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  State<_LogRow> createState() => _LogRowState();
+}
+
+class _LogRowState extends State<_LogRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final background = widget.selected
+        ? const Color(0xFF262626)
+        : _hover
+        ? const Color(0xFF1B1B1B)
+        : const Color(0xFF111111);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          height: 56,
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _formatDate(entry.started),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFFD4D4D4),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        entry.name.isEmpty ? entry.host : entry.name,
+                        if (entry.user.isNotEmpty) entry.user,
+                        _formatSize(entry.size),
+                      ].join('  ·  '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFFA6A6A6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_hover)
+                Tooltip(
+                  tooltip: (_) => const Text('Delete log'),
+                  child: GestureDetector(
+                    key: ValueKey('log-row-delete-${entry.file}'),
+                    onTap: widget.onDelete,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        LucideIcons.trash2,
+                        size: 14,
+                        color: Color(0xFFE5484D),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatDate(DateTime value) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)} '
+        '${two(value.hour)}:${two(value.minute)}';
+  }
+
+  static String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+class _LogViewer extends StatelessWidget {
+  final SessionLogEntry entry;
+  final SessionLogContent? content;
+  final bool reading;
+  final VoidCallback onDelete;
+  final VoidCallback onClose;
+
+  const _LogViewer({
+    required this.entry,
+    required this.content,
+    required this.reading,
+    required this.onDelete,
+    required this.onClose,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.card,
-        borderRadius: BorderRadius.circular(TermiusRadius.card),
+      decoration: const BoxDecoration(
+        color: Color(0xFF111111),
+        border: Border(left: BorderSide(color: Color(0xFF1F1F1F))),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 170,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(date,
-                    style: theme.typography.medium.copyWith(fontSize: 14)),
-                Text(time,
-                    style: theme.typography.normal.copyWith(
-                        fontSize: 12,
-                        color: theme.colorScheme.mutedForeground)),
-              ],
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
             ),
-          ),
-          SizedBox(
-            width: 320,
             child: Row(
               children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF8BC34A),
-                    shape: BoxShape.circle,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.name.isEmpty ? entry.host : entry.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.typography.semiBold.copyWith(
+                          fontSize: 15,
+                          color: theme.colorScheme.foreground,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${_LogRowState._formatDate(entry.started)}'
+                        '${entry.user.isEmpty ? '' : '  ·  ${entry.user}'}'
+                        '  ·  ${_LogRowState._formatSize(entry.size)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: theme.colorScheme.mutedForeground,
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Text('B',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white)),
                 ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(user,
-                        style: theme.typography.medium.copyWith(
-                            fontSize: 14)),
-                    Text(machine,
-                        style: theme.typography.normal.copyWith(
-                            fontSize: 12,
-                            color: theme.colorScheme.mutedForeground)),
-                  ],
+                _ViewerAction(
+                  key: const ValueKey('log-copy'),
+                  icon: LucideIcons.copy,
+                  onPressed: content == null
+                      ? null
+                      : () => Clipboard.setData(
+                          ClipboardData(text: content!.text),
+                        ),
                 ),
+                _ViewerAction(
+                  key: const ValueKey('log-delete'),
+                  icon: LucideIcons.trash2,
+                  color: const Color(0xFFE5484D),
+                  onPressed: onDelete,
+                ),
+                _ViewerAction(icon: LucideIcons.x, onPressed: onClose),
               ],
             ),
           ),
           Expanded(
-            child: Row(
-              children: [
-                Container(
-                  width: 30,
-                  height: 30,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFD70A53),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(BootstrapIcons.lightningChargeFill,
-                      size: 14, color: Colors.white),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF151515),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF1F1F1F)),
                 ),
-                const SizedBox(width: 10),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(hostLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.typography.medium.copyWith(
-                            fontSize: 14)),
-                    Text(hostDetail,
-                        style: theme.typography.normal.copyWith(
-                            fontSize: 12,
-                            color: theme.colorScheme.mutedForeground)),
-                  ],
-                ),
-              ],
+                child: reading
+                    ? const Center(
+                        child: Text(
+                          'Opening transcript…',
+                          style: TextStyle(color: Color(0xFFA6A6A6)),
+                        ),
+                      )
+                    : (content?.text.isEmpty ?? true)
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            content?.closeReason == null ||
+                                    content!.closeReason!.isEmpty
+                                ? 'This session produced no terminal output.'
+                                : 'Session closed: ${content!.closeReason}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFFA6A6A6),
+                            ),
+                          ),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          content!.text,
+                          style: const TextStyle(
+                            fontFamily: 'Consolas',
+                            fontFamilyFallback: ['Menlo', 'Courier New'],
+                            fontSize: 12.5,
+                            height: 1.5,
+                            color: Color(0xFFDDDDDD),
+                          ),
+                        ),
+                      ),
+              ),
             ),
           ),
-          Icon(BootstrapIcons.bookmark,
-              size: 15, color: theme.colorScheme.mutedForeground),
         ],
+      ),
+    );
+  }
+}
+
+class _ViewerAction extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final Color color;
+
+  const _ViewerAction({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    this.color = const Color(0xFFD4D4D4),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        width: 30,
+        height: 30,
+        margin: const EdgeInsets.only(left: 4),
+        alignment: Alignment.center,
+        child: Icon(
+          icon,
+          size: 15,
+          color: onPressed == null ? const Color(0xFF6E6E6E) : color,
+        ),
       ),
     );
   }

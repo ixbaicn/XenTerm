@@ -1,5 +1,5 @@
 """Loopback-only multi-hop regression checks. Requires paramiko.
-Run: python tests/ssh_jump_chain_e2e.py --exe /path/to/xenterm.exe
+Run: python crates/xenterm/tests/ssh_jump_chain_e2e.py --exe /path/to/xenterm.exe
 Network stalls: add --stage-timeouts (45 seconds for three stage deadlines).
 Before-fix reproduction: add --expect-unbounded-stages (90 seconds).
 All keys are generated per run; no real credentials or external servers are used.

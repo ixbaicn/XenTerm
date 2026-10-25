@@ -19,6 +19,9 @@ pub mod cli;
 #[allow(dead_code)]
 pub mod config;
 
+/// Public façade for in-process frontends (the Flutter bridge).
+pub mod frontend;
+
 #[allow(dead_code)]
 pub mod core;
 

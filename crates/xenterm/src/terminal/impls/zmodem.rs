@@ -143,7 +143,10 @@ pub async fn receive(
                     // nothing touches the disk until the user says yes
                     // (audit M-01).
                     if !confirm_receive(&name, size).await {
-                        bail!("{}", t("用户已拒绝该下载", "the user declined this download"));
+                        bail!(
+                            "{}",
+                            t("用户已拒绝该下载", "the user declined this download")
+                        );
                     }
                     let final_path = unique_download_path(&dest, &name);
                     let part = part_path(&final_path);
@@ -344,7 +347,6 @@ struct CurFile {
 async fn confirm_receive(_name: &str, _size: u64) -> bool {
     false
 }
-
 
 /// First free `name`, `name (1)`, `name (2)`… under `dest`: an existing file
 /// is never overwritten or truncated by an incoming transfer.
@@ -574,8 +576,16 @@ fn is_close_byte(b: u8) -> bool {
         | b'0'..=b'9' | b'a'..=b'f')
 }
 
-/// Where received files go: the user's Downloads dir, else a temp fallback.
+/// Where received files go: the configured download directory when the user
+/// set one (same setting the SFTP panel honors), else the user's Downloads
+/// dir, else a temp fallback.
 fn download_dir() -> PathBuf {
+    if let Ok(store) = crate::config::ConfigStore::load() {
+        let configured = store.download_dir().trim();
+        if !configured.is_empty() {
+            return PathBuf::from(configured);
+        }
+    }
     directories::UserDirs::new()
         .and_then(|u| u.download_dir().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| std::env::temp_dir().join("xenterm"))

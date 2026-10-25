@@ -42,6 +42,23 @@ pub fn configure_profile(args: &mut Vec<String>) -> Result<bool> {
     Ok(preview)
 }
 
+/// Bridge/embedder variant of [`configure_profile`]: pins the profile from
+/// `XENTERM_DATA_DIR` only (embedders have no argv to scan), exactly once per
+/// process. An already resolved data directory is success — the embedder (or
+/// its test harness) pinned it deliberately — instead of the CLI's "already
+/// initialized" error. Without the env var this is a no-op, so the
+/// portable-first default keeps applying for normal desktop installs.
+pub fn configure_profile_from_env() -> Result<bool> {
+    if DATA_DIR.get().is_some() || PINNED_DATA_DIR.get().is_some() {
+        return Ok(false);
+    }
+    if std::env::var_os("XENTERM_DATA_DIR").is_none() {
+        return Ok(false);
+    }
+    let mut args = vec!["xenterm-bridge".to_string()];
+    configure_profile(&mut args)
+}
+
 /// Inspect only these commands' local option positions. A filename, remote
 /// command, or option after `--` must never switch startup into preview mode.
 fn migration_preview(command: &[String]) -> bool {

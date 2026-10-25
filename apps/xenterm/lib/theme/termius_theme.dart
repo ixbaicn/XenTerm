@@ -1,112 +1,135 @@
-/// Termius design tokens, installed into shadcn_flutter's theme system.
+/// XenTerm monochrome theme — a layered black-and-white palette.
 ///
-/// Every color below is a verbatim value extracted from Termius 10.2.1's own
-/// stylesheet — the reverse-engineering record lives in
-/// docs/termius/design-tokens.md. The mapping onto shadcn_flutter's
-/// [ColorScheme] slots is documented per line; when the Flutter frontend and
-/// the spec disagree, the spec wins.
+/// The palette is a single neutral ramp from near-black surfaces to white
+/// text, with white as the accent (primary buttons are white with black
+/// text). The only non-neutral color left in the UI is destructive red, for
+/// errors and destructive actions. The token record lives in
+/// docs/termius/design-tokens.md (§ XenTerm 单色主题).
 library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-/// Termius's dark palette. `--dark-grey-*` and the alpha tints built on
-/// dark-grey-7 carry the surfaces; `--blue` is the accent.
+/// The dark ramp: black-950 (lowest surface) → white (text / accent).
+abstract final class Mono {
+  static const Color black950 = Color(0xFF0A0A0A); // terminal, titlebar
+  static const Color black900 = Color(0xFF111111); // window / page bg
+  static const Color black850 = Color(0xFF161616); // sunken panels
+  static const Color black800 = Color(0xFF1B1B1B); // cards, menus, popovers
+  static const Color black750 = Color(0xFF1F1F1F); // hairline fills
+  static const Color black700 = Color(0xFF262626); // elevated tiles
+  static const Color black600 = Color(0xFF2E2E2E); // inputs, buttons
+  static const Color black500 = Color(0xFF3A3A3A); // strong borders, chips
+  static const Color grey400 = Color(0xFF6E6E6E); // disabled text
+  static const Color grey300 = Color(0xFFA6A6A6); // secondary text
+  static const Color grey200 = Color(0xFFD4D4D4); // strong text
+  static const Color white = Color(0xFFFFFFFF); // primary text / accent
+
+  /// Light-mode ladder: the same ramp inverted around paper white.
+  static const Color paperBase = Color(0xFFFAFAFA);
+  static const Color paperCard = Color(0xFFFFFFFF);
+  static const Color paperText = Color(0xFF171717);
+  static const Color paperGrey = Color(0xFF8A8A8A);
+}
+
+/// The destructive red is the only functional color kept: errors and
+/// destructive actions must stay unmistakable in a monochrome UI.
+abstract final class MonoDestructive {
+  static const Color solid = Color(0xFFE5484D);
+  static const Color tint = Color(0x33E5484D);
+  static const Color light = Color(0xFFFF8A8D);
+}
+
 ColorScheme termiusDarkScheme() {
-  const d2 = Color(0xFF1D2033); // --surface-base
-  const d3 = Color(0xFF282B3D); // --surface-high (cards, menus)
-  const d4 = Color(0xFF32364A); // --button-regular / --main-form-bg
-  const d7 = Color(0xFF8D91A5); // --text-secondary
-  const blue = Color(0xFF2091F6); // --button-accent
-  const greenMedium = Color(0xFF00CC74); // --input-border-focused
-  // dark-grey-7 at 10% and 25%: --surface-hover-basic and --border-basic.
-  final hover = d7.withValues(alpha: 0.10);
-  final border = d7.withValues(alpha: 0.25);
+  const base = Mono.black900;
+  const cards = Mono.black800;
+  const forms = Mono.black600;
+  const secondary = Mono.grey300;
+  // White at low alpha plays the role the old hover/border tints played.
+  final hover = Colors.white.withValues(alpha: 0.06);
+  final border = Colors.white.withValues(alpha: 0.16);
   return ColorScheme(
     brightness: Brightness.dark,
-    background: d2,
-    foreground: Colors.white, // --text-primary
-    card: d4, // grid cards are LIGHTER than the base bg (原版对比)
-    cardForeground: Colors.white,
-    popover: d3,
-    popoverForeground: Colors.white,
-    primary: blue,
-    primaryForeground: Colors.white,
-    secondary: d4,
-    secondaryForeground: const Color(0xFFA4B3BA), // --light-grey-3
+    background: base,
+    foreground: Mono.white,
+    card: cards, // cards are one step LIGHTER than the page bg
+    cardForeground: Mono.white,
+    popover: cards,
+    popoverForeground: Mono.white,
+    primary: Mono.white, // accent = white; primary buttons: white on black
+    primaryForeground: Mono.black950,
+    secondary: forms,
+    secondaryForeground: Mono.grey200,
     muted: hover,
-    mutedForeground: d7,
+    mutedForeground: secondary,
     accent: hover,
-    accentForeground: Colors.white,
-    destructive: const Color(0xFFF25E61), // --red
-    destructiveForeground: Colors.white,
+    accentForeground: Mono.white,
+    destructive: MonoDestructive.solid,
+    destructiveForeground: Mono.white,
     border: border,
-    input: d4,
-    ring: greenMedium,
-    chart1: blue,
-    chart2: const Color(0xFF21B568), // --green
-    chart3: const Color(0xFFF8AA4B), // --orange
-    chart4: const Color(0xFF54D2D2), // --teal
-    chart5: const Color(0xFFAF5FFF), // --purple
+    input: forms,
+    ring: Mono.white, // focus ring: white
+    chart1: Mono.white,
+    chart2: Mono.grey300,
+    chart3: Color(0xFF8C8C8C),
+    chart4: Color(0xFF666666),
+    chart5: Color(0xFF4D4D4D),
   );
 }
 
-/// Termius's light palette: the `--light-grey` ladder.
+/// The light scheme: the same ramp inverted around paper white.
 ColorScheme termiusLightScheme() {
-  const l1 = Color(0xFF798C94); // --light-grey-1
-  const l6 = Color(0xFFEDF1F2); // --surface-base
-  const l7 = Color(0xFFF7F9FA); // --surface-high
-  const d1 = Color(0xFF141729); // --text-primary (light mode)
-  final border = l1.withValues(alpha: 0.25);
+  const text = Mono.paperText;
+  final border = text.withValues(alpha: 0.16);
+  final hover = text.withValues(alpha: 0.06);
   return ColorScheme(
     brightness: Brightness.light,
-    background: l6,
-    foreground: d1,
-    card: l7,
-    cardForeground: d1,
-    popover: l7,
-    popoverForeground: d1,
-    primary: const Color(0xFF2091F6),
-    primaryForeground: Colors.white,
-    secondary: Colors.white,
-    secondaryForeground: d1,
-    muted: l1.withValues(alpha: 0.10),
-    mutedForeground: l1,
-    accent: l1.withValues(alpha: 0.10),
-    accentForeground: d1,
-    destructive: const Color(0xFFF25E61),
+    background: Mono.paperBase,
+    foreground: text,
+    card: Mono.paperCard,
+    cardForeground: text,
+    popover: Mono.paperCard,
+    popoverForeground: text,
+    primary: text, // accent = black; primary buttons: black on white
+    primaryForeground: Mono.paperCard,
+    secondary: Mono.paperCard,
+    secondaryForeground: text,
+    muted: hover,
+    mutedForeground: Mono.paperGrey,
+    accent: hover,
+    accentForeground: text,
+    destructive: MonoDestructive.solid,
     destructiveForeground: Colors.white,
     border: border,
-    input: Colors.white,
-    ring: const Color(0xFF00CC74),
-    chart1: const Color(0xFF2091F6),
-    chart2: const Color(0xFF21B568),
-    chart3: const Color(0xFFF8AA4B),
-    chart4: const Color(0xFF54D2D2),
-    chart5: const Color(0xFFAF5FFF),
+    input: Mono.paperCard,
+    ring: text,
+    chart1: text,
+    chart2: Color(0xFF555555),
+    chart3: Color(0xFF777777),
+    chart4: Color(0xFF999999),
+    chart5: Color(0xFFBBBBBB),
   );
 }
 
-/// Radius slots straight from the Termius scale (design-tokens.md §4): the
-/// theme's multiplier is left at 0.5 and these constants are used at the call
-/// sites, so a card says `TermiusRadius.card` and the number is the spec's,
-/// not a multiplier's byproduct.
+/// Radius slots from the original scale: the theme's multiplier is left at
+/// 0.5 and these constants are used at the call sites, so a card says
+/// `TermiusRadius.card` and the number is the spec's, not a multiplier's
+/// byproduct.
 class TermiusRadius {
-  static const double menu = 6; // --corner-radius-small-increased
-  static const double card = 8; // --corner-radius-small-medium (icon chips)
-  static const double field = 10; // --corner-radius-medium (inputs, tabs)
-  static const double cardLarge = 15; // --corner-radius-large (host cards)
-  static const double pill = 1000; // --corner-radius-full
+  static const double menu = 6;
+  static const double card = 8;
+  static const double field = 10;
+  static const double cardLarge = 15;
+  static const double pill = 1000;
 }
 
-/// Termius metric constants extracted verbatim from its bundles
-/// (docs/termius/design-tokens.md §4 and the component style dumps).
+/// Layout metric constants (design-tokens.md §4).
 abstract final class TermiusMetrics {
-  /// --header-height: the search+Connect row's height.
+  /// The search+Connect row's height.
   static const double headerHeight = 56;
 
-  /// The search field's inner height and its dark fill (--dark-grey-5).
+  /// The search field's inner height and its dark fill.
   static const double searchFieldHeight = 36;
-  static const Color searchFieldFill = Color(0xFF3E4257);
+  static const Color searchFieldFill = Mono.black500;
 
   /// HostsFiltersHeader: height 45, padding 4/12, gap 15.
   static const double toolbarHeight = 45;
@@ -115,7 +138,19 @@ abstract final class TermiusMetrics {
   static const double gridCardWidth = 430;
 }
 
-/// Duration/easing slots from Termius's MUI theme (design-tokens.md §5).
+/// Brightness-aware strip colors: the titlebar/tabs bar sits one step off
+/// the content surface in both modes.
+Color termiusTitleBarColor(Brightness brightness) =>
+    brightness == Brightness.dark
+        ? Mono.black950
+        : const Color(0xFFF2F2F2);
+
+Color termiusTitleBarBorderColor(Brightness brightness) =>
+    brightness == Brightness.dark
+        ? const Color(0xFF262626)
+        : Mono.paperText.withValues(alpha: 0.12);
+
+/// Duration/easing slots (MUI-derived, unchanged by the retheme).
 abstract final class TermiusMotion {
   /// MUI `shorter`: micro-feedback (color fades, hover reveals).
   static const Duration micro = Duration(milliseconds: 200);

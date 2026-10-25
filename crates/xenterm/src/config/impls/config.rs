@@ -96,7 +96,7 @@ static PINNED_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 mod profile;
 #[path = "profile_preflight.rs"]
 mod profile_preflight;
-pub use profile::{configure_profile, has_explicit_data_dir};
+pub use profile::{configure_profile, configure_profile_from_env, has_explicit_data_dir};
 
 /// The single directory holding all user data (sessions, encryption key,
 /// known_hosts, error.log). Resolved once and cached; any one-time migration
@@ -1099,6 +1099,15 @@ impl ConfigStore {
 
     pub fn set_download_dir(&mut self, dir: String) {
         self.cache.download_dir = dir;
+    }
+
+    /// Whether terminal transcripts are recorded under `<data>/session_logs`.
+    pub fn session_logs(&self) -> bool {
+        self.cache.session_logs
+    }
+
+    pub fn set_session_logs(&mut self, enabled: bool) {
+        self.cache.session_logs = enabled;
     }
 
     /// UI language code ("zh" default / "en").

@@ -1,89 +1,76 @@
-import 'package:flutter/material.dart' as material;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/main.dart';
 import 'package:xenterm_app/theme/app_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('the shell mounts with the hosts screen showing', (tester) async {
-    await tester.pumpWidget(const XenTermApp());
-    expect(find.text('主机'), findsWidgets);
+    await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
+    await tester.pumpAndSettle();
+    expect(find.text('Home'), findsWidgets);
     // The toolbar's button and the grid's tail card both say it.
-    expect(find.text('新建主机'), findsWidgets);
+    expect(find.text('New host'), findsWidgets);
   });
 
   testWidgets('a host opens the terminal preview and can be closed', (
     tester,
   ) async {
-    await tester.pumpWidget(const XenTermApp());
+    await tester.pumpWidget(XenTermApp(hostsLoader: () async => kSampleHosts));
+    await tester.pumpAndSettle();
+    // A plain card click connects immediately.
     await tester.tap(find.text('gateway-test02'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('连接').first);
+    expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
+    // The desktop tools panel is live: search + session controls.
+    expect(find.byKey(const ValueKey('terminal-search')), findsOneWidget);
+    expect(find.byKey(const ValueKey('terminal-size-up')), findsOneWidget);
+    // The session tab lives in the title bar; its × closes the terminal.
+    await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
     await tester.pumpAndSettle();
-    expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-    expect(find.text('Vault'), findsOneWidget);
-    final keysList = find.byType(ListView).last;
-    await tester.scrollUntilVisible(
-      find.text('^P'),
-      180,
-      scrollable: find
-          .descendant(of: keysList, matching: find.byType(Scrollable))
-          .first,
-    );
-    expect(find.text('^X'), findsOneWidget);
-    expect(find.text('^P'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('terminal-snippets-tab')));
-    await tester.pumpAndSettle();
-    expect(find.text('apt update'), findsWidgets);
-    await tester.tap(find.byIcon(material.Icons.close).first);
-    await tester.pumpAndSettle();
-    expect(find.text('新建主机'), findsWidgets);
+    expect(find.text('New host'), findsWidgets);
   });
 
   testWidgets(
     'SFTP preview opens once, switches tabs, and closes independently',
     (tester) async {
-      await tester.pumpWidget(const XenTermApp());
-      await tester.tap(find.text('gateway-test02'));
+      await tester.pumpWidget(
+        XenTermApp(hostsLoader: () async => kSampleHosts),
+      );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('连接').first);
+      // The hover pencil opens the details drawer (edit path).
+      await tester.tap(find.byKey(const ValueKey('edit-gw2')));
+      await tester.pumpAndSettle();
+      expect(find.text('Host Details'), findsOneWidget);
+      await tester.tap(find.text('Connect').last);
       await tester.pumpAndSettle();
 
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('open-sftp')));
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
       expect(find.text('SFTP · gateway-test02'), findsOneWidget);
-      expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('terminal-snippets-tab')),
-        findsOneWidget,
-      );
+      expect(find.text('SFTP · gateway-test02'), findsOneWidget);
+      expect(find.byKey(const ValueKey('terminal-view')), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('open-sftp')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('terminal-tab')));
-      await tester.pumpAndSettle();
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('sftp-tab')));
       await tester.pumpAndSettle();
-      expect(find.text('UI 预览 · 尚未连接到服务器'), findsOneWidget);
+      expect(find.byKey(const ValueKey('sftp-tab')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tab-gw2')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('sftp-tab')));
+      await tester.pumpAndSettle();
+      expect(find.text('SFTP · gateway-test02'), findsOneWidget);
 
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('sftp-tab')),
-          matching: find.byIcon(material.Icons.close),
-        ),
-      );
+      await tester.tap(find.byKey(const ValueKey('tab-gw2')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('sftp-tab')), findsNothing);
-      expect(find.text('SSH 连接预览 · 尚未连接到服务器'), findsOneWidget);
-      await tester.tap(find.byIcon(material.Icons.close).first);
+      expect(find.byKey(const ValueKey('terminal-view')), findsOneWidget);
+      // The session tab's × in the title bar ends the whole workspace.
+      await tester.tap(find.byKey(const ValueKey('tab-close-gw2')));
       await tester.pumpAndSettle();
-      expect(find.text('新建主机'), findsWidgets);
+      expect(find.text('New host'), findsWidgets);
     },
   );
 
@@ -93,15 +80,18 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final fonts = AppFonts();
     addTearDown(fonts.dispose);
-    await tester.pumpWidget(XenTermApp(fonts: fonts));
-    await tester.tap(find.text('设置'));
+    await tester.pumpWidget(
+      XenTermApp(fonts: fonts, hostsLoader: () async => kSampleHosts),
+    );
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    expect(find.text('界面字体'), findsOneWidget);
-    expect(find.text('SSH 界面字体'), findsOneWidget);
-    expect(find.text('导入字体（TTF/OTF）'), findsOneWidget);
-    await tester.ensureVisible(find.text('SSH 界面字体'));
+    expect(find.text('Terminal settings'), findsOneWidget);
+    expect(find.text('Font'), findsWidgets);
+    expect(find.text('Text Size'), findsWidgets);
+    final plus = find.byKey(const ValueKey('terminal-plus'));
+    await tester.ensureVisible(plus);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('+').last);
+    await tester.tap(plus);
     await tester.pumpAndSettle();
     expect(fonts.terminalSize, 16);
     expect(fonts.uiSize, 14);

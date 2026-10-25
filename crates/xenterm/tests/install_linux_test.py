@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Isolated installer fixtures; run with python3 tests/install_linux_test.py.
+"""Isolated installer fixtures; run with
+python3 crates/xenterm/tests/install_linux_test.py from the repository root.
 
 Only a fake binary is installed, and every install destination is checked to be
 inside TemporaryDirectory. sudo and cache tools are stubs; no real sudo, app,
@@ -18,7 +19,9 @@ import textwrap
 import unittest
 
 
-REPO = Path(__file__).resolve().parents[1]
+# crates/xenterm/tests/file -> repository root (assets/ lives there). The file
+# used to sit in a top-level tests/ directory before the workspace move.
+REPO = Path(__file__).resolve().parents[3]
 BASH = shutil.which("bash")
 INSTALL = shutil.which("install")
 VALIDATOR = shutil.which("desktop-file-validate")

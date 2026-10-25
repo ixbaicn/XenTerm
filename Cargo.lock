@@ -4895,6 +4895,8 @@ dependencies = [
 name = "xenterm-bridge"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+ "tokio",
  "xenterm",
 ]
 

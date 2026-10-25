@@ -1727,7 +1727,7 @@ async fn run_session(
     // The GPU pass rides the same loop (#87): one `nvidia-smi` per sample,
     // and an explicit `__GPU_NOSMI__` when the host cannot answer — the
     // panel then says "unavailable" instead of quietly showing nothing.
-    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __GPU__; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null || echo __GPU_NOSMI__; echo __MSTICK__; sleep 2; done\n";
+    const MON_CMD: &[u8] = b"PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH; while :; do awk '/^cpu /{print}' /proc/stat; awk '/^(MemTotal|MemAvailable|SwapTotal|SwapFree|Buffers|Cached):/{print}' /proc/meminfo; cat /proc/net/dev; echo __DF__; df -kP 2>/dev/null; echo __GPU__; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null || echo __GPU_NOSMI__; echo __OS__; { . /etc/os-release 2>/dev/null; echo ID=${ID:-}; }; uname -s 2>/dev/null; echo __MSTICK__; sleep 2; done\n";
     // Detailed system information is intentionally one-shot and last priority.
     // It includes commands such as lspci/hostname that may be slow on some hosts
     // and must never delay either the terminal or the lightweight sidebar sample.
@@ -1738,6 +1738,7 @@ async fn run_session(
     let mut mon_channel: Option<Channel<Msg>> = None;
     let mut mon_buf = String::new();
     let mut sys_buf = String::new();
+    let mut last_remote_os = String::new();
     let mut prev_cpu: Option<(u64, u64)> = None; // (total jiffies, idle jiffies)
     let mut prev_net: std::collections::HashMap<String, (u64, u64)> =
         std::collections::HashMap::new(); // iface -> (rx_bytes, tx_bytes)
@@ -2246,6 +2247,12 @@ async fn run_session(
                                 .trim_start_matches(['\r', '\n'])
                                 .to_string();
                             mon_buf = rest;
+                            if let Some(os) = parse_remote_os(&block) {
+                                if os != last_remote_os {
+                                    last_remote_os = os.clone();
+                                    let _ = events.send(SessionEvent::RemoteOs(os));
+                                }
+                            }
                             if let Some(stats) = parse_monitor_block(
                                 &block,
                                 &mut prev_cpu,
@@ -2401,6 +2408,65 @@ fn send_monitor_state(
     let _ = events.send(SessionEvent::ResourceMonitorStatus {
         state,
     });
+}
+
+/// OS identity from the monitor sample's `__OS__` section: the distro `ID`
+/// from `/etc/os-release` when Linux, otherwise the `uname -s` family.
+fn parse_remote_os(block: &str) -> Option<String> {
+    const MAX_LEN: usize = 32;
+    let mut id = String::new();
+    let mut uname = String::new();
+    let mut in_os = false;
+    for line in block.lines() {
+        let line = line.trim();
+        if line == "__OS__" {
+            in_os = true;
+            continue;
+        }
+        if !in_os {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("ID=") {
+            id = value
+                .trim_matches('"')
+                .trim()
+                .to_ascii_lowercase()
+                .chars()
+                .take(MAX_LEN)
+                .collect();
+        } else if !line.is_empty() && !line.contains('=') {
+            uname = line
+                .to_ascii_lowercase()
+                .chars()
+                .take(MAX_LEN)
+                .collect();
+            break;
+        }
+    }
+    match id.as_str() {
+        // Distros whose brand icon exists (plus common Linux families).
+        "debian" | "ubuntu" | "arch" | "alpine" | "fedora" | "centos" | "rhel" | "rocky"
+        | "almalinux" | "opensuse" | "suse" | "linuxmint" | "kali" => Some(id),
+        _ => {
+            if uname.contains("darwin") {
+                Some("macos".into())
+            } else if uname.contains("mingw")
+                || uname.contains("cygwin")
+                || uname.contains("msys")
+                || uname.contains("windows")
+            {
+                Some("windows".into())
+            } else if uname.contains("android") {
+                Some("android".into())
+            } else if !uname.is_empty() {
+                Some("linux".into())
+            } else if !id.is_empty() {
+                Some("linux".into())
+            } else {
+                None
+            }
+        }
+    }
 }
 
 /// Parse one monitor sample (a block of `/proc/stat` cpu line + `/proc/meminfo`
@@ -3455,9 +3521,34 @@ mod osc_command_tests {
 
 #[cfg(test)]
 mod monitor_hardening_tests {
-    use super::{parse_df_line, parse_monitor_block, parse_process_block};
+    use super::{
+        parse_df_line, parse_monitor_block, parse_process_block, parse_remote_os,
+    };
     use std::collections::HashMap;
     use std::time::Instant;
+
+    #[test]
+    fn remote_os_is_read_from_os_release_and_uname() {
+        let debian = "__GPU__\n__OS__\nID=debian\nLinux\n";
+        assert_eq!(parse_remote_os(debian).as_deref(), Some("debian"));
+
+        // Quoted ID and spaces around the value are tolerated.
+        assert_eq!(
+            parse_remote_os("__OS__\nID=\"ubuntu\"\nLinux\n").as_deref(),
+            Some("ubuntu")
+        );
+
+        // No os-release (macOS / BSD): uname decides.
+        assert_eq!(
+            parse_remote_os("__OS__\nID=\nDarwin\n").as_deref(),
+            Some("macos")
+        );
+        assert_eq!(
+            parse_remote_os("__OS__\nID=\nLinux\n").as_deref(),
+            Some("linux")
+        );
+        assert_eq!(parse_remote_os("no marker here").as_deref(), None);
+    }
 
     #[test]
     fn df_line_saturates_instead_of_overflowing() {

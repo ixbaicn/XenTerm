@@ -1,8 +1,8 @@
 # 发布到 AUR（xenterm-bin）
 
 仓库里已经备好 `PKGBUILD` 和发布工作流 `.github/workflows/aur-publish.yml`，
-走的是 **-bin 二进制包**：直接安装 GitHub Release 里预编译好的 Linux tar.gz，
-Arch 用户不用自己编译 Rust + GPUI。
+走的是 **-bin 二进制包**：直接安装 GitHub Release 里预编译好的桌面包（Flutter UI + Rust 核心），
+Arch 用户不用自己编译 Rust + Flutter。
 
 剩下的几步只能你来做（涉及你的 AUR 账号身份）。配好之后，**以后每次发 Release
 就会自动同步到 AUR**。

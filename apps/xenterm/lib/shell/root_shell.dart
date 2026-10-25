@@ -1,9 +1,7 @@
-/// The root shell: Termius's two-column spine — the labeled nav rail (~180px,
-/// navigation only) and the content area. SFTP and Vaults anchor the rail's
-/// bottom, as in the original (design-tokens.md §6).
+/// The root shell: Termius's two-column spine — the labeled nav rail (~182px,
+/// --dark-grey-3 surface) and the content area. The rail carries the screens;
+/// Settings anchors its bottom, as the original keeps app-wide actions apart.
 library;
-
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart' as material;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -11,11 +9,17 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../theme/termius_theme.dart';
 import 'title_bar.dart';
 import '../screens/hosts/hosts_screen.dart';
+import '../screens/forwards/forwards_screen.dart';
+import '../screens/known_hosts/known_hosts_screen.dart';
+import '../widgets/lucide_extra_icons.dart';
+import '../screens/snippets/snippets_screen.dart';
 import '../screens/keychain/keychain_screen.dart';
 import '../screens/logs/logs_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/terminal/terminal_screen.dart';
 import '../data/hosts.dart';
+import '../terminal/core_settings.dart';
+import '../terminal/terminal_command_bus.dart';
 import '../theme/app_fonts.dart';
 
 enum NavDestination {
@@ -28,19 +32,23 @@ enum NavDestination {
   settings,
 }
 
-// Keychain 与 Logs 已按原版截图实现（screens/keychain, screens/logs）；
-// forwards/snippets/knownHosts 仍为占位，等桥接数据。
+// Every rail screen is backed by real core data (sessions, quick commands,
+// known hosts, forwards, keys, transcripts, settings).
 
 class RootShell extends StatefulWidget {
   final bool lightTheme;
   final ValueChanged<bool> onThemeChanged;
   final AppFonts fonts;
+  final CoreSettingsController settings;
+  final Future<List<Host>> Function()? hostsLoader;
 
   const RootShell({
     super.key,
     required this.lightTheme,
     required this.onThemeChanged,
     required this.fonts,
+    required this.settings,
+    this.hostsLoader,
   });
 
   @override
@@ -49,20 +57,63 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   NavDestination _active = NavDestination.hosts;
-  Host? _terminalHost;
-  double _navRailWidth = 200;
+  final List<Host> _openHosts = <Host>[];
+  String? _activeHostId;
+  bool _terminalSftp = false;
+  bool _railOpen = true;
+  final TerminalCommandBus _commands = TerminalCommandBus();
+  final ValueNotifier<int> _newHostRequest = ValueNotifier<int>(0);
 
-  static const double _dividerHitWidth = 8;
-  static const double _minContentWidth = 320;
+  void _openHost(Host host) {
+    setState(() {
+      if (!_openHosts.any((h) => h.id == host.id)) _openHosts.add(host);
+      _activeHostId = host.id;
+      // The terminal gets the full width; the hamburger brings the rail back
+      // (the original's terminal window opens with the side menu collapsed).
+      _railOpen = false;
+    });
+  }
+
+  /// The title bar's + opens a fresh editor on the Hosts screen.
+  void _requestNewHost() {
+    setState(() {
+      _active = NavDestination.hosts;
+      _activeHostId = null;
+      _terminalSftp = false;
+    });
+    // HostsScreen may be built by this same frame; notify after it mounts.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _newHostRequest.value++;
+    });
+  }
+
+  @override
+  void dispose() {
+    _newHostRequest.dispose();
+    _commands.dispose();
+    super.dispose();
+  }
+
+  void _closeHost(String id) {
+    setState(() {
+      _openHosts.removeWhere((h) => h.id == id);
+      if (_activeHostId == id) {
+        _activeHostId = null;
+        _terminalSftp = false;
+        if (_openHosts.isEmpty) _railOpen = true;
+      }
+    });
+  }
+
+  static const double _navRailWidth = 182;
 
   static const List<(NavDestination, String, IconData)> _destinations = [
-    (NavDestination.hosts, '主机', BootstrapIcons.hddRack),
-    (NavDestination.keys, '密钥', BootstrapIcons.key),
-    (NavDestination.forwards, '端口转发', BootstrapIcons.shuffle),
-    (NavDestination.snippets, '快捷命令', BootstrapIcons.lightning),
-    (NavDestination.knownHosts, '已知主机', BootstrapIcons.shieldCheck),
-    (NavDestination.logs, '日志', BootstrapIcons.clockHistory),
-    (NavDestination.settings, '设置', material.Icons.settings_outlined),
+    (NavDestination.hosts, 'Home', LucideIcons.server),
+    (NavDestination.keys, 'Keychain', LucideIcons.keyRound),
+    (NavDestination.forwards, 'Tunnels', LucideIcons.arrowLeftRight),
+    (NavDestination.snippets, 'Snippets', LucideIcons.braces),
+    (NavDestination.knownHosts, 'Known Hosts', LucideIcons.shieldCheck),
+    (NavDestination.logs, 'Logs', LucideIcons.circleAlert),
   ];
 
   @override
@@ -73,65 +124,77 @@ class _RootShellState extends State<RootShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const TitleBar(),
+          TitleBar(
+            openHosts: _openHosts,
+            activeHostId: _activeHostId,
+            onSelectHost: (id) => setState(() {
+              _activeHostId = id;
+              _terminalSftp = false;
+            }),
+            onCloseHost: _closeHost,
+            onNewTab: _requestNewHost,
+            showSftp: _terminalSftp,
+            onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
+            onToggleSidebar: () => setState(() => _railOpen = !_railOpen),
+          ),
           Expanded(
-            child: _terminalHost != null
-                ? TerminalScreen(
-                    host: _terminalHost!,
-                    onClose: () => setState(() => _terminalHost = null),
-                    fonts: widget.fonts,
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      final maxRailWidth = math.max(
-                        0.0,
-                        math.min(
-                          400.0,
-                          constraints.maxWidth -
-                              _dividerHitWidth -
-                              _minContentWidth,
-                        ),
-                      );
-                      final minRailWidth = math.min(160.0, maxRailWidth);
-                      final railWidth = _navRailWidth.clamp(
-                        minRailWidth,
-                        maxRailWidth,
-                      );
-                      return Row(
-                        children: [
-                          _NavRail(
-                            width: railWidth,
-                            active: _active,
-                            destinations: _destinations,
-                            onSelect: (d) => setState(() => _active = d),
-                          ),
-                          MouseRegion(
-                            cursor: SystemMouseCursors.resizeColumn,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onHorizontalDragUpdate: (details) {
-                                setState(() {
-                                  _navRailWidth = (railWidth + details.delta.dx)
-                                      .clamp(minRailWidth, maxRailWidth);
-                                });
-                              },
-                              child: SizedBox(
-                                width: _dividerHitWidth,
-                                height: double.infinity,
-                                child: Center(
-                                  child: Container(
-                                    width: 1,
-                                    color: theme.colorScheme.border,
-                                  ),
-                                ),
-                              ),
+            child: Row(
+              children: [
+                // Collapsible rail: fixed-width content clipped by an
+                // animated 0⇄182px box (no squashing mid-animation).
+                ClipRect(
+                  child: AnimatedContainer(
+                    duration: TermiusMotion.micro,
+                    curve: TermiusMotion.easeOut,
+                    width: _railOpen ? _navRailWidth : 0,
+                    child: OverflowBox(
+                      alignment: Alignment.centerLeft,
+                      minWidth: _navRailWidth,
+                      maxWidth: _navRailWidth,
+                      child: _NavRail(
+                        width: _navRailWidth,
+                        active: _active,
+                        destinations: _destinations,
+                        onSelect: (d) => setState(() {
+                          _active = d;
+                          // Choosing a screen in the rail parks the session
+                          // tabs; clicking a tab in the title bar brings them
+                          // back.
+                          _activeHostId = null;
+                          _terminalSftp = false;
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  // Every open workspace stays mounted (offstage when not in
+                  // front), so switching session tabs never reconnects and
+                  // background PTYs keep running.
+                  child: Stack(
+                    children: [
+                      for (final host in _openHosts)
+                        Positioned.fill(
+                          child: Offstage(
+                            offstage: host.id != _activeHostId,
+                            child: TerminalScreen(
+                              key: ValueKey('workspace-${host.id}'),
+                              host: host,
+                              fonts: widget.fonts,
+                              settings: widget.settings,
+                              showSftp:
+                                  host.id == _activeHostId && _terminalSftp,
+                              commandBus: _commands,
                             ),
                           ),
-                          Expanded(child: _screenFor(_active)),
-                        ],
-                      );
-                    },
+                        ),
+                      if (_activeHostId == null)
+                        Positioned.fill(child: _screenFor(_active)),
+                    ],
                   ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -141,7 +204,9 @@ class _RootShellState extends State<RootShell> {
   Widget _screenFor(NavDestination destination) {
     return switch (destination) {
       NavDestination.hosts => HostsScreen(
-        onConnect: (host) => setState(() => _terminalHost = host),
+        onConnect: _openHost,
+        loadHosts: widget.hostsLoader,
+        newHostRequest: _newHostRequest,
       ),
       NavDestination.keys => const KeychainScreen(),
       NavDestination.logs => const LogsScreen(),
@@ -149,23 +214,17 @@ class _RootShellState extends State<RootShell> {
         lightTheme: widget.lightTheme,
         onThemeChanged: widget.onThemeChanged,
         fonts: widget.fonts,
+        settings: widget.settings,
       ),
-      // Placeholder until the bridge exposes each area's data; the rail is
-      // honest about what exists, so these name their screen and wait.
-      _ => _PlaceholderScreen(
-        title: switch (destination) {
-          NavDestination.forwards => '端口转发',
-          NavDestination.snippets => '快捷命令',
-          NavDestination.knownHosts => '已知主机',
-          _ => '?',
-        },
-      ),
+      NavDestination.forwards => const ForwardsScreen(),
+      NavDestination.snippets => const SnippetsScreen(),
+      NavDestination.knownHosts => const KnownHostsScreen(),
     };
   }
 }
 
-/// The labeled nav rail, ~180px, entries 32px tall with 13px labels — the
-/// original's compact scale. SFTP / Vaults pin to the bottom.
+/// The labeled nav rail on the --dark-grey-3 surface: 36px entries with 15px
+/// labels, selected = --dark-grey-5 chip. Settings sits at the bottom.
 class _NavRail extends StatelessWidget {
   final double width;
   final NavDestination active;
@@ -181,37 +240,39 @@ class _NavRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       width: width,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      color: const Color(0xFF1B1B1B), // --dark-grey-3 chrome surface
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final (destination, title, icon) in destinations)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: _RailItem(
-                icon: icon,
-                label: title,
-                selected: destination == active,
-                onTap: () => onSelect(destination),
-              ),
+            _RailItem(
+              icon: icon,
+              glyphBuilder: switch (destination) {
+                NavDestination.knownHosts => (
+                  size,
+                  color,
+                ) => FingerprintPatternIcon(size: size, color: color),
+                NavDestination.logs => (size, color) => ClipboardClockIcon(
+                  size: size,
+                  color: color,
+                ),
+                _ => null,
+              },
+              label: title,
+              selected: destination == active,
+              onTap: () => onSelect(destination),
             ),
           const Spacer(),
-          Divider(height: 1, color: theme.colorScheme.border),
+          const Divider(height: 1, color: Color(0xFF111111)),
           const SizedBox(height: 4),
           _RailItem(
-            icon: BootstrapIcons.folder2Open,
-            label: 'SFTP',
-            selected: false,
-            onTap: () {},
-          ),
-          _RailItem(
-            icon: BootstrapIcons.cloudFill,
-            label: 'Vaults',
-            selected: false,
-            onTap: () {},
+            icon: material.Icons.settings_outlined,
+            label: 'Settings',
+            selected: active == NavDestination.settings,
+            onTap: () => onSelect(NavDestination.settings),
           ),
         ],
       ),
@@ -221,12 +282,16 @@ class _NavRail extends StatelessWidget {
 
 class _RailItem extends StatefulWidget {
   final IconData icon;
+
+  /// Overrides the font glyph (for icons newer than the bundled set).
+  final Widget Function(double size, Color color)? glyphBuilder;
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
   const _RailItem({
     required this.icon,
+    this.glyphBuilder,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -242,11 +307,10 @@ class _RailItemState extends State<_RailItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Selected = the --list-select grey chip (--dark-grey-4 on the dark
-    // theme) with primary text; hover = --list-hover (--dark-grey-5).
+    // Selected = --dark-grey-5 chip with primary text; hover = --dark-grey-4.
     final background = widget.selected
-        ? theme.colorScheme.secondary
-        : (_hovering ? theme.colorScheme.accent : Colors.transparent);
+        ? const Color(0xFF3A3A3A)
+        : (_hovering ? const Color(0xFF2E2E2E) : Colors.transparent);
     final foreground = widget.selected
         ? theme.colorScheme.foreground
         : theme.colorScheme.mutedForeground;
@@ -260,16 +324,17 @@ class _RailItemState extends State<_RailItem> {
         child: AnimatedContainer(
           duration: TermiusMotion.micro,
           curve: TermiusMotion.easeOut,
-          height: 44,
+          height: 36,
           margin: const EdgeInsets.only(bottom: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
             color: background,
-            borderRadius: BorderRadius.circular(TermiusRadius.menu),
+            borderRadius: BorderRadius.circular(TermiusRadius.card),
           ),
           child: Row(
             children: [
-              Icon(widget.icon, size: 16, color: foreground),
+              widget.glyphBuilder?.call(16, foreground) ??
+                  Icon(widget.icon, size: 16, color: foreground),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -285,33 +350,6 @@ class _RailItemState extends State<_RailItem> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(title, style: theme.typography.semiBold.copyWith(fontSize: 22)),
-          const SizedBox(height: 8),
-          Text(
-            '等待 Rust 桥接（docs/flutter-bridge.md）',
-            style: theme.typography.normal.copyWith(
-              fontSize: 14,
-              color: theme.colorScheme.mutedForeground,
-            ),
-          ),
-        ],
       ),
     );
   }

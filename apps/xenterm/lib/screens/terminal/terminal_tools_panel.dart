@@ -1,494 +1,522 @@
-import 'package:flutter/material.dart' as material;
+import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
-import '../../theme/termius_theme.dart';
+import '../../bridge/native_bridge.dart';
 import '../../theme/app_fonts.dart';
+import '../../theme/termius_field.dart';
+import '../../theme/termius_theme.dart';
 
-enum _ToolsTab { keys, snippets, history, appearance }
-
-/// Right-hand tools from the reference screenshots. TODO(ffi/terminal): wire
-/// keys to PTY input, snippets/history to stored session data, and appearance
-/// to terminal rendering preferences. These controls preview layout only.
-class TerminalToolsPanel extends StatefulWidget {
+/// The desktop terminal's right-hand tools: live search over the visible
+/// buffer, session status, font size, and real actions on the running PTY.
+/// No placeholder controls — everything here acts on the live session.
+class TerminalToolsPanel extends StatelessWidget {
   final AppFonts fonts;
-  const TerminalToolsPanel({super.key, required this.fonts});
+  final Map<String, dynamic>? screen;
+  final String search;
+  final FocusNode? searchFocus;
+  final int matchCount;
+  final ValueChanged<String> onSearch;
+  final VoidCallback onClear;
+  final VoidCallback onCopy;
+  final VoidCallback onReconnect;
+  final List<QuickCommand> snippets;
+  final ValueChanged<QuickCommand>? onRunSnippet;
 
-  @override
-  State<TerminalToolsPanel> createState() => _TerminalToolsPanelState();
-}
-
-class _TerminalToolsPanelState extends State<TerminalToolsPanel> {
-  _ToolsTab _active = _ToolsTab.keys;
-  String _search = '';
-  String _terminalTheme = 'Termius Dark';
-
-  static const _snippets = [
-    ('apt update', 'apt update'),
-    ('apt install cockpit', 'apt install cockpit'),
-    ('lsblk -f', 'lsblk -f'),
-  ];
-  // Representative UI-only examples; never expose real command histories.
-  static const _history = [
-    'cd',
-    'screen -ls',
-    'ps -ef',
-    'locale -a',
-    'ls -la',
-    'pwd',
-  ];
-  static const _themes = [
-    'Termius Dark',
-    'Termius Light',
-    'Flexoki Dark',
-    'Flexoki Light',
-    'Kanagawa Wave',
-    'Kanagawa Dragon',
-  ];
+  const TerminalToolsPanel({
+    super.key,
+    required this.fonts,
+    required this.screen,
+    required this.search,
+    this.searchFocus,
+    required this.matchCount,
+    required this.onSearch,
+    required this.onClear,
+    required this.onCopy,
+    required this.onReconnect,
+    this.snippets = const [],
+    this.onRunSnippet,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final closed = screen?['closed'] != null;
+    final status = closed
+        ? 'Disconnected'
+        : (screen == null ? 'Connecting…' : 'Connected');
     return Container(
-      margin: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: scheme.background,
-        borderRadius: BorderRadius.circular(20),
+      decoration: const BoxDecoration(
+        color: Color(0xFF111111),
+        border: Border(left: BorderSide(color: Color(0xFF1F1F1F))),
       ),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _tab(const _FourSquares(), _ToolsTab.keys, '快捷键'),
-                _tab(
-                  const Text(
-                    '{}',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                  _ToolsTab.snippets,
-                  '命令片段',
-                ),
-                _tab(
-                  const Icon(material.Icons.history, size: 19),
-                  _ToolsTab.history,
-                  '历史',
-                ),
-                _tab(
-                  const Icon(material.Icons.palette_outlined, size: 19),
-                  _ToolsTab.appearance,
-                  '外观',
-                ),
-                Container(height: 24, width: 1, color: scheme.border),
-                const Icon(
-                  material.Icons.keyboard_outlined,
-                  size: 19,
-                  color: Color(0xFF8D91A5),
-                ),
-              ],
+          TermiusField(
+            key: const ValueKey('terminal-search'),
+            focusNode: searchFocus,
+            onChanged: onSearch,
+            placeholder: 'Search terminal',
+            leading: Icon(
+              LucideIcons.search,
+              size: 14,
+              color: scheme.mutedForeground,
             ),
           ),
-          Expanded(
-            child: switch (_active) {
-              _ToolsTab.keys => _keysView(),
-              _ToolsTab.snippets => _commandsView(context, true),
-              _ToolsTab.history => _commandsView(context, false),
-              _ToolsTab.appearance => _appearanceView(context),
-            },
+          const SizedBox(height: 6),
+          Text(
+            search.trim().isEmpty
+                ? 'Ctrl+Shift+F'
+                : '$matchCount match${matchCount == 1 ? '' : 'es'} in view',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF8A8A8A)),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab(Widget icon, _ToolsTab tab, String label) {
-    final selected = _active == tab;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        key: ValueKey('terminal-${tab.name}-tab'),
-        onTap: () => setState(() {
-          _active = tab;
-          _search = '';
-        }),
-        child: Tooltip(
-          tooltip: (_) => Text(label),
-          child: Container(
-            width: 48,
-            height: 44,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? const Color(0xFF17443A) : Colors.transparent,
-              borderRadius: BorderRadius.circular(TermiusRadius.card),
-            ),
-            child: IconTheme(
-              data: IconThemeData(
-                color: selected
-                    ? const Color(0xFF21B568)
-                    : const Color(0xFF8D91A5),
-              ),
-              child: DefaultTextStyle(
-                style: TextStyle(
-                  color: selected
-                      ? const Color(0xFF21B568)
-                      : const Color(0xFF8D91A5),
-                ),
-                child: icon,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _keysView() {
-    const rows = <List<String>>[
-      ['shift+tab', 'ctrl', 'esc'],
-      ['←', '↑', '↓', '→'],
-      ['ctrl+B, %', 'ctrl+B, "'],
-      ['ctrl+B, O', 'ctrl+B, X'],
-      ['alt', 'tab', 'ins', 'del'],
-      ['home', 'pgUp', 'pgDn', 'end'],
-      ['|', '\\', '?', '-'],
-      ['|', ':', ';', '!'],
-      ['~', '@', r'$', '*'],
-      ['^', '%', '=', '`'],
-      ['<', '>', '(', ')'],
-      ['{', '}', '[', ']'],
-      ['F1', 'F2', 'F3', 'F4'],
-      ['F5', 'F6', 'F7', 'F8'],
-      ['F9', 'F10', 'F11', 'F12'],
-      ['^_', '^W', '^R', '^XX'],
-      ['^C', '^L', '^S', '^Z'],
-      ['^X', '^G', '^N', '^P'],
-    ];
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
-      children: [
-        _keyRow(['⚙ 自定义'], height: 38),
-        const SizedBox(height: 6),
-        _shortcutActions(),
-        for (final row in rows) _keyRow(row),
-      ],
-    );
-  }
-
-  Widget _shortcutActions() {
-    final scheme = Theme.of(context).colorScheme;
-    const icons = [
-      material.Icons.auto_fix_high,
-      material.Icons.key_outlined,
-      material.Icons.open_with,
-      material.Icons.attach_file,
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          for (var index = 0; index < icons.length; index++) ...[
-            if (index > 0) const SizedBox(width: 8),
-            Expanded(
-              child: Container(
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: scheme.card,
-                  borderRadius: BorderRadius.circular(TermiusRadius.menu),
-                ),
-                child: Icon(
-                  icons[index],
-                  size: 17,
-                  color: scheme.mutedForeground,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _keyRow(List<String> labels, {double height = 38}) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          for (var index = 0; index < labels.length; index++) ...[
-            if (index > 0) const SizedBox(width: 8),
-            Expanded(
-              child: Container(
-                height: height,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: scheme.card,
-                  borderRadius: BorderRadius.circular(TermiusRadius.menu),
-                ),
-                child: Text(
-                  labels[index],
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: scheme.mutedForeground),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _commandsView(BuildContext context, bool snippets) {
-    final scheme = Theme.of(context).colorScheme;
-    final commands = snippets
-        ? _snippets
-              .where(
-                (item) => item.$1.toLowerCase().contains(_search.toLowerCase()),
-              )
-              .map((item) => (item.$1, item.$2))
-              .toList()
-        : _history
-              .where(
-                (item) => item.toLowerCase().contains(_search.toLowerCase()),
-              )
-              .map((item) => (item, ''))
-              .toList();
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-          child: TextField(
-            key: ValueKey(_active),
-            onChanged: (value) => setState(() => _search = value),
-            placeholder: const Text('搜索'),
-          ),
-        ),
-        Expanded(
-          child: ListView(
+          const SizedBox(height: 18),
+          const _PanelLabel('SESSION'),
+          const SizedBox(height: 8),
+          Row(
             children: [
-              for (final item in commands)
-                Padding(
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: closed
+                      ? const Color(0xFFE5484D)
+                      : const Color(0xFFFFFFFF),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  status,
+                  style: TextStyle(fontSize: 13, color: scheme.foreground),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const _PanelLabel('SYSTEM'),
+          const SizedBox(height: 8),
+          _ResourceSection(
+            state: screen?['resourceState'] as String?,
+            sample: screen?['resource'] as Map<String, dynamic>?,
+          ),
+          const SizedBox(height: 18),
+          const _PanelLabel('SNIPPETS'),
+          const SizedBox(height: 8),
+          if (snippets.isEmpty)
+            Text(
+              'No saved snippets',
+              style: TextStyle(
+                fontSize: 12,
+                color: scheme.mutedForeground,
+              ),
+            )
+          else
+            for (final snippet in snippets.take(6))
+              GestureDetector(
+                key: ValueKey('terminal-snippet-${snippet.index}'),
+                onTap: () => onRunSnippet?.call(snippet),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B1B1B),
+                    borderRadius: BorderRadius.circular(7),
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: scheme.card,
-                          borderRadius: BorderRadius.circular(
-                            TermiusRadius.card,
-                          ),
-                        ),
-                        child: Icon(
-                          snippets
-                              ? material.Icons.code
-                              : material.Icons.history,
-                          size: 17,
-                          color: scheme.mutedForeground,
-                        ),
+                      Icon(
+                        LucideIcons.terminal,
+                        size: 13,
+                        color: scheme.mutedForeground,
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 7),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              item.$1,
+                              snippet.name,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 12,
                                 color: scheme.foreground,
                               ),
                             ),
-                            if (snippets)
-                              Text(
-                                item.$2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 12,
-                                  color: scheme.mutedForeground,
-                                ),
+                            const SizedBox(height: 1),
+                            Text(
+                              snippet.command,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'Consolas',
+                                fontFamilyFallback: const [
+                                  'Menlo',
+                                  'Courier New',
+                                ],
+                                fontSize: 11,
+                                color: scheme.mutedForeground,
                               ),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              if (snippets)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    '＋ 添加命令片段',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: scheme.mutedForeground,
-                    ),
-                  ),
+              ),
+          const SizedBox(height: 18),
+          const _PanelLabel('TERMINAL'),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Font size',
+                  style: TextStyle(fontSize: 13, color: Color(0xFFD4D4D4)),
                 ),
+              ),
+              _StepButton(
+                key: const ValueKey('terminal-size-down'),
+                label: '−',
+                onTap: () => fonts.setTerminalSize(fonts.terminalSize - 1),
+              ),
+              SizedBox(
+                width: 34,
+                child: Text(
+                  '${fonts.terminalSize.round()}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: scheme.foreground),
+                ),
+              ),
+              _StepButton(
+                key: const ValueKey('terminal-size-up'),
+                label: '+',
+                onTap: () => fonts.setTerminalSize(fonts.terminalSize + 1),
+              ),
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _PanelAction(
+                  icon: LucideIcons.copy,
+                  label: 'Copy',
+                  onTap: onCopy,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _PanelAction(
+                  icon: LucideIcons.eraser,
+                  label: 'Clear',
+                  onTap: onClear,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _PanelAction(
+            icon: LucideIcons.refreshCw,
+            label: 'Reconnect',
+            onTap: onReconnect,
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _appearanceView(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text('字号', style: TextStyle(color: scheme.foreground)),
-            ),
-            _sizeButton(
-              '−',
-              () => widget.fonts.setTerminalSize(widget.fonts.terminalSize - 1),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                '${widget.fonts.terminalSize.round()}',
-                style: TextStyle(color: scheme.foreground),
-              ),
-            ),
-            _sizeButton(
-              '+',
-              () => widget.fonts.setTerminalSize(widget.fonts.terminalSize + 1),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(color: scheme.border),
-            borderRadius: BorderRadius.circular(TermiusRadius.field),
-          ),
-          child: Text(
-            '${widget.fonts.labelFor(widget.fonts.terminalFamily)}  ▾',
-            style: TextStyle(color: scheme.mutedForeground),
-          ),
-        ),
-        const SizedBox(height: 26),
-        Text(
-          '主题',
-          style: TextStyle(color: scheme.mutedForeground, fontSize: 15),
-        ),
-        const SizedBox(height: 10),
-        for (final name in _themes)
-          GestureDetector(
-            onTap: () => setState(() => _terminalTheme = name),
-            child: Container(
-              height: 68,
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: _terminalTheme == name
-                    ? scheme.card
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(TermiusRadius.card),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 76,
-                    height: 48,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: name.contains('Light')
-                          ? const Color(0xFFE6EBED)
-                          : const Color(0xFF141729),
-                      borderRadius: BorderRadius.circular(TermiusRadius.menu),
-                    ),
-                    child: Column(
-                      children: [
-                        Container(height: 4, color: const Color(0xFF21B568)),
-                        const SizedBox(height: 6),
-                        Container(height: 4, color: const Color(0xFF21B568)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      name,
-                      style: TextStyle(
-                        color: _terminalTheme == name
-                            ? const Color(0xFF21B568)
-                            : scheme.mutedForeground,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
+class _PanelLabel extends StatelessWidget {
+  final String text;
+  const _PanelLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.6,
+        color: Color(0xFF8A8A8A),
+      ),
     );
   }
+}
 
-  Widget _sizeButton(String label, VoidCallback onTap) {
-    final scheme = Theme.of(context).colorScheme;
+class _StepButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _StepButton({super.key, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 38,
-        height: 38,
+        width: 30,
+        height: 30,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: scheme.card,
-          borderRadius: BorderRadius.circular(TermiusRadius.card),
+          color: const Color(0xFF1B1B1B),
+          borderRadius: BorderRadius.circular(TermiusRadius.menu),
         ),
         child: Text(
           label,
-          style: TextStyle(color: scheme.mutedForeground, fontSize: 22),
+          style: const TextStyle(fontSize: 17, color: Color(0xFFD4D4D4)),
         ),
       ),
     );
   }
 }
 
-/// Four rounded squares match the shortcut tab glyph in the reference image.
-class _FourSquares extends StatelessWidget {
-  const _FourSquares();
+class _PanelAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _PanelAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final color = IconTheme.of(context).color;
-    return SizedBox(
-      width: 18,
-      height: 18,
-      child: Column(
-        children: [
-          for (var row = 0; row < 2; row++)
-            Expanded(
-              child: Row(
-                children: [
-                  for (var column = 0; column < 2; column++)
-                    Expanded(
-                      child: Container(
-                        margin: const EdgeInsets.all(1),
-                        decoration: BoxDecoration(
-                          color: color,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B1B1B),
+          borderRadius: BorderRadius.circular(TermiusRadius.menu),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: const Color(0xFFD4D4D4)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFD4D4D4)),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+/// Live remote resource sample from the SSH monitor channel.
+///
+/// Every state is stated rather than hidden: `waiting` while the auxiliary
+/// channel starts, `unsupported`/`unavailable` for hosts whose probe cannot
+/// answer, `stale` when a previously-good sample stopped updating.
+class _ResourceSection extends StatelessWidget {
+  final String? state;
+  final Map<String, dynamic>? sample;
+
+  const _ResourceSection({required this.state, required this.sample});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.mutedForeground;
+    final message = switch (state) {
+      'unsupported' => 'Not available on this host',
+      'unavailable' => 'No /proc stats from this host',
+      'paused' => 'Sampling paused',
+      'stale' => 'Last sample is stale',
+      'waiting' => 'Measuring…',
+      _ when sample == null => 'Measuring…',
+      _ => null,
+    };
+    if (message != null) {
+      return Text(
+        message,
+        key: const ValueKey('terminal-resource-empty'),
+        style: TextStyle(fontSize: 12, color: muted),
+      );
+    }
+    final data = sample!;
+    final cpu = (data['cpu_percent'] as num?)?.toDouble() ?? 0;
+    final cpuSampled = data['cpu_sampled'] == true;
+    final memUsed = ((data['mem_used_kib'] as num?)?.toDouble() ?? 0) / 1024;
+    final memTotal = ((data['mem_total_kib'] as num?)?.toDouble() ?? 0) / 1024;
+    final memFrac = memTotal <= 0 ? 0.0 : (memUsed / memTotal).clamp(0.0, 1.0);
+    final disks = (data['disks'] as List?) ?? const [];
+    final net = (data['net'] as List?) ?? const [];
+    final gpus = (data['gpus'] as List?) ?? const [];
+    final user = (data['user'] as String?) ?? '';
+
+    var rx = 0.0;
+    var tx = 0.0;
+    for (final row in net) {
+      if (row is Map) {
+        rx += (row['rx'] as num?)?.toDouble() ?? 0;
+        tx += (row['tx'] as num?)?.toDouble() ?? 0;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (user.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(user, style: TextStyle(fontSize: 12, color: muted)),
+          ),
+        _ResourceMeter(
+          key: const ValueKey('terminal-resource-cpu'),
+          label: 'CPU',
+          value: cpuSampled ? '${(cpu * 100).clamp(0, 100).round()}%' : '—',
+          fraction: cpuSampled ? cpu.clamp(0.0, 1.0) : 0,
+        ),
+        const SizedBox(height: 8),
+        _ResourceMeter(
+          key: const ValueKey('terminal-resource-memory'),
+          label: 'Memory',
+          value: memTotal > 0
+              ? '${_formatMib(memUsed)} / ${_formatMib(memTotal)}'
+              : '—',
+          fraction: memFrac,
+        ),
+        if (disks.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Builder(
+            builder: (context) {
+              final disk = disks.first as Map;
+              final total = (disk['total'] as num?)?.toDouble() ?? 0;
+              final available = (disk['available'] as num?)?.toDouble() ?? 0;
+              final frac = total <= 0
+                  ? 0.0
+                  : ((total - available) / total).clamp(0.0, 1.0);
+              return _ResourceMeter(
+                key: const ValueKey('terminal-resource-disk'),
+                label: (disk['path'] as String?) ?? 'Disk',
+                value: '${(frac * 100).round()}%',
+                fraction: frac,
+              );
+            },
+          ),
+        ],
+        if (net.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _ResourceMeter(
+            key: const ValueKey('terminal-resource-net'),
+            label: 'Network',
+            value: '↓ ${_formatRate(rx)}  ↑ ${_formatRate(tx)}',
+            fraction: 0,
+          ),
+        ],
+        if (gpus.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final gpu in gpus.take(2))
+            Padding(
+              key: const ValueKey('terminal-resource-gpu'),
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _ResourceMeter(
+                label: ((gpu as Map)['name'] as String?) ?? 'GPU',
+                value:
+                    '${(((gpu['util_percent'] as num?)?.toDouble() ?? 0)).round()}%'
+                    '${gpu['temp_c'] != null ? ' · ${gpu['temp_c']}°C' : ''}',
+                fraction:
+                    (((gpu['util_percent'] as num?)?.toDouble() ?? 0) / 100)
+                        .clamp(0.0, 1.0),
+              ),
+            ),
+        ] else if (data['gpu_unsupported'] == true) ...[
+          const SizedBox(height: 8),
+          Text(
+            'GPU: unavailable',
+            style: TextStyle(fontSize: 11, color: muted),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+String _formatMib(double mib) => mib >= 1024
+    ? '${(mib / 1024).toStringAsFixed(1)} GiB'
+    : '${mib.round()} MiB';
+
+String _formatRate(double bytes) => bytes >= 1024 * 1024
+    ? '${(bytes / 1024 / 1024).toStringAsFixed(1)} MiB/s'
+    : bytes >= 1024
+    ? '${(bytes / 1024).toStringAsFixed(1)} KiB/s'
+    : '${bytes.round()} B/s';
+
+class _ResourceMeter extends StatelessWidget {
+  final String label;
+  final String value;
+  final double fraction;
+
+  const _ResourceMeter({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.fraction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.mutedForeground;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.colorScheme.foreground,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: fraction.clamp(0.0, 1.0),
+            minHeight: 4,
+            backgroundColor: const Color(0xFF262626),
+            color: const Color(0xFFFFFFFF),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Copies the visible terminal text to the clipboard (no scrollback yet).
+Future<void> copyScreenText(Map<String, dynamic>? screen) async {
+  final rows = (screen?['rows'] as List?) ?? const [];
+  final text = rows
+      .map(
+        (row) => ((row as Map<String, dynamic>)['text'] as String? ?? '')
+            .replaceFirst(RegExp(r' +$'), ''),
+      )
+      .join('\n')
+      .replaceFirst(RegExp(r'\n+$'), '\n');
+  await Clipboard.setData(ClipboardData(text: text));
 }
