@@ -282,8 +282,10 @@ try {
     $heat = Join-Path $wixBinResolved "heat.exe"
 
     Write-Host "Harvesting the bundle (heat.exe)..."
+    # Tool output goes to the host stream: this script's *pipeline* output is the
+    # MSI path only, so callers can safely capture it in a variable.
     & $heat dir $stageRel -nologo -cg XenTermFiles -dr INSTALLFOLDER -ag -sfrag -srd -sreg -scom `
-        -var var.SourceDir -out "$workRel\Files.wxs"
+        -var var.SourceDir -out "$workRel\Files.wxs" 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "heat.exe failed with exit code $LASTEXITCODE" }
 
     Write-Host "Compiling the installer (candle.exe)..."
@@ -292,10 +294,10 @@ try {
     & $candle -nologo -arch x64 -ext WixUtilExtension `
         "-dSourceDir=$stageRel" "-dProductVersion=$ProductVersion" "-dAppVersion=$Version" `
         "-dIconFile=$iconRel" "-dLicenseRtf=$licenseRel" `
-        -out "$workRel\main.wixobj" $mainWxsRel
+        -out "$workRel\main.wixobj" $mainWxsRel 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "candle.exe failed with exit code $LASTEXITCODE" }
 
-    & $candle -nologo -arch x64 "-dSourceDir=$stageRel" -out "$workRel\Files.wixobj" "$workRel\Files.wxs"
+    & $candle -nologo -arch x64 "-dSourceDir=$stageRel" -out "$workRel\Files.wixobj" "$workRel\Files.wxs" 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "candle.exe failed with exit code $LASTEXITCODE" }
 
     Write-Host "Linking the MSI (light.exe)..."
@@ -304,7 +306,7 @@ try {
     # to keep CI logs readable. ICE61 is intentionally left visible: it checks
     # the AllowSameVersionUpgrades window in main.wxs.
     & $light -nologo -ext WixUIExtension -ext WixUtilExtension -cultures:en-us -sice:ICE60 `
-        -out "$workRel\$msiName" "$workRel\main.wixobj" "$workRel\Files.wixobj"
+        -out "$workRel\$msiName" "$workRel\main.wixobj" "$workRel\Files.wixobj" 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "light.exe failed with exit code $LASTEXITCODE" }
 
     $builtMsi = Join-Path $repoRoot (Join-Path $workRel $msiName)

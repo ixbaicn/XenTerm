@@ -209,8 +209,14 @@ jobs:
         # ProductVersion comes from the crate version (vX.Y.Z tags) and the
         # artefact version (tag / beta hash) is recorded in the installer.
         run: |
-          $msi = & "$env:GITHUB_WORKSPACE\apps\xenterm\tool\package_windows_installer.ps1" -Version $env:VERSION -WixBin $env:WIX_BIN
-          if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "MSI was not created: $msi" }
+          # The packaging script's pipeline output is the MSI path only; take the
+          # last line anyway so a stray Write-Output cannot corrupt the upload
+          # path again (this produced a silently empty installer artifact once).
+          $output = & "$env:GITHUB_WORKSPACE\apps\xenterm\tool\package_windows_installer.ps1" -Version $env:VERSION -WixBin $env:WIX_BIN
+          $msi = @($output) | Select-Object -Last 1
+          if ([string]::IsNullOrWhiteSpace($msi) -or -not (Test-Path -LiteralPath $msi -PathType Leaf)) {
+            throw "MSI was not created (got '$msi')"
+          }
           Write-Host "MSI: $msi"
           "MSI=$msi" >> $env:GITHUB_ENV
 
