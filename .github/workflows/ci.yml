@@ -332,7 +332,13 @@ jobs:
         run: |
           $dist = Join-Path $env:RUNNER_TEMP "dist"
           $installer = "$env:GITHUB_WORKSPACE\apps\xenterm\tool\package_windows_installer.ps1"
-          $common = @("-BundleDir", $env:FAKE_BUNDLE, "-WixBin", $env:WIX_BIN, "-OutputDir", $dist)
+          # Hashtable splatting binds named parameters; an array of alternating
+          # names/values would be passed positionally instead.
+          $common = @{
+            BundleDir = $env:FAKE_BUNDLE
+            WixBin = $env:WIX_BIN
+            OutputDir = $dist
+          }
           $msi1 = & $installer -Version v0.0.1 @common
           $msi2 = & $installer -Version v0.0.2 @common
           foreach ($msi in @($msi1, $msi2)) {
