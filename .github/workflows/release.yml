@@ -215,14 +215,14 @@ jobs:
           "MSI=$msi" >> $env:GITHUB_ENV
 
       - name: Upload desktop application
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.name }}
           path: ${{ env.ASSET }}
 
       - name: Upload Windows installer
         if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: installer-${{ matrix.name }}
           path: ${{ env.MSI }}
