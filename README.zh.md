@@ -101,8 +101,8 @@ Flutter 界面和完整的 Rust 核心，无需另装任何组件。
 ### Windows
 
 - **MSI 安装包**（推荐）—— `xenterm-<版本>-windows-x86_64.msi`。按机器安装到
-  `Program Files`，创建开始菜单快捷方式、在 *应用和功能* 中注册卸载入口，支持原地升级
-  和静默安装（`msiexec /i <msi> /qn`）。由于程序目录只读，配置保存在 `%APPDATA%`。
+  `Program Files`，创建开始菜单与桌面快捷方式、在 *应用和功能* 中注册卸载入口，
+  支持原地升级和静默安装（`msiexec /i <msi> /qn`）。由于程序目录只读，配置保存在 `%APPDATA%`。
 - **便携 zip** —— `xenterm-<版本>-windows-x86_64-desktop.zip`。解压到任意位置后运行
   `xenterm.exe`；如果目录可写，配置会保存在可执行文件旁的 `config/` 目录中，适合放在
   U 盘里使用。

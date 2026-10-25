@@ -47,7 +47,7 @@ Release workflow 也会检查推送上来的 tag。比如 tag 名是 `v0.8.0` �
 
 Windows 的 MSI 由 `packaging/windows/main.wxs` 定义、
 `apps/xenterm/tool/package_windows_installer.ps1` 生成（使用固定版本的 WiX Toolset 3.14.1，
-由 `scripts/install-wix.ps1` 安装）：按机器安装到 `Program Files`，带开始菜单快捷方式与
+由 `scripts/install-wix.ps1` 安装）：按机器安装到 `Program Files`，带开始菜单与桌面快捷方式、
 卸载入口；便携 zip 则保持配置写在程序旁边。MSI 使用固定 UpgradeCode，旧版 XenTerm MSI 会
 原地升级。
 
@@ -115,9 +115,9 @@ whole Rust core (the `xenterm_bridge` library) inside one archive per platform.
 The Windows MSI is defined by `packaging/windows/main.wxs` and built by
 `apps/xenterm/tool/package_windows_installer.ps1` with the pinned WiX Toolset
 3.14.1 installed by `scripts/install-wix.ps1`: per-machine under `Program Files`,
-with a Start-menu shortcut and Add/Remove Programs entry. The portable zip keeps
-its profile beside the executable. The MSI uses a fixed UpgradeCode, so an older
-XenTerm MSI is upgraded in place.
+with Start-menu and desktop shortcuts, the real XenTerm icon, and an Add/Remove
+Programs entry. The portable zip keeps its profile beside the executable. The MSI
+uses a fixed UpgradeCode, so an older XenTerm MSI is upgraded in place.
 
 The CLI/MCP service core is not packaged separately: it ships inside the desktop
 archive's bridge library, and automation users build it from source. Flutter

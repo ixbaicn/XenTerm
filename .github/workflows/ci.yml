@@ -352,6 +352,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $installDir = Join-Path $env:ProgramFiles "XenTerm"
           $shortcut = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\XenTerm\XenTerm.lnk"
+          # Per-machine install: DesktopFolder resolves to the shared desktop.
+          $desktopShortcut = Join-Path $env:PUBLIC "Desktop\XenTerm.lnk"
 
           function Get-ArpEntry {
             Get-ItemProperty @(
@@ -376,6 +378,7 @@ jobs:
           Invoke-Msi -MsiArgs @("/i", "`"$env:MSI_V1`"", "/qn", "/norestart") -LogName "install-1.log"
           if (-not (Test-Path -LiteralPath (Join-Path $installDir "xenterm.exe"))) { throw "installed xenterm.exe is missing" }
           if (-not (Test-Path -LiteralPath $shortcut)) { throw "Start Menu shortcut is missing" }
+          if (-not (Test-Path -LiteralPath $desktopShortcut)) { throw "Desktop shortcut is missing" }
           $entry = @(Get-ArpEntry)
           if ($entry.Count -ne 1) { throw "expected one ARP entry after install, got $($entry.Count)" }
           if ($entry[0].DisplayVersion -ne "0.0.1") { throw "DisplayVersion is $($entry[0].DisplayVersion), expected 0.0.1" }
@@ -390,5 +393,6 @@ jobs:
           Invoke-Msi -MsiArgs @("/x", "`"$env:MSI_V2`"", "/qn", "/norestart") -LogName "uninstall.log"
           if (Test-Path -LiteralPath $installDir) { throw "install directory survived uninstall: $installDir" }
           if (Test-Path -LiteralPath $shortcut) { throw "Start Menu shortcut survived uninstall" }
+          if (Test-Path -LiteralPath $desktopShortcut) { throw "Desktop shortcut survived uninstall" }
           $entry = @(Get-ArpEntry)
           if ($entry.Count -ne 0) { throw "ARP entry survived uninstall" }

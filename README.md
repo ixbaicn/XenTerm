@@ -108,8 +108,8 @@ to be installed separately.
 ### Windows
 
 - **MSI installer** (recommended) — `xenterm-<version>-windows-x86_64.msi`. It is a
-  per-machine install under `Program Files`, with a Start-menu shortcut, an entry
-  in *Apps & features*, an in-place upgrade path, and silent-install support
+  per-machine install under `Program Files`, with Start-menu and desktop shortcuts,
+  an entry in *Apps & features*, an in-place upgrade path, and silent-install support
   (`msiexec /i <msi> /qn`). Because the program files are read-only, the profile
   lives in `%APPDATA%`.
 - **Portable zip** — `xenterm-<version>-windows-x86_64-desktop.zip`. Unzip it
