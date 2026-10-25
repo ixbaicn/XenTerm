@@ -218,6 +218,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Test version metadata serialization
+        shell: bash
+        run: |
+          # Pass the running shell explicitly: Python on Windows could otherwise
+          # select System32/bash.exe (the WSL launcher) before Git Bash.
+          export VERSION_TEST_BASH="$BASH"
+          if [ "$RUNNER_OS" = Windows ]; then
+            export VERSION_TEST_BASH="$(cygpath -w "$BASH")"
+          fi
+          python crates/xenterm/tests/version_metadata_test.py
       - uses: Swatinem/rust-cache@v2
         with:
           key: migration-cli-${{ runner.os }}
