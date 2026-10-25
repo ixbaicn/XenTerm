@@ -72,7 +72,7 @@ jobs:
           - { os: windows-latest, name: Windows }
           - { os: macos-14, name: macOS }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # 版本号规范 v1 §4/§7: resolve the version through the single entry
       # point, re-check the §1 format, and pin it for the cargo steps so the
       # built test binaries embed exactly this string. version.sh also fails
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -156,7 +156,7 @@ jobs:
           - { os: windows-latest, platform: windows, name: windows }
           - { os: macos-15, platform: macos, name: macos }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -213,7 +213,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, windows-latest, macos-14]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
@@ -250,7 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
@@ -281,7 +281,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -306,7 +306,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install pinned WiX Toolset 3.14.1
         shell: pwsh
         run: |

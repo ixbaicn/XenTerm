@@ -45,7 +45,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}     # artifact naming: vX.Y.Z | beta-<sha7> | <ref>
       xt_version: ${{ steps.resolve.outputs.xt_version }}  # app version from scripts/version.sh (版本号规范 v1)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve mode and version
         id: resolve
         shell: bash
@@ -138,7 +138,7 @@ jobs:
           - { os: macos-15, platform: macos, name: macos-aarch64 }
           - { os: macos-15-intel, platform: macos, name: macos-x86_64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'

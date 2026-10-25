@@ -24,7 +24,7 @@ jobs:
     # Preview/beta releases must not replace the stable AUR package either.
     if: ${{ github.repository == 'ixbaicn/XenTerm' && (github.event_name == 'workflow_dispatch' || (github.event.release != null && !github.event.release.prerelease && !github.event.release.draft)) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version + set pkgver
         run: |
