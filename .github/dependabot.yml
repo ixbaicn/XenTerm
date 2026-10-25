@@ -3,6 +3,11 @@
 #   - apps/xenterm/pubspec.lock is what the Flutter CI and release workflow use
 # Keep this file in sync with the toolchain versions pinned in CI
 # (Flutter `3.47.7`, Rust `stable`); a dependency bump is only verified by CI.
+#
+# Major-version bumps are ignored: the Rust dependencies carry security- and
+# toolchain-driven pins, so majors need a deliberate, reviewed migration rather
+# than an automatic PR. Minor/patch updates arrive as one grouped PR per
+# ecosystem; Dependabot security updates are unaffected by the limit below.
 version: 2
 
 updates:
@@ -13,13 +18,16 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: chore(deps)
     groups:
       rust-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pub
     directory: "/apps/xenterm"
@@ -28,13 +36,16 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: chore(deps)
     groups:
       flutter-deps:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -43,10 +54,13 @@ updates:
       day: monday
       time: "09:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: chore(ci)
     groups:
       github-actions:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
