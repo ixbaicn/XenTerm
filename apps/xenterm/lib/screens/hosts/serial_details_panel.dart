@@ -8,6 +8,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -102,8 +103,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
   ];
 
   late final TextEditingController _label = TextEditingController(
-    text: widget.host?.label ?? 'Serial',
+    text: widget.host?.label ?? '',
   );
+  bool _labelSeeded = false;
   late final TextEditingController _port = TextEditingController(
     text: widget.host?.address ?? '',
   );
@@ -126,6 +128,16 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
   void initState() {
     super.initState();
     _refreshPorts();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_labelSeeded) return;
+    _labelSeeded = true;
+    if (_label.text.isEmpty) {
+      _label.text = AppLanguage.tr(context, 'Serial');
+    }
   }
 
   @override
@@ -201,7 +213,10 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           HostDrawerHeader(
-            title: editing ? 'Serial Details' : 'Serial Connection',
+            title: AppLanguage.tr(
+              context,
+              editing ? 'Serial Details' : 'Serial Connection',
+            ),
             leading: LucideIcons.ethernetPort,
             actions: [
               // Saved serial sessions delete exactly like the SSH drawer;
@@ -228,7 +243,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                   if (widget.host == null && widget.onSwitchToSsh != null) ...[
                     HostFormCard(
                       children: [
-                        const HostSectionTitle('Connection type'),
+                        HostSectionTitle(
+                          AppLanguage.tr(context, 'Connection type'),
+                        ),
                         XtSelectField<String>(
                           key: const ValueKey('serial-kind'),
                           value: 'serial',
@@ -243,11 +260,11 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                   ],
                   HostFormCard(
                     children: [
-                      const HostSectionTitle('Connection'),
+                      HostSectionTitle(AppLanguage.tr(context, 'Connection')),
                       HostPanelField(
                         key: const ValueKey('serial-label'),
                         controller: _label,
-                        placeholder: 'Name',
+                        placeholder: AppLanguage.tr(context, 'Name'),
                       ),
                       Row(
                         children: [
@@ -261,7 +278,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                                 ),
                                 const SizedBox(width: 6),
                                 Text(
-                                  'Port',
+                                  AppLanguage.tr(context, 'Port'),
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: XtColors.textSecondary(context),
@@ -273,7 +290,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                           XtActionButton(
                             key: const ValueKey('serial-refresh'),
                             icon: LucideIcons.refreshCw,
-                            label: _loadingPorts ? 'Scanning…' : 'Refresh',
+                            label: _loadingPorts
+                                ? AppLanguage.tr(context, 'Scanning…')
+                                : AppLanguage.tr(context, 'Refresh'),
                             height: 28,
                             onPressed: _refreshPorts,
                           ),
@@ -287,7 +306,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                         loading: _loadingPorts,
                         onRefresh: _refreshPorts,
                       ),
-                      const HostSectionTitle('Parent group'),
+                      HostSectionTitle(AppLanguage.tr(context, 'Parent group')),
                       XtSelectField<String>(
                         key: const ValueKey('serial-group'),
                         value: _group,
@@ -298,7 +317,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                         onChanged: (value) =>
                             setState(() => _group = value),
                       ),
-                      const HostSectionTitle('Baud rate'),
+                      HostSectionTitle(AppLanguage.tr(context, 'Baud rate')),
                       XtSelectField<int>(
                         key: const ValueKey('serial-baud'),
                         value: _baud,
@@ -324,7 +343,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Advanced',
+                              AppLanguage.tr(context, 'Advanced'),
                               style: theme.typography.medium.copyWith(
                                 fontSize: 13,
                                 color: XtColors.textPrimary(context),
@@ -345,7 +364,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const HostSectionTitle('Data bits'),
+                            HostSectionTitle(
+                              AppLanguage.tr(context, 'Data bits'),
+                            ),
                             XtSelectField<int>(
                               key: const ValueKey('serial-data-bits'),
                               value: _dataBits,
@@ -354,7 +375,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                                   setState(() => _dataBits = value),
                             ),
                             const SizedBox(height: 12),
-                            const HostSectionTitle('Stop bits'),
+                            HostSectionTitle(
+                              AppLanguage.tr(context, 'Stop bits'),
+                            ),
                             XtSelectField<int>(
                               key: const ValueKey('serial-stop-bits'),
                               value: _stopBits,
@@ -363,7 +386,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                                   setState(() => _stopBits = value),
                             ),
                             const SizedBox(height: 12),
-                            const HostSectionTitle('Parity'),
+                            HostSectionTitle(AppLanguage.tr(context, 'Parity')),
                             XtSelectField<String>(
                               key: const ValueKey('serial-parity'),
                               value: _parity,
@@ -376,7 +399,9 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                                   setState(() => _parity = value),
                             ),
                             const SizedBox(height: 12),
-                            const HostSectionTitle('Flow control'),
+                            HostSectionTitle(
+                              AppLanguage.tr(context, 'Flow control'),
+                            ),
                             XtSelectField<String>(
                               key: const ValueKey('serial-flow'),
                               value: _flow,
@@ -389,10 +414,15 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                                   setState(() => _flow = value),
                             ),
                             const SizedBox(height: 18),
-                            const HostSectionTitle('Console login'),
+                            HostSectionTitle(
+                              AppLanguage.tr(context, 'Console login'),
+                            ),
                             Text(
-                              'Some serial servers ask for a login before the '
-                              'shell. When set, the app answers those prompts.',
+                              AppLanguage.tr(
+                                context,
+                                'Some serial servers ask for a login before the '
+                                'shell. When set, the app answers those prompts.',
+                              ),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: XtColors.textTertiary(context),
@@ -402,7 +432,10 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                             HostPanelField(
                               key: const ValueKey('serial-user'),
                               controller: _user,
-                              placeholder: 'Username',
+                              placeholder: AppLanguage.tr(
+                                context,
+                                'Username',
+                              ),
                               leading: LucideIcons.user,
                             ),
                             const SizedBox(height: 10),
@@ -411,8 +444,14 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                               controller: _password,
                               obscure: true,
                               placeholder: widget.host?.hasPassword == true
-                                  ? 'Password stored — leave blank to keep'
-                                  : 'Password (optional)',
+                                  ? AppLanguage.tr(
+                                      context,
+                                      'Password stored — leave blank to keep',
+                                    )
+                                  : AppLanguage.tr(
+                                      context,
+                                      'Password (optional)',
+                                    ),
                               leading: LucideIcons.keyRound,
                             ),
                           ],
@@ -422,7 +461,7 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
                   if (_error != null || widget.error != null) ...[
                     const SizedBox(height: 10),
                     Text(
-                      _error ?? widget.error!,
+                      AppLanguage.tr(context, _error ?? widget.error!),
                       style: theme.typography.normal.copyWith(
                         fontSize: 12,
                         color: XtColors.dangerText(context),
@@ -440,8 +479,10 @@ class _SerialDetailsPanelState extends State<SerialDetailsPanel> {
             child: XtActionButton(
               key: const ValueKey('serial-connect'),
               label: editing
-                  ? 'Save & connect'
-                  : (widget.saveMode ? 'Save' : 'Connect'),
+                  ? AppLanguage.tr(context, 'Save & connect')
+                  : (widget.saveMode
+                        ? AppLanguage.tr(context, 'Save')
+                        : AppLanguage.tr(context, 'Connect')),
               variant: XtActionVariant.primary,
               height: XtMetrics.controlHeight,
               expand: true,
@@ -520,7 +561,10 @@ class _PortComboFieldState extends State<_PortComboField> {
             return XtField(
               key: const ValueKey('serial-port'),
               controller: widget.controller,
-              placeholder: 'COM3 or /dev/ttyUSB0',
+              placeholder: AppLanguage.tr(
+                context,
+                'COM3 or /dev/ttyUSB0',
+              ),
               leading: Icon(
                 LucideIcons.ethernetPort,
                 size: 14,
@@ -595,8 +639,14 @@ class _PortComboFieldState extends State<_PortComboField> {
                     ),
                     child: Text(
                       widget.loading
-                          ? 'Scanning serial ports…'
-                          : 'No serial ports detected — type a device path',
+                          ? AppLanguage.tr(
+                              context,
+                              'Scanning serial ports…',
+                            )
+                          : AppLanguage.tr(
+                              context,
+                              'No serial ports detected — type a device path',
+                            ),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.textTertiary(context),
@@ -638,7 +688,7 @@ class _PortComboFieldState extends State<_PortComboField> {
                 XtMenuEntry(
                   key: const ValueKey('serial-port-refresh'),
                   icon: LucideIcons.refreshCw,
-                  label: 'Refresh ports',
+                  label: AppLanguage.tr(context, 'Refresh ports'),
                   onTap: () {
                     _menu.hide();
                     widget.onRefresh();

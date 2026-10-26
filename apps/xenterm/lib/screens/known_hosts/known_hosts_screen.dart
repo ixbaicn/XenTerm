@@ -6,6 +6,7 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -139,10 +140,10 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
               controller: _search,
               autofocus: true,
               onChanged: (value) => setState(() => _query = value),
-              placeholder: 'Search known hosts',
+              placeholder: AppLanguage.tr(context, 'Search known hosts'),
             ),
           ),
-        const SectionTitle(text: 'Known Hosts'),
+        SectionTitle(text: AppLanguage.tr(context, 'Known Hosts')),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Center(
@@ -162,7 +163,7 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
         padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
-            'Loading known hosts…',
+            AppLanguage.tr(context, 'Loading known hosts…'),
             style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
@@ -174,13 +175,13 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
         child: Column(
           children: [
             Text(
-              _error!,
+              AppLanguage.tr(context, _error!),
               textAlign: TextAlign.center,
               style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
             XtActionButton(
-              label: 'Retry',
+              label: AppLanguage.tr(context, 'Retry'),
               variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
             ),
@@ -192,10 +193,16 @@ class _KnownHostsScreenState extends State<KnownHostsScreen> {
     if (hosts.isEmpty) {
       return XtEmptyState(
         icon: LucideIcons.fingerprint,
-        title: _hosts.isEmpty ? 'No known hosts yet' : 'No matches',
-        message: _hosts.isEmpty
-            ? 'Host keys are remembered after you accept them on connect.'
-            : 'Try a different search.',
+        title: AppLanguage.tr(
+          context,
+          _hosts.isEmpty ? 'No known hosts yet' : 'No matches',
+        ),
+        message: AppLanguage.tr(
+          context,
+          _hosts.isEmpty
+              ? 'Host keys are remembered after you accept them on connect.'
+              : 'Try a different search.',
+        ),
       );
     }
     return Column(
@@ -227,7 +234,7 @@ class _KnownHostCardState extends State<KnownHostCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final fingerprint = widget.host.fingerprint.isEmpty
-        ? 'unreadable key entry'
+        ? AppLanguage.tr(context, 'unreadable key entry')
         : widget.host.fingerprint;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -297,7 +304,7 @@ class _KnownHostCardState extends State<KnownHostCard> {
                   key: ValueKey('known-host-remove-${widget.host.id}'),
                   icon: LucideIcons.trash2,
                   variant: XtActionVariant.danger,
-                  tooltip: 'Forget this key',
+                  tooltip: AppLanguage.tr(context, 'Forget this key'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: widget.onRemove,

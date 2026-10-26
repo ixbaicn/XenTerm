@@ -8,13 +8,15 @@
 /// XtSelectRow, XtStepper, XtCard) rather than a screen-local copy.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart'
-    show CoreSettings, exportProfileFromCore, importProfileToCore;
+    show CoreSettings, coreVersionSync, exportProfileFromCore, importProfileToCore;
 import '../../l10n/app_language.dart';
 import '../../terminal/core_settings.dart';
 import '../../theme/app_fonts.dart';
@@ -67,9 +69,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() {
         _dataBusy = false;
-        _dataStatus =
-            'Exported ${export.count} session${export.count == 1 ? '' : 's'} '
-            'to ${location.path.split(Platform.pathSeparator).last}';
+        final file = location.path.split(Platform.pathSeparator).last;
+        _dataStatus = export.count == 1
+            ? AppLanguage.tr(context, 'Exported 1 session to {file}', {
+                'file': file,
+              })
+            : AppLanguage.tr(context, 'Exported {count} sessions to {file}', {
+                'count': export.count,
+                'file': file,
+              });
       });
     } catch (error) {
       if (!mounted) return;
@@ -100,9 +108,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() {
         _dataBusy = false;
-        _dataStatus =
-            'Imported ${applied.added} session${applied.added == 1 ? '' : 's'} '
-            '(${preview.skipped} already present, skipped)';
+        _dataStatus = applied.added == 1
+            ? AppLanguage.tr(
+                context,
+                'Imported 1 session ({skipped} already present, skipped)',
+                {'skipped': preview.skipped},
+              )
+            : AppLanguage.tr(
+                context,
+                'Imported {count} sessions ({skipped} already present, skipped)',
+                {'count': applied.added, 'skipped': preview.skipped},
+              );
       });
     } catch (error) {
       if (!mounted) return;
@@ -114,11 +130,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  static const _tabs = ['Terminal', 'SFTP', 'Logs', 'Shortcuts'];
+  static const _tabs = ['Terminal', 'SFTP', 'Logs', 'Shortcuts', 'About'];
 
   int _tab = 0;
   String? _saveError;
   bool _saving = false;
+  String? _copiedLink;
+  Timer? _copyReset;
 
   @override
   void initState() {
@@ -129,6 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _copyReset?.cancel();
     widget.settings.removeListener(_changed);
     super.dispose();
   }
@@ -246,11 +265,130 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+
+  /// About tab: name, real version from the core, project info, credits and
+  /// links. Tapping a link copies it to the clipboard (the app deliberately
+  /// ships without a URL-launcher dependency).
+  void _copyLink(String label, String url) {
+    Clipboard.setData(ClipboardData(text: url));
+    _copyReset?.cancel();
+    setState(() => _copiedLink = label);
+    _copyReset = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copiedLink = null);
+    });
+  }
+
+  List<Widget> _aboutTab() {
+    final theme = Theme.of(context);
+    final version = coreVersionSync();
+    const repo = 'https://github.com/ixbaicn/XenTerm';
+    final links = <(String, String)>[
+      ('Source code', repo),
+      ('Issue tracker', '$repo/issues'),
+      ('Releases', '$repo/releases'),
+      ('Contribution guide', '$repo/blob/main/CONTRIBUTING.md'),
+      ('Third-party notices', '$repo/blob/main/THIRD_PARTY_NOTICES.md'),
+      ('License', '$repo/blob/main/LICENSE'),
+    ];
+    return [
+      _SectionCard(
+        title: 'About XenTerm',
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: XtColors.accent(context),
+                  borderRadius: BorderRadius.circular(XtRadius.field),
+                ),
+                child: Icon(
+                  LucideIcons.squareTerminal,
+                  size: 28,
+                  color: XtColors.onAccent(context),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'XenTerm',
+                      style: theme.typography.bold.copyWith(
+                        fontSize: 20,
+                        color: XtColors.textPrimary(context),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${AppLanguage.tr(context, 'Version')} '
+                      '${version ?? AppLanguage.tr(context, 'Development build')}',
+                      style: theme.typography.normal.copyWith(
+                        fontSize: 13,
+                        color: XtColors.textTertiary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          _SettingsText(
+            'A lightweight SSH / SFTP / Telnet / serial terminal with a Rust '
+            'core and a Flutter desktop UI.',
+          ),
+        ],
+      ),
+      _SectionCard(
+        title: 'Developer',
+        children: [
+          _SettingsText('Maintained by 小白 and the XenTerm contributors.'),
+        ],
+      ),
+      _SectionCard(
+        title: 'Acknowledgements',
+        children: [
+          _SettingsText(
+            'Thanks to xue-ding-e and noerror6 for their contributions, and to '
+            'the open-source projects this app is built on: Flutter, '
+            'shadcn_flutter, Rust, russh, rio-vt, Lucide, Simple Icons and '
+            'Twemoji.',
+          ),
+        ],
+      ),
+      _SectionCard(
+        title: 'Links',
+        children: [
+          _SettingsText('Tap a link to copy it to the clipboard.'),
+          for (final (label, url) in links)
+            _LinkRow(
+              label: label,
+              url: url,
+              copied: _copiedLink == label,
+              onTap: () => _copyLink(label, url),
+            ),
+        ],
+      ),
+      _SectionCard(
+        title: 'License',
+        children: [
+          _SettingsText(
+            'MIT License. Contributions are accepted under the same terms.',
+          ),
+        ],
+      ),
+    ];
+  }
+
   List<Widget> _contentFor(int tab) => switch (tab) {
     0 => _terminalTab(),
     1 => _sftpTab(),
     2 => _logsTab(),
-    _ => _shortcutsTab(),
+    3 => _shortcutsTab(),
+    _ => _aboutTab(),
   };
 
   List<Widget> _terminalTab() {
@@ -837,6 +975,83 @@ class _DestinationRow extends StatelessWidget {
                 size: 15,
                 color: XtColors.textTertiary(context),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// One About link: label + URL, tap to copy (check icon + “Copied” feedback).
+class _LinkRow extends StatelessWidget {
+  final String label;
+  final String url;
+  final bool copied;
+  final VoidCallback onTap;
+
+  const _LinkRow({
+    required this.label,
+    required this.url,
+    required this.copied,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppLanguage.tr(context, label),
+                      style: theme.typography.medium.copyWith(
+                        fontSize: 13,
+                        color: XtColors.textPrimary(context),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.normal.copyWith(
+                        fontSize: 12,
+                        color: XtColors.textTertiary(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Icon(
+                copied ? LucideIcons.check : LucideIcons.copy,
+                size: 14,
+                color: copied
+                    ? XtColors.accent(context)
+                    : XtColors.textTertiary(context),
+              ),
+              if (copied) ...[
+                const SizedBox(width: 6),
+                Text(
+                  AppLanguage.tr(context, 'Copied'),
+                  style: theme.typography.normal.copyWith(
+                    fontSize: 12,
+                    color: XtColors.accent(context),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

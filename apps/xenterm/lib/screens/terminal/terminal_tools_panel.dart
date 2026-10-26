@@ -2,20 +2,32 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_fonts.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
+
+/// Connection state of the pane's live PTY, distilled for the tools panel.
+///
+/// The panel never sees the full screen snapshot: it only needs this state
+/// plus the throttled counters/resources published by the terminal view, so a
+/// 20 fps screen refresh does not rebuild the 300px panel.
+enum TerminalSessionStatus { connecting, connected, disconnected }
 
 /// The desktop terminal's right-hand tools: live search over the visible
 /// buffer, session status, font size, and real actions on the running PTY.
 /// No placeholder controls — everything here acts on the live session.
 class TerminalToolsPanel extends StatelessWidget {
   final AppFonts fonts;
-  final Map<String, dynamic>? screen;
+  final TerminalSessionStatus status;
   final String search;
   final FocusNode? searchFocus;
   final int matchCount;
+
+  /// Last remote resource sample (already throttled by the terminal view).
+  final String? resourceState;
+  final Map<String, dynamic>? resource;
   final ValueChanged<String> onSearch;
   final VoidCallback onClear;
   final VoidCallback onCopy;
@@ -26,10 +38,12 @@ class TerminalToolsPanel extends StatelessWidget {
   const TerminalToolsPanel({
     super.key,
     required this.fonts,
-    required this.screen,
+    required this.status,
     required this.search,
     this.searchFocus,
     required this.matchCount,
+    this.resourceState,
+    this.resource,
     required this.onSearch,
     required this.onClear,
     required this.onCopy,
@@ -40,10 +54,15 @@ class TerminalToolsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final closed = screen?['closed'] != null;
-    final status = closed
-        ? 'Disconnected'
-        : (screen == null ? 'Connecting…' : 'Connected');
+    final closed = status == TerminalSessionStatus.disconnected;
+    final statusText = switch (status) {
+      TerminalSessionStatus.connecting => AppLanguage.tr(context, 'Connecting…'),
+      TerminalSessionStatus.connected => AppLanguage.tr(context, 'Connected'),
+      TerminalSessionStatus.disconnected => AppLanguage.tr(
+        context,
+        'Disconnected',
+      ),
+    };
     return Container(
       decoration: BoxDecoration(
         color: XtColors.surface(context),
@@ -57,7 +76,7 @@ class TerminalToolsPanel extends StatelessWidget {
             key: const ValueKey('terminal-search'),
             focusNode: searchFocus,
             onChanged: onSearch,
-            placeholder: 'Search terminal',
+            placeholder: AppLanguage.tr(context, 'Search terminal'),
             leading: Icon(
               LucideIcons.search,
               size: 14,
@@ -67,15 +86,22 @@ class TerminalToolsPanel extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             search.trim().isEmpty
+                // Shortcuts are not translated: they name literal keys.
                 ? 'Ctrl+Shift+F'
-                : '$matchCount match${matchCount == 1 ? '' : 'es'} in view',
+                : matchCount == 1
+                ? AppLanguage.tr(context, '1 match in view')
+                : AppLanguage.tr(
+                    context,
+                    '{count} matches in view',
+                    {'count': matchCount},
+                  ),
             style: TextStyle(
               fontSize: 11,
               color: XtColors.textTertiary(context),
             ),
           ),
           const SizedBox(height: 18),
-          const _PanelLabel('SESSION'),
+          _PanelLabel(AppLanguage.tr(context, 'SESSION')),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -92,7 +118,7 @@ class TerminalToolsPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  status,
+                  statusText,
                   style: TextStyle(
                     fontSize: 13,
                     color: closed
@@ -104,18 +130,15 @@ class TerminalToolsPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          const _PanelLabel('SYSTEM'),
+          _PanelLabel(AppLanguage.tr(context, 'SYSTEM')),
           const SizedBox(height: 8),
-          _ResourceSection(
-            state: screen?['resourceState'] as String?,
-            sample: screen?['resource'] as Map<String, dynamic>?,
-          ),
+          _ResourceSection(state: resourceState, sample: resource),
           const SizedBox(height: 18),
-          const _PanelLabel('SNIPPETS'),
+          _PanelLabel(AppLanguage.tr(context, 'SNIPPETS')),
           const SizedBox(height: 8),
           if (snippets.isEmpty)
             Text(
-              'No saved snippets',
+              AppLanguage.tr(context, 'No saved snippets'),
               style: TextStyle(
                 fontSize: 12,
                 color: XtColors.textTertiary(context),
@@ -175,13 +198,13 @@ class TerminalToolsPanel extends StatelessWidget {
                 ),
               ),
           const SizedBox(height: 18),
-          const _PanelLabel('TERMINAL'),
+          _PanelLabel(AppLanguage.tr(context, 'TERMINAL')),
           const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
                 child: Text(
-                  'Font size',
+                  AppLanguage.tr(context, 'Font size'),
                   style: TextStyle(
                     fontSize: 13,
                     color: XtColors.textPrimary(context),
@@ -223,7 +246,7 @@ class TerminalToolsPanel extends StatelessWidget {
               Expanded(
                 child: XtActionButton(
                   icon: LucideIcons.copy,
-                  label: 'Copy',
+                  label: AppLanguage.tr(context, 'Copy'),
                   variant: XtActionVariant.secondary,
                   height: 34,
                   expand: true,
@@ -234,7 +257,7 @@ class TerminalToolsPanel extends StatelessWidget {
               Expanded(
                 child: XtActionButton(
                   icon: LucideIcons.eraser,
-                  label: 'Clear',
+                  label: AppLanguage.tr(context, 'Clear'),
                   variant: XtActionVariant.secondary,
                   height: 34,
                   expand: true,
@@ -246,7 +269,7 @@ class TerminalToolsPanel extends StatelessWidget {
           const SizedBox(height: 8),
           XtActionButton(
             icon: LucideIcons.refreshCw,
-            label: 'Reconnect',
+            label: AppLanguage.tr(context, 'Reconnect'),
             variant: XtActionVariant.secondary,
             height: 34,
             expand: true,
@@ -290,12 +313,12 @@ class _ResourceSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final message = switch (state) {
-      'unsupported' => 'Not available on this host',
-      'unavailable' => 'No /proc stats from this host',
-      'paused' => 'Sampling paused',
-      'stale' => 'Last sample is stale',
-      'waiting' => 'Measuring…',
-      _ when sample == null => 'Measuring…',
+      'unsupported' => AppLanguage.tr(context, 'Not available on this host'),
+      'unavailable' => AppLanguage.tr(context, 'No /proc stats from this host'),
+      'paused' => AppLanguage.tr(context, 'Sampling paused'),
+      'stale' => AppLanguage.tr(context, 'Last sample is stale'),
+      'waiting' => AppLanguage.tr(context, 'Measuring…'),
+      _ when sample == null => AppLanguage.tr(context, 'Measuring…'),
       _ => null,
     };
     if (message != null) {
@@ -349,14 +372,14 @@ class _ResourceSection extends StatelessWidget {
           ),
         _ResourceMeter(
           key: const ValueKey('terminal-resource-cpu'),
-          label: 'CPU',
+          label: AppLanguage.tr(context, 'CPU'),
           value: cpuSampled ? '${(cpu * 100).clamp(0, 100).round()}%' : '—',
           fraction: cpuSampled ? cpu.clamp(0.0, 1.0) : 0,
         ),
         const SizedBox(height: 8),
         _ResourceMeter(
           key: const ValueKey('terminal-resource-memory'),
-          label: 'Memory',
+          label: AppLanguage.tr(context, 'Memory'),
           value: memTotal > 0
               ? '${_formatMib(memUsed)} / ${_formatMib(memTotal)}'
               : '—',
@@ -374,7 +397,9 @@ class _ResourceSection extends StatelessWidget {
                   : ((total - available) / total).clamp(0.0, 1.0);
               return _ResourceMeter(
                 key: const ValueKey('terminal-resource-disk'),
-                label: (disk['path'] as String?) ?? 'Disk',
+                label:
+                    (disk['path'] as String?) ??
+                    AppLanguage.tr(context, 'Disk'),
                 value: '${(frac * 100).round()}%',
                 fraction: frac,
               );
@@ -385,7 +410,7 @@ class _ResourceSection extends StatelessWidget {
           const SizedBox(height: 8),
           _ResourceMeter(
             key: const ValueKey('terminal-resource-net'),
-            label: 'Network',
+            label: AppLanguage.tr(context, 'Network'),
             value: '↓ ${_formatRate(rx)}  ↑ ${_formatRate(tx)}',
             fraction: 0,
           ),
@@ -409,7 +434,7 @@ class _ResourceSection extends StatelessWidget {
         ] else if (data['gpu_unsupported'] == true) ...[
           const SizedBox(height: 8),
           Text(
-            'GPU: unavailable',
+            AppLanguage.tr(context, 'GPU: unavailable'),
             style: TextStyle(
               fontSize: 11,
               color: XtColors.textTertiary(context),
@@ -421,6 +446,7 @@ class _ResourceSection extends StatelessWidget {
   }
 }
 
+/// Binary/IEC units stay literal: they are units, not prose.
 String _formatMib(double mib) => mib >= 1024
     ? '${(mib / 1024).toStringAsFixed(1)} GiB'
     : '${mib.round()} MiB';

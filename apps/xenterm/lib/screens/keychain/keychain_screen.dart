@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -214,10 +215,10 @@ class _KeychainScreenState extends State<KeychainScreen> {
               controller: _search,
               autofocus: true,
               onChanged: (value) => setState(() => _query = value),
-              placeholder: 'Search keys',
+              placeholder: AppLanguage.tr(context, 'Search keys'),
             ),
           ),
-        const SectionTitle(text: 'Keychain'),
+        SectionTitle(text: AppLanguage.tr(context, 'Keychain')),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Center(
@@ -237,7 +238,7 @@ class _KeychainScreenState extends State<KeychainScreen> {
         padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
-            'Loading keys…',
+            AppLanguage.tr(context, 'Loading keys…'),
             style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
@@ -249,13 +250,13 @@ class _KeychainScreenState extends State<KeychainScreen> {
         child: Column(
           children: [
             Text(
-              _error!,
+              AppLanguage.tr(context, _error!),
               textAlign: TextAlign.center,
               style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
             XtActionButton(
-              label: 'Retry',
+              label: AppLanguage.tr(context, 'Retry'),
               variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
             ),
@@ -267,10 +268,16 @@ class _KeychainScreenState extends State<KeychainScreen> {
     if (keys.isEmpty) {
       return XtEmptyState(
         icon: LucideIcons.keyRound,
-        title: _keys.isEmpty ? 'No SSH keys yet' : 'No matches',
-        message: _keys.isEmpty
-            ? 'Set a private key path on a host to see it here.'
-            : 'Try a different search.',
+        title: AppLanguage.tr(
+          context,
+          _keys.isEmpty ? 'No SSH keys yet' : 'No matches',
+        ),
+        message: AppLanguage.tr(
+          context,
+          _keys.isEmpty
+              ? 'Set a private key path on a host to see it here.'
+              : 'Try a different search.',
+        ),
       );
     }
     return Column(
@@ -286,7 +293,7 @@ class _KeychainScreenState extends State<KeychainScreen> {
               borderRadius: BorderRadius.circular(XtRadius.field),
             ),
             child: Text(
-              _notice!,
+              AppLanguage.tr(context, _notice!),
               style: TextStyle(
                 fontSize: 12,
                 color: XtColors.textPrimary(context),
@@ -307,7 +314,7 @@ class _KeychainScreenState extends State<KeychainScreen> {
                 : _deletingPath == key.fullPath
                 ? _KeyDeleteBar(
                     key: ValueKey('key-delete-bar-${key.sessionId}'),
-                    label: key.title,
+                    label: _keyTitle(context, key),
                     busy: _saving,
                     onDelete: () => _confirmDelete(key.fullPath),
                     onCancel: () => setState(() => _deletingPath = null),
@@ -327,6 +334,16 @@ class _KeychainScreenState extends State<KeychainScreen> {
       ],
     );
   }
+}
+
+/// [KeyInfo.title] synthesises the two English labels below in the bridge; give
+/// them a translation while leaving real file names untouched.
+String _keyTitle(BuildContext context, KeyInfo key) {
+  final title = key.title;
+  if (title == 'Pasted key' || title == 'Key file') {
+    return AppLanguage.tr(context, title);
+  }
+  return title;
 }
 
 class _KeyEditor extends StatelessWidget {
@@ -360,20 +377,20 @@ class _KeyEditor extends StatelessWidget {
             child: XtField(
               key: const ValueKey('key-path'),
               controller: controller,
-              placeholder: 'Path to the private key',
+              placeholder: AppLanguage.tr(context, 'Path to the private key'),
             ),
           ),
           const SizedBox(width: 8),
           XtActionButton(
             key: const ValueKey('key-save'),
-            label: 'Save',
+            label: AppLanguage.tr(context, 'Save'),
             variant: XtActionVariant.primary,
             onPressed: saving ? null : onSave,
           ),
           const SizedBox(width: 6),
           XtActionButton(
             key: const ValueKey('key-cancel'),
-            label: 'Cancel',
+            label: AppLanguage.tr(context, 'Cancel'),
             onPressed: saving ? null : onCancel,
           ),
         ],
@@ -411,7 +428,11 @@ class _KeyDeleteBar extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Remove “$label” from its hosts? The key file stays on disk.',
+              AppLanguage.tr(
+                context,
+                'Remove “{name}” from its hosts? The key file stays on disk.',
+                {'name': label},
+              ),
               style: TextStyle(
                 fontSize: 12.5,
                 color: XtColors.textPrimary(context),
@@ -420,13 +441,13 @@ class _KeyDeleteBar extends StatelessWidget {
           ),
           XtActionButton(
             key: const ValueKey('key-delete-confirm'),
-            label: 'Remove',
+            label: AppLanguage.tr(context, 'Remove'),
             variant: XtActionVariant.danger,
             onPressed: busy ? null : onDelete,
           ),
           const SizedBox(width: 6),
           XtActionButton(
-            label: 'Cancel',
+            label: AppLanguage.tr(context, 'Cancel'),
             onPressed: busy ? null : onCancel,
           ),
         ],
@@ -454,9 +475,15 @@ class _KeyCardState extends State<KeyCard> {
     final theme = Theme.of(context);
     final key = widget.keyInfo;
     final statusLine = switch (key.status) {
-      'missing' => 'Key file missing',
-      'locked' => 'Encrypted key · unlocked on connect',
-      _ => key.fingerprint.isEmpty ? 'Key' : key.fingerprint,
+      'missing' => AppLanguage.tr(context, 'Key file missing'),
+      'locked' => AppLanguage.tr(
+        context,
+        'Encrypted key · unlocked on connect',
+      ),
+      _ =>
+        key.fingerprint.isEmpty
+            ? AppLanguage.tr(context, 'Key')
+            : key.fingerprint,
     };
     final statusColor = key.status == 'missing'
         ? XtColors.danger(context)
@@ -499,7 +526,7 @@ class _KeyCardState extends State<KeyCard> {
                       children: [
                         Flexible(
                           child: Text(
-                            key.title,
+                            _keyTitle(context, key),
                             overflow: TextOverflow.ellipsis,
                             style: theme.typography.semiBold.copyWith(
                               fontSize: 15,
@@ -531,7 +558,7 @@ class _KeyCardState extends State<KeyCard> {
                       XtActionButton(
                         key: ValueKey('key-edit-${key.sessionId}'),
                         icon: LucideIcons.pencil,
-                        tooltip: 'Edit key path',
+                        tooltip: AppLanguage.tr(context, 'Edit key path'),
                         height: 30,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         onPressed: widget.onEdit,
@@ -542,7 +569,10 @@ class _KeyCardState extends State<KeyCard> {
                         key: ValueKey('key-delete-${key.sessionId}'),
                         icon: LucideIcons.trash2,
                         variant: XtActionVariant.danger,
-                        tooltip: 'Remove key reference',
+                        tooltip: AppLanguage.tr(
+                          context,
+                          'Remove key reference',
+                        ),
                         height: 30,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         onPressed: widget.onDelete,
@@ -552,7 +582,7 @@ class _KeyCardState extends State<KeyCard> {
                     XtActionButton(
                       key: ValueKey('key-copy-${key.sessionId}'),
                       icon: LucideIcons.copy,
-                      tooltip: 'Copy key file name',
+                      tooltip: AppLanguage.tr(context, 'Copy key file name'),
                       height: 30,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       onPressed: () =>

@@ -14,15 +14,130 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../terminal/core_settings.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
 import 'connection_prompt.dart';
 
+/// Bridge error text used when the FFI library is missing; translated on show.
+const String _bridgeMissing =
+    'xenterm_bridge library not found next to the app';
+
+/// The live SFTP worker the view drives.
+///
+/// Production uses [_NativeSftpSession] on top of [NativeBridge]; widget tests
+/// inject a fake through [SftpView.sessionStarter] so polling, lifecycle
+/// pauses and rendering are testable without the native core.
+abstract interface class SftpSession {
+  /// Cheap change counter: a snapshot is pulled only when it advances.
+  int get version;
+
+  /// The decoded worker snapshot, or null when one cannot be read.
+  SftpSnapshot? snapshot();
+
+  bool list(String path);
+
+  bool refresh();
+
+  bool toggleTree(String path);
+
+  bool download(String remote, String localDir);
+
+  bool upload(String local);
+
+  bool createFolder(String name);
+
+  bool delete(String path);
+
+  bool answerPrompt(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  });
+
+  void close();
+}
+
+class _NativeSftpSession implements SftpSession {
+  _NativeSftpSession(this._bridge, this._handle);
+
+  final NativeBridge _bridge;
+  final int _handle;
+
+  @override
+  int get version => _bridge.sftpVersion(_handle);
+
+  @override
+  SftpSnapshot? snapshot() {
+    final raw = _bridge.sftpSnapshot(_handle);
+    if (raw == null) return null;
+    try {
+      return SftpSnapshot.fromCoreJson(
+        (jsonDecode(raw) as Map).cast<String, dynamic>(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool list(String path) => _bridge.sftpList(_handle, path);
+
+  @override
+  bool refresh() => _bridge.sftpRefresh(_handle);
+
+  @override
+  bool toggleTree(String path) => _bridge.sftpToggleTree(_handle, path);
+
+  @override
+  bool download(String remote, String localDir) =>
+      _bridge.sftpDownload(_handle, remote, localDir);
+
+  @override
+  bool upload(String local) => _bridge.sftpUpload(_handle, local);
+
+  @override
+  bool createFolder(String name) => _bridge.sftpMkdir(_handle, name);
+
+  @override
+  bool delete(String path) => _bridge.sftpDelete(_handle, path);
+
+  @override
+  bool answerPrompt(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  }) => _bridge.answerSftpPrompt(
+    _handle,
+    promptId,
+    accept: accept,
+    username: username,
+    password: password,
+    text: text,
+  );
+
+  @override
+  void close() {
+    _bridge.sftpClose(_handle);
+  }
+}
+
 class SftpView extends StatefulWidget {
   final Host host;
   final CoreSettingsController? settings;
+
+  /// Whether this view is the visible foreground workspace. The terminal and
+  /// the SFTP view share one slot, so the hidden one stops polling.
+  final bool active;
+
+  /// Test seam that replaces the native bridge with a fake session.
+  final SftpSession Function()? sessionStarter;
 
   /// Test seam for the download directory picker.
   final Future<String?> Function()? pickDownloadDirectory;
@@ -32,6 +147,8 @@ class SftpView extends StatefulWidget {
     super.key,
     required this.host,
     this.settings,
+    this.active = true,
+    this.sessionStarter,
     this.pickDownloadDirectory,
     this.pickUploadFile,
   });
@@ -40,14 +157,14 @@ class SftpView extends StatefulWidget {
   State<SftpView> createState() => _SftpViewState();
 }
 
-class _SftpViewState extends State<SftpView> {
-  NativeBridge? _bridge;
-  int? _handle;
+class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
+  SftpSession? _session;
   Timer? _poll;
   SftpSnapshot _snapshot = const SftpSnapshot();
   String? _error;
   bool _starting = true;
   int _lastVersion = 0;
+  bool _foreground = true;
 
   /// The core seeds the root open, but its first listing can race that
   /// command; expand `/` once here so the tree never opens bare.
@@ -56,10 +173,59 @@ class _SftpViewState extends State<SftpView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _foreground =
+        (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
+        AppLifecycleState.resumed;
     _start();
   }
 
-  Future<void> _start() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (foreground == _foreground) return;
+    _foreground = foreground;
+    _syncPolling();
+  }
+
+  @override
+  void didUpdateWidget(SftpView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) _syncPolling();
+  }
+
+  /// Polls only while visible in a resumed window; the hidden terminal/SFTP
+  /// twin and minimized windows stop the timer instead of paying 10 Hz.
+  bool get _shouldPoll =>
+      widget.active && _foreground && _session != null && !_starting;
+
+  void _syncPolling() {
+    if (!_shouldPoll) {
+      _poll?.cancel();
+      _poll = null;
+      return;
+    }
+    if (_poll != null) return;
+    // Zero-delay first poll instead of an inline tick: activation can happen
+    // mid-build (didUpdateWidget), where setState would re-enter the build.
+    _poll = Timer(Duration.zero, () {
+      if (!mounted) return;
+      _tick();
+      if (!_shouldPoll) return;
+      _poll?.cancel();
+      _poll = Timer.periodic(const Duration(milliseconds: 100), (_) => _tick());
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _poll?.cancel();
+    _session?.close();
+    super.dispose();
+  }
+
+  void _start() {
     if (widget.host.protocol != 'ssh') {
       setState(() {
         _starting = false;
@@ -67,27 +233,16 @@ class _SftpViewState extends State<SftpView> {
       });
       return;
     }
-    final bridge = NativeBridge.tryLoad();
-    if (bridge == null) {
-      setState(() {
-        _starting = false;
-        _error = 'xenterm_bridge library not found next to the app';
-      });
-      return;
-    }
-    _bridge = bridge;
     try {
-      final handle = bridge.startSftp(widget.host.id);
-      if (!mounted) {
-        bridge.sftpClose(handle);
-        return;
-      }
+      final session = (widget.sessionStarter ?? _startNative)();
       setState(() {
-        _handle = handle;
+        _session = session;
         _starting = false;
+        _error = null;
+        _lastVersion = 0;
+        _autoExpandedRoot = false;
       });
-      _poll = Timer.periodic(const Duration(milliseconds: 100), (_) => _tick());
-      _tick();
+      _syncPolling();
     } catch (error) {
       setState(() {
         _starting = false;
@@ -96,19 +251,20 @@ class _SftpViewState extends State<SftpView> {
     }
   }
 
+  SftpSession _startNative() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) throw const NativeBridgeError(_bridgeMissing);
+    return _NativeSftpSession(bridge, bridge.startSftp(widget.host.id));
+  }
+
   void _tick() {
-    final bridge = _bridge;
-    final handle = _handle;
-    if (bridge == null || handle == null) return;
-    final version = bridge.sftpVersion(handle);
+    final session = _session;
+    if (session == null) return;
+    final version = session.version;
     if (version == _lastVersion) return;
     _lastVersion = version;
-    final raw = bridge.sftpSnapshot(handle);
-    if (raw == null) return;
-    final snapshot = SftpSnapshot.fromCoreJson(
-      (jsonDecode(raw) as Map).cast<String, dynamic>(),
-    );
-    if (!mounted) return;
+    final snapshot = session.snapshot();
+    if (snapshot == null || !mounted) return;
     setState(() => _snapshot = snapshot);
     if (!_autoExpandedRoot && snapshot.tree.isNotEmpty) {
       _autoExpandedRoot = true;
@@ -117,25 +273,17 @@ class _SftpViewState extends State<SftpView> {
         orElse: () => snapshot.tree.first,
       );
       if (!root.expanded) {
-        bridge.sftpToggleTree(handle, root.path);
+        session.toggleTree(root.path);
       }
     }
   }
 
-  @override
-  void dispose() {
-    _poll?.cancel();
-    final handle = _handle;
-    if (handle != null) _bridge?.sftpClose(handle);
-    super.dispose();
-  }
-
   void _retry() {
     _poll?.cancel();
-    final handle = _handle;
-    if (handle != null) _bridge?.sftpClose(handle);
+    _poll = null;
+    _session?.close();
     setState(() {
-      _handle = null;
+      _session = null;
       _snapshot = const SftpSnapshot();
       _error = null;
       _starting = true;
@@ -155,14 +303,23 @@ class _SftpViewState extends State<SftpView> {
   Future<void> _download(SftpEntry entry) async {
     final directory = await _downloadDirectory();
     if (directory == null || directory.isEmpty) return;
-    _bridge?.sftpDownload(_handle!, entry.path, directory);
+    _session?.download(entry.path, directory);
   }
 
   Future<void> _upload() async {
     final picker = widget.pickUploadFile;
     final file = picker != null ? await picker() : (await openFile())?.path;
     if (file == null || file.isEmpty) return;
-    _bridge?.sftpUpload(_handle!, file);
+    _session?.upload(file);
+  }
+
+  /// Static bridge errors are translated; core-supplied detail text is shown
+  /// verbatim because it names the technical cause.
+  String _errorText(BuildContext context, String error) {
+    if (error == _bridgeMissing || error == 'SFTP needs an SSH host.') {
+      return AppLanguage.tr(context, error);
+    }
+    return error;
   }
 
   @override
@@ -191,8 +348,8 @@ class _SftpViewState extends State<SftpView> {
                   width: 220,
                   child: SftpTree(
                     nodes: _snapshot.tree,
-                    onOpen: (path) => _bridge?.sftpList(_handle!, path),
-                    onToggle: (path) => _bridge?.sftpToggleTree(_handle!, path),
+                    onOpen: (path) => _session?.list(path),
+                    onToggle: (path) => _session?.toggleTree(path),
                   ),
                 ),
                 Container(width: 1, color: XtColors.hairline(context)),
@@ -204,25 +361,23 @@ class _SftpViewState extends State<SftpView> {
                             ? XtEmptyState(
                                 icon: LucideIcons.triangleAlert,
                                 danger: true,
-                                title: 'SFTP unavailable',
-                                message: _error,
+                                title: AppLanguage.tr(context, 'SFTP unavailable'),
+                                message: _errorText(context, _error!),
                                 action: XtActionButton(
-                                  label: 'Retry',
+                                  label: AppLanguage.tr(context, 'Retry'),
                                   variant: XtActionVariant.secondary,
                                   onPressed: _retry,
                                 ),
                               )
                             : SftpBrowser(
                                 snapshot: _snapshot,
-                                onOpenDirectory: (path) =>
-                                    _bridge?.sftpList(_handle!, path),
-                                onRefresh: () => _bridge?.sftpRefresh(_handle!),
+                                onOpenDirectory: (path) => _session?.list(path),
+                                onRefresh: () => _session?.refresh(),
                                 onDownload: _download,
                                 onUpload: _upload,
                                 onCreateFolder: (name) =>
-                                    _bridge?.sftpMkdir(_handle!, name),
-                                onDelete: (entry) =>
-                                    _bridge?.sftpDelete(_handle!, entry.path),
+                                    _session?.createFolder(name),
+                                onDelete: (entry) => _session?.delete(entry.path),
                               ),
                       ),
                       if (_snapshot.prompt != null && _error == null)
@@ -233,13 +388,12 @@ class _SftpViewState extends State<SftpView> {
                           child: ConnectionPromptBanner(
                             prompt: _snapshot.prompt!,
                             onAnswer: (accept, {username, password, text}) {
-                              final handle = _handle;
-                              if (handle == null) return;
+                              final session = _session;
+                              if (session == null) return;
                               final promptId =
                                   (_snapshot.prompt?['id'] as num?)?.toInt() ??
                                   0;
-                              _bridge?.answerSftpPrompt(
-                                handle,
+                              session.answerPrompt(
                                 promptId,
                                 accept: accept,
                                 username: username,
@@ -276,7 +430,7 @@ class SftpTree extends StatelessWidget {
       child: nodes.isEmpty
           ? Center(
               child: Text(
-                'Folders',
+                AppLanguage.tr(context, 'Folders'),
                 style: TextStyle(
                   fontSize: 11,
                   color: XtColors.textDisabled(context),
@@ -448,13 +602,13 @@ class _SftpBrowserState extends State<SftpBrowser> {
             children: [
               XtIconButton(
                 icon: LucideIcons.arrowUp,
-                tooltip: 'Parent folder',
+                tooltip: AppLanguage.tr(context, 'Parent folder'),
                 size: 30,
                 onPressed: () => widget.onOpenDirectory?.call(_parent),
               ),
               XtIconButton(
                 icon: LucideIcons.refreshCw,
-                tooltip: 'Refresh',
+                tooltip: AppLanguage.tr(context, 'Refresh'),
                 size: 30,
                 onPressed: widget.onRefresh,
               ),
@@ -474,7 +628,11 @@ class _SftpBrowserState extends State<SftpBrowser> {
               if (_selected != null && !_selected!.isDir) ...[
                 XtIconButton(
                   icon: LucideIcons.download,
-                  tooltip: 'Download ${_selected!.name}',
+                  tooltip: AppLanguage.tr(
+                    context,
+                    'Download {name}',
+                    {'name': _selected!.name},
+                  ),
                   size: 30,
                   onPressed: () => widget.onDownload?.call(_selected!),
                 ),
@@ -483,19 +641,23 @@ class _SftpBrowserState extends State<SftpBrowser> {
               if (_selected != null)
                 XtIconButton(
                   icon: LucideIcons.trash2,
-                  tooltip: 'Delete ${_selected!.name}',
+                  tooltip: AppLanguage.tr(
+                    context,
+                    'Delete {name}',
+                    {'name': _selected!.name},
+                  ),
                   size: 30,
                   onPressed: () => setState(() => _pendingDelete = _selected),
                 ),
               XtIconButton(
                 icon: LucideIcons.upload,
-                tooltip: 'Upload a file here',
+                tooltip: AppLanguage.tr(context, 'Upload a file here'),
                 size: 30,
                 onPressed: widget.onUpload,
               ),
               XtIconButton(
                 icon: LucideIcons.folderPlus,
-                tooltip: 'New folder',
+                tooltip: AppLanguage.tr(context, 'New folder'),
                 size: 30,
                 onPressed: () => setState(() {
                   _creating = true;
@@ -515,12 +677,12 @@ class _SftpBrowserState extends State<SftpBrowser> {
                     key: const ValueKey('sftp-new-folder-name'),
                     controller: _folderName,
                     autofocus: true,
-                    placeholder: 'Folder name',
+                    placeholder: AppLanguage.tr(context, 'Folder name'),
                   ),
                 ),
                 const SizedBox(width: 8),
                 XtActionButton(
-                  label: 'Create',
+                  label: AppLanguage.tr(context, 'Create'),
                   variant: XtActionVariant.primary,
                   onPressed: () {
                     final name = _folderName.text.trim();
@@ -531,7 +693,7 @@ class _SftpBrowserState extends State<SftpBrowser> {
                 ),
                 const SizedBox(width: 6),
                 XtActionButton(
-                  label: 'Cancel',
+                  label: AppLanguage.tr(context, 'Cancel'),
                   variant: XtActionVariant.secondary,
                   onPressed: () => setState(() => _creating = false),
                 ),
@@ -550,7 +712,11 @@ class _SftpBrowserState extends State<SftpBrowser> {
               children: [
                 Expanded(
                   child: Text(
-                    'Delete “${_pendingDelete!.name}”? This cannot be undone.',
+                    AppLanguage.tr(
+                      context,
+                      'Delete “{name}”? This cannot be undone.',
+                      {'name': _pendingDelete!.name},
+                    ),
                     style: TextStyle(
                       fontSize: 12.5,
                       color: XtColors.dangerText(context),
@@ -558,12 +724,12 @@ class _SftpBrowserState extends State<SftpBrowser> {
                   ),
                 ),
                 XtActionButton(
-                  label: 'Cancel',
+                  label: AppLanguage.tr(context, 'Cancel'),
                   onPressed: () => setState(() => _pendingDelete = null),
                 ),
                 const SizedBox(width: 6),
                 XtActionButton(
-                  label: 'Delete',
+                  label: AppLanguage.tr(context, 'Delete'),
                   variant: XtActionVariant.danger,
                   onPressed: () {
                     widget.onDelete?.call(_pendingDelete!);
@@ -595,11 +761,20 @@ class _SftpBrowserState extends State<SftpBrowser> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
-            children: const [
-              Expanded(child: _Header('Name')),
-              SizedBox(width: 90, child: _Header('Size')),
-              SizedBox(width: 140, child: _Header('Modified')),
-              SizedBox(width: 90, child: _Header('Mode')),
+            children: [
+              Expanded(child: _Header(AppLanguage.tr(context, 'Name'))),
+              SizedBox(
+                width: 90,
+                child: _Header(AppLanguage.tr(context, 'Size')),
+              ),
+              SizedBox(
+                width: 140,
+                child: _Header(AppLanguage.tr(context, 'Modified')),
+              ),
+              SizedBox(
+                width: 90,
+                child: _Header(AppLanguage.tr(context, 'Mode')),
+              ),
             ],
           ),
         ),
@@ -608,7 +783,7 @@ class _SftpBrowserState extends State<SftpBrowser> {
           child: snapshot.loading && snapshot.entries.isEmpty
               ? Center(
                   child: Text(
-                    'Loading folder…',
+                    AppLanguage.tr(context, 'Loading folder…'),
                     style: TextStyle(
                       color: XtColors.textTertiary(context),
                     ),
@@ -619,7 +794,7 @@ class _SftpBrowserState extends State<SftpBrowser> {
               : snapshot.entries.isEmpty
               ? Center(
                   child: Text(
-                    'This folder is empty',
+                    AppLanguage.tr(context, 'This folder is empty'),
                     style: TextStyle(
                       color: XtColors.textTertiary(context),
                     ),
@@ -828,10 +1003,27 @@ class _TransferStrip extends StatelessWidget {
               Expanded(
                 child: Text(
                   latest.state == 2
-                      ? '${latest.name}: ${latest.message}'
+                      ? AppLanguage.tr(
+                          context,
+                          '{name}: {message}',
+                          {'name': latest.name, 'message': latest.message},
+                        )
                       : latest.state == 1
-                      ? '${latest.name} ${latest.upload ? 'uploaded' : 'downloaded'}'
-                      : '${latest.name} · ${(fraction * 100).round()}%',
+                      ? AppLanguage.tr(
+                          context,
+                          latest.upload
+                              ? '{name} uploaded'
+                              : '{name} downloaded',
+                          {'name': latest.name},
+                        )
+                      : AppLanguage.tr(
+                          context,
+                          '{name} · {percent}%',
+                          {
+                            'name': latest.name,
+                            'percent': (fraction * 100).round(),
+                          },
+                        ),
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
@@ -843,17 +1035,27 @@ class _TransferStrip extends StatelessWidget {
               ),
               if (active > 0)
                 Text(
-                  '$active active',
+                  AppLanguage.tr(
+                    context,
+                    '{count} active',
+                    {'count': active},
+                  ),
                   style: TextStyle(
                     fontSize: 11,
                     color: XtColors.textTertiary(context),
                   ),
                 ),
-              if (failed > 0)
+              if (failed > 0) ...[
+                const SizedBox(width: 8),
                 Text(
-                  '  $failed failed',
+                  AppLanguage.tr(
+                    context,
+                    '{count} failed',
+                    {'count': failed},
+                  ),
                   style: TextStyle(fontSize: 11, color: failedColor),
                 ),
+              ],
             ],
           ),
           const SizedBox(height: 6),

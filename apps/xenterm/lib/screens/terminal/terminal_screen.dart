@@ -19,6 +19,9 @@ class TerminalScreen extends StatefulWidget {
   final TerminalCommandBus? commandBus;
   final CoreSettingsController? settings;
 
+  /// Whether this workspace is the visible foreground tab of the shell.
+  final bool active;
+
   const TerminalScreen({
     super.key,
     required this.host,
@@ -26,6 +29,7 @@ class TerminalScreen extends StatefulWidget {
     this.showSftp = false,
     this.commandBus,
     this.settings,
+    this.active = true,
   });
 
   @override
@@ -68,6 +72,9 @@ class _TerminalScreenState extends State<TerminalScreen> {
                 fonts: widget.fonts,
                 commandBus: widget.commandBus,
                 settings: widget.settings,
+                // Visible = this workspace is the front tab AND the SFTP view
+                // is not covering the terminal. Hidden panes stop polling.
+                active: widget.active && !widget.showSftp,
               ),
             ),
           ),
@@ -75,7 +82,11 @@ class _TerminalScreenState extends State<TerminalScreen> {
             Positioned.fill(
               child: Offstage(
                 offstage: !widget.showSftp,
-                child: SftpView(host: widget.host, settings: widget.settings),
+                child: SftpView(
+                  host: widget.host,
+                  settings: widget.settings,
+                  active: widget.active && widget.showSftp,
+                ),
               ),
             ),
         ],

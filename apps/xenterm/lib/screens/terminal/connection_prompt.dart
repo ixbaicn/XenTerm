@@ -5,6 +5,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -53,8 +54,18 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
       fields.add(
         Text(
           widget.prompt['changed'] == true
-              ? 'Host key CHANGED for ${widget.prompt['host']}:${widget.prompt['port']} — possible MITM.'
-              : 'Unknown host key for ${widget.prompt['host']}:${widget.prompt['port']}',
+              ? AppLanguage.tr(
+                  context,
+                  'Host key CHANGED for {host}:{port} — possible MITM.',
+                  {
+                    'host': '${widget.prompt['host']}',
+                    'port': '${widget.prompt['port']}',
+                  },
+                )
+              : AppLanguage.tr(context, 'Unknown host key for {host}:{port}', {
+                  'host': '${widget.prompt['host']}',
+                  'port': '${widget.prompt['port']}',
+                }),
           style: theme.typography.medium.copyWith(
             fontSize: 13,
             color: XtColors.textPrimary(context),
@@ -76,15 +87,21 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
     } else if (kind == 'credential') {
       final needUser = widget.prompt['need_user'] == true;
       if (needUser) {
-        fields.add(_promptField(_user, 'Username'));
+        fields.add(_promptField(_user, AppLanguage.tr(context, 'Username')));
       }
       if (widget.prompt['need_password'] == true) {
-        fields.add(_promptField(_password, 'Password', obscure: true));
+        fields.add(
+          _promptField(
+            _password,
+            AppLanguage.tr(context, 'Password'),
+            obscure: true,
+          ),
+        );
       }
     } else {
       fields.add(
         Text(
-          '${widget.prompt['prompt'] ?? 'Verification code'}',
+          '${widget.prompt['prompt'] ?? AppLanguage.tr(context, 'Verification code')}',
           style: theme.typography.medium.copyWith(
             fontSize: 13,
             color: XtColors.textPrimary(context),
@@ -92,7 +109,11 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
         ),
       );
       fields.add(
-        _promptField(_text, 'Code', obscure: widget.prompt['echo'] == false),
+        _promptField(
+          _text,
+          AppLanguage.tr(context, 'Code'),
+          obscure: widget.prompt['echo'] == false,
+        ),
       );
     }
 
@@ -108,12 +129,15 @@ class ConnectionPromptBannerState extends State<ConnectionPromptBanner> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               XtActionButton(
-                label: 'Cancel',
+                label: AppLanguage.tr(context, 'Cancel'),
                 onPressed: () => widget.onAnswer(false),
               ),
               const SizedBox(width: 8),
               XtActionButton(
-                label: kind == 'host_key' ? 'Trust' : 'Continue',
+                label: AppLanguage.tr(
+                  context,
+                  kind == 'host_key' ? 'Trust' : 'Continue',
+                ),
                 variant: XtActionVariant.primary,
                 onPressed: () => widget.onAnswer(
                   true,

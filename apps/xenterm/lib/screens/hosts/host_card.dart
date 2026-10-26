@@ -7,6 +7,7 @@ import 'package:simple_icons/simple_icons.dart';
 
 import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
 
@@ -94,9 +95,11 @@ class _HostCardState extends State<HostCard> {
 
   /// The card's second line: the connection target, not the metadata that the
   /// details drawer already lists (protocol/user/group repeated on every card).
-  String get _subtitle {
+  String _subtitle(BuildContext context) {
     final host = widget.host;
-    if (host.protocol == 'local') return 'Local terminal';
+    if (host.protocol == 'local') {
+      return AppLanguage.tr(context, 'Local terminal');
+    }
     final detail = host.detail.trim();
     if (detail.isEmpty) return host.address;
     return host.protocol == 'ssh' ? detail : '${host.protocol} · $detail';
@@ -134,7 +137,7 @@ class _HostCardState extends State<HostCard> {
                   ),
                   const SizedBox(height: 1),
                   Text(
-                    _subtitle,
+                    _subtitle(context),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.typography.normal.copyWith(

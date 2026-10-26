@@ -11,6 +11,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../data/hosts.dart';
+import '../l10n/app_language.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primitives.dart';
 
@@ -245,7 +246,7 @@ class _SftpPillState extends State<_SftpPill> {
               Icon(LucideIcons.folderOpen, size: 15, color: fg),
               const SizedBox(width: 8),
               Text(
-                'SFTP',
+                AppLanguage.tr(context, 'SFTP'),
                 style: theme.typography.normal.copyWith(
                   fontSize: 14,
                   color: fg,

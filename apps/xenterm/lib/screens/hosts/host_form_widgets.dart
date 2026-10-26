@@ -9,6 +9,7 @@ library;
 
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -160,7 +161,7 @@ class _HostRemoveMenuState extends State<HostRemoveMenu> {
               children: [
                 XtMenuEntry(
                   icon: LucideIcons.trash2,
-                  label: 'Remove host',
+                  label: AppLanguage.tr(context, 'Remove host'),
                   danger: true,
                   onTap: () {
                     _menu.hide();

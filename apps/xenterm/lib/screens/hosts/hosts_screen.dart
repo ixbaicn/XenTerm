@@ -9,6 +9,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -376,7 +377,7 @@ class _HostsScreenState extends State<HostsScreen> {
     _connect(
       Host(
         id: 'adhoc-local-${DateTime.now().microsecondsSinceEpoch}',
-        label: 'Local terminal',
+        label: AppLanguage.tr(context, 'Local terminal'),
         address: '',
         username: '',
         protocol: 'local',
@@ -647,7 +648,7 @@ class _HostsScreenState extends State<HostsScreen> {
   Future<void> _newHostInGroup(String group) async {
     final host = await _createSessionFor(
       kind: 'ssh',
-      label: 'New Host',
+      label: AppLanguage.tr(context, 'New Host'),
       group: group,
     );
     if (host == null || !mounted) return;
@@ -667,11 +668,19 @@ class _HostsScreenState extends State<HostsScreen> {
     try {
       final result = await (widget.importHosts ?? importSshConfigToCore)();
       if (!mounted) return;
+      final added = result.added;
+      final imported = added == 0
+          ? AppLanguage.tr(context, 'No new hosts to import')
+          : added == 1
+          ? AppLanguage.tr(context, 'Imported 1 host')
+          : AppLanguage.tr(context, 'Imported {count} hosts', {
+              'count': added,
+            });
       setState(() {
         _importing = false;
         _importError = !result.ok;
         _importNotice = result.ok
-            ? result.message
+            ? imported
             : (result.error ?? 'Import failed');
       });
       if (result.ok && result.added > 0) await _reload(silent: true);
@@ -739,13 +748,16 @@ class _HostsScreenState extends State<HostsScreen> {
                       child: XtField(
                         key: const ValueKey('host-search'),
                         controller: _search,
-                        placeholder: 'Find a host or ssh user@hostname...',
+                        placeholder: AppLanguage.tr(
+                          context,
+                          'Find a host or ssh user@hostname...',
+                        ),
                         onChanged: (v) => setState(() => _query = v),
                         // Connect lives INSIDE the field and stays quiet; the
                         // drawer's Connect is the screen's primary action.
                         trailing: XtActionButton(
                           key: const ValueKey('quick-connect'),
-                          label: 'Connect',
+                          label: AppLanguage.tr(context, 'Connect'),
                           height: 28,
                           onPressed: _query.trim().isEmpty
                               ? null
@@ -759,18 +771,18 @@ class _HostsScreenState extends State<HostsScreen> {
                       child: Row(
                         children: [
                           SplitButton(
-                            label: 'New host',
+                            label: AppLanguage.tr(context, 'New host'),
                             icon: LucideIcons.plus,
                             onPressed: _createSession,
                             menuItems: [
                               SplitMenuEntry(
                                 icon: LucideIcons.folderPlus,
-                                label: 'New group',
+                                label: AppLanguage.tr(context, 'New group'),
                                 onTap: _openGroupEditor,
                               ),
                               SplitMenuEntry(
                                 icon: LucideIcons.import,
-                                label: 'Import hosts',
+                                label: AppLanguage.tr(context, 'Import hosts'),
                                 onTap: _importHosts,
                               ),
                             ],
@@ -778,13 +790,13 @@ class _HostsScreenState extends State<HostsScreen> {
                           const SizedBox(width: 20),
                           GhostAction(
                             icon: LucideIcons.terminal,
-                            label: 'Terminal',
+                            label: AppLanguage.tr(context, 'Terminal'),
                             onPressed: _quickLocal,
                           ),
                           const SizedBox(width: 20),
                           GhostAction(
                             icon: LucideIcons.ethernetPort,
-                            label: 'Serial',
+                            label: AppLanguage.tr(context, 'Serial'),
                             onPressed: _quickSerial,
                           ),
                           const Spacer(),
@@ -823,11 +835,14 @@ class _HostsScreenState extends State<HostsScreen> {
                       : _loadError != null
                       ? XtEmptyState(
                           icon: LucideIcons.circleAlert,
-                          title: 'Could not load hosts',
-                          message: _loadError!,
+                          title: AppLanguage.tr(
+                            context,
+                            'Could not load hosts',
+                          ),
+                          message: AppLanguage.tr(context, _loadError!),
                           danger: true,
                           action: XtActionButton(
-                            label: 'Retry',
+                            label: AppLanguage.tr(context, 'Retry'),
                             onPressed: _reload,
                           ),
                         )
@@ -931,7 +946,10 @@ class _HostsScreenState extends State<HostsScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                renaming == null ? 'New group' : 'Rename group',
+                AppLanguage.tr(
+                  context,
+                  renaming == null ? 'New group' : 'Rename group',
+                ),
                 style: theme.typography.medium.copyWith(
                   fontSize: 14,
                   color: XtColors.textPrimary(context),
@@ -948,20 +966,23 @@ class _HostsScreenState extends State<HostsScreen> {
                   controller: _groupName,
                   autofocus: true,
                   onSubmitted: (_) => _saveGroup(),
-                  placeholder: 'Group name (for example: Production)',
+                  placeholder: AppLanguage.tr(
+                    context,
+                    'Group name (for example: Production)',
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               XtActionButton(
                 key: const ValueKey('group-save'),
-                label: 'Save',
+                label: AppLanguage.tr(context, 'Save'),
                 variant: XtActionVariant.primary,
                 onPressed: _saveGroup,
               ),
               const SizedBox(width: 8),
               XtActionButton(
                 key: const ValueKey('group-cancel'),
-                label: 'Cancel',
+                label: AppLanguage.tr(context, 'Cancel'),
                 onPressed: _closeGroupEditor,
               ),
             ],
@@ -969,7 +990,7 @@ class _HostsScreenState extends State<HostsScreen> {
           if (_groupError != null) ...[
             const SizedBox(height: 6),
             Text(
-              _groupError!,
+              AppLanguage.tr(context, _groupError!),
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
                 color: XtColors.dangerText(context),
@@ -1004,7 +1025,7 @@ class _HostsScreenState extends State<HostsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              _importNotice!,
+              AppLanguage.tr(context, _importNotice!),
               style: theme.typography.normal.copyWith(
                 fontSize: 12,
                 color: XtColors.textPrimary(context),
@@ -1025,7 +1046,7 @@ class _HostsScreenState extends State<HostsScreen> {
 
   Widget _sectionTitle(String title) {
     return XtSectionTitle(
-      title,
+      AppLanguage.tr(context, title),
       padding: const EdgeInsets.fromLTRB(18, 15, 0, 12),
     );
   }
@@ -1104,7 +1125,10 @@ class _HostsScreenState extends State<HostsScreen> {
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Text(
-                        'No hosts in this group yet.',
+                        AppLanguage.tr(
+                          context,
+                          'No hosts in this group yet.',
+                        ),
                         style: theme.typography.normal.copyWith(
                           fontSize: 12,
                           color: XtColors.textTertiary(context),
@@ -1139,7 +1163,11 @@ class _HostsScreenState extends State<HostsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Delete “$name”? Its hosts become ungrouped.',
+              AppLanguage.tr(
+                context,
+                'Delete “{name}”? Its hosts become ungrouped.',
+                {'name': name},
+              ),
               style: theme.typography.normal.copyWith(
                 fontSize: 13,
                 color: XtColors.textPrimary(context),
@@ -1148,13 +1176,13 @@ class _HostsScreenState extends State<HostsScreen> {
           ),
           XtActionButton(
             key: const ValueKey('group-delete-confirm'),
-            label: 'Delete',
+            label: AppLanguage.tr(context, 'Delete'),
             variant: XtActionVariant.danger,
             onPressed: () => _deleteGroupNamed(name),
           ),
           const SizedBox(width: 8),
           XtActionButton(
-            label: 'Cancel',
+            label: AppLanguage.tr(context, 'Cancel'),
             onPressed: () => setState(() => _deletingGroup = null),
           ),
         ],
@@ -1167,10 +1195,13 @@ class _HostsScreenState extends State<HostsScreen> {
   Host _displayed(Host host) => host.copyWith(os: hostOsRegistry.of(host.id));
 
   /// The empty Home placeholder: the core returned no hosts to show.
-  Widget get _emptyState => const XtEmptyState(
+  Widget get _emptyState => XtEmptyState(
     icon: LucideIcons.server,
-    title: 'No hosts yet',
-    message: 'Hosts saved by the XenTerm core appear here.',
+    title: AppLanguage.tr(context, 'No hosts yet'),
+    message: AppLanguage.tr(
+      context,
+      'Hosts saved by the XenTerm core appear here.',
+    ),
   );
 
   Widget _cardGrid(List<Host> hosts, {bool shrinkWrap = false}) {
@@ -1328,21 +1359,25 @@ class _GroupHeaderState extends State<_GroupHeader> {
                   XtIconButton(
                     key: ValueKey('group-add-${widget.name}'),
                     icon: LucideIcons.plus,
-                    tooltip: 'New host in ${widget.name}',
+                    tooltip: AppLanguage.tr(
+                      context,
+                      'New host in {group}',
+                      {'group': widget.name},
+                    ),
                     onPressed: widget.onAdd,
                     size: 28,
                   ),
                   XtIconButton(
                     key: ValueKey('group-rename-${widget.name}'),
                     icon: LucideIcons.pencil,
-                    tooltip: 'Rename group',
+                    tooltip: AppLanguage.tr(context, 'Rename group'),
                     onPressed: widget.onRename,
                     size: 28,
                   ),
                   XtIconButton(
                     key: ValueKey('group-delete-${widget.name}'),
                     icon: LucideIcons.trash2,
-                    tooltip: 'Delete group',
+                    tooltip: AppLanguage.tr(context, 'Delete group'),
                     onPressed: widget.onDelete,
                     size: 28,
                   ),

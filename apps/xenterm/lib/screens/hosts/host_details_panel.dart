@@ -16,6 +16,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -73,10 +74,6 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
   /// A draft with no id yet: the type selector is offered and a successful
   /// save closes the drawer (nothing was persisted to come back to).
   bool get _creating => widget.host.id.isEmpty;
-
-  /// The port row's caption matches the dial kind ("Telnet on 23 port").
-  String get _portLabel =>
-      widget.host.protocol == 'telnet' ? 'Telnet on' : 'SSH on';
 
   /// Group names already in use — the Parent Group picker's options.
   List<String> get _existingGroups => {
@@ -234,7 +231,15 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
         _clearKey = false;
       });
     } catch (error) {
-      if (mounted) setState(() => _saveError = 'Could not read key: $error');
+      if (mounted) {
+        setState(
+          () => _saveError = AppLanguage.tr(
+            context,
+            'Could not read key: {error}',
+            {'error': error},
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _importingKey = false);
     }
@@ -248,7 +253,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
       child: Column(
         children: [
           HostDrawerHeader(
-            title: 'Host Details',
+            title: AppLanguage.tr(context, 'Host Details'),
             actions: [
               // The check persists the drawer's edits into the core store.
               XtIconButton(
@@ -282,7 +287,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                         borderRadius: BorderRadius.circular(XtRadius.card),
                       ),
                       child: Text(
-                        _saveError!,
+                        AppLanguage.tr(context, _saveError!),
                         style: theme.typography.normal.copyWith(
                           fontSize: 12,
                           color: XtColors.dangerText(context),
@@ -294,7 +299,9 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   if (_creating && widget.onKindChanged != null) ...[
                     HostFormCard(
                       children: [
-                        const HostSectionTitle('Connection type'),
+                        HostSectionTitle(
+                          AppLanguage.tr(context, 'Connection type'),
+                        ),
                         XtSelectField<String>(
                           key: const ValueKey('host-kind'),
                           value: widget.host.protocol,
@@ -317,7 +324,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   ],
                   HostFormCard(
                     children: [
-                      const HostSectionTitle('Address'),
+                      HostSectionTitle(AppLanguage.tr(context, 'Address')),
                       Row(
                         children: [
                           OsChipTile(host: widget.host, size: 36, iconSize: 20),
@@ -325,7 +332,10 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             child: HostPanelField(
                               key: const ValueKey('host-address'),
                               controller: _address,
-                              placeholder: 'IP or Hostname',
+                              placeholder: AppLanguage.tr(
+                                context,
+                                'IP or Hostname',
+                              ),
                             ),
                           ),
                         ],
@@ -335,11 +345,11 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   const SizedBox(height: 15),
                   HostFormCard(
                     children: [
-                      const HostSectionTitle('General'),
+                      HostSectionTitle(AppLanguage.tr(context, 'General')),
                       HostPanelField(
                         key: const ValueKey('label-field'),
                         controller: _label,
-                        placeholder: 'Label',
+                        placeholder: AppLanguage.tr(context, 'Label'),
                       ),
                       XtSelectField<String>(
                         key: const ValueKey('host-group'),
@@ -357,7 +367,15 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   HostFormCard(
                     padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
                     children: [
-                      _PortRow(controller: _port, label: _portLabel),
+                      _PortRow(
+                        controller: _port,
+                        label: AppLanguage.tr(
+                          context,
+                          widget.host.protocol == 'telnet'
+                              ? 'Telnet on'
+                              : 'SSH on',
+                        ),
+                      ),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -365,16 +383,20 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                           // session ignores credentials, so offering them
                           // would be a lie.
                           if (widget.host.protocol == 'ssh') ...[
-                            const HostSectionTitle('Credentials'),
+                            HostSectionTitle(
+                              AppLanguage.tr(context, 'Credentials'),
+                            ),
                             const SizedBox(height: 10),
                             HostPanelField(
                               key: const ValueKey('host-username'),
                               controller: _username,
-                              placeholder: 'Username',
+                              placeholder: AppLanguage.tr(context, 'Username'),
                               leading: LucideIcons.user,
                             ),
                             const SizedBox(height: 12),
-                          const HostSectionTitle('Authentication'),
+                          HostSectionTitle(
+                            AppLanguage.tr(context, 'Authentication'),
+                          ),
                           const SizedBox(height: 6),
                           XtSelectField<String>(
                             key: const ValueKey('host-auth'),
@@ -394,8 +416,11 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                               key: const ValueKey('host-password'),
                               controller: _password,
                               placeholder: widget.host.hasPassword
-                                  ? 'Saved — leave blank to keep'
-                                  : 'Password',
+                                  ? AppLanguage.tr(
+                                      context,
+                                      'Saved — leave blank to keep',
+                                    )
+                                  : AppLanguage.tr(context, 'Password'),
                               leading: LucideIcons.lock,
                               obscure: true,
                             ),
@@ -410,8 +435,14 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                         ? LucideIcons.loaderCircle
                                         : LucideIcons.fileUp,
                                     label: _importingKey
-                                        ? 'Importing…'
-                                        : 'Import key file…',
+                                        ? AppLanguage.tr(
+                                            context,
+                                            'Importing…',
+                                          )
+                                        : AppLanguage.tr(
+                                            context,
+                                            'Import key file…',
+                                          ),
                                     variant: XtActionVariant.secondary,
                                     height: 34,
                                     expand: true,
@@ -425,7 +456,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                   XtActionButton(
                                     key: const ValueKey('host-key-clear'),
                                     icon: LucideIcons.trash2,
-                                    label: 'Clear',
+                                    label: AppLanguage.tr(context, 'Clear'),
                                     variant: XtActionVariant.danger,
                                     height: 34,
                                     onPressed: () =>
@@ -439,7 +470,10 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Text(
-                                  'The stored key will be removed on save.',
+                                  AppLanguage.tr(
+                                    context,
+                                    'The stored key will be removed on save.',
+                                  ),
                                   key: const ValueKey('host-key-clear-note'),
                                   style: TextStyle(
                                     fontSize: 11,
@@ -452,8 +486,11 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Text(
-                                  'A key is stored — import or paste below to '
-                                  'replace it.',
+                                  AppLanguage.tr(
+                                    context,
+                                    'A key is stored — import or paste below to '
+                                    'replace it.',
+                                  ),
                                   key: const ValueKey('host-key-stored'),
                                   style: TextStyle(
                                     fontSize: 11,
@@ -467,8 +504,10 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                               height: 110,
                               maxLines: 8,
                               minLines: 4,
-                              placeholder:
-                                  '…or paste the private key content here',
+                              placeholder: AppLanguage.tr(
+                                context,
+                                '…or paste the private key content here',
+                              ),
                               onChanged: (_) => setState(() {}),
                             ),
                           ],
@@ -481,7 +520,9 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                                     !h.ephemeral,
                               )) ...[
                             const SizedBox(height: 14),
-                            const XtFieldLabel('Jump host'),
+                            XtFieldLabel(
+                              AppLanguage.tr(context, 'Jump host'),
+                            ),
                             XtSelectField<String>(
                               key: const ValueKey('host-jump'),
                               value: _jumpId,
@@ -498,7 +539,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                             ),
                           ],
                           const SizedBox(height: 14),
-                          const HostSectionTitle('Encoding'),
+                          HostSectionTitle(AppLanguage.tr(context, 'Encoding')),
                           const SizedBox(height: 6),
                           XtSelectField<String>(
                             key: const ValueKey('host-encoding'),
@@ -524,11 +565,14 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                   HostFormCard(
                     padding: const EdgeInsets.fromLTRB(20, 15, 20, 15),
                     children: [
-                      const HostSectionTitle('Triggers'),
+                      HostSectionTitle(AppLanguage.tr(context, 'Triggers')),
                       const SizedBox(height: 4),
                       Text(
-                        'Wait for a prompt, answer automatically. Responses are '
-                        'stored securely; a blank field keeps the saved value.',
+                        AppLanguage.tr(
+                          context,
+                          'Wait for a prompt, answer automatically. Responses are '
+                          'stored securely; a blank field keeps the saved value.',
+                        ),
                         style: TextStyle(
                           fontSize: 12,
                           color: XtColors.textTertiary(context),
@@ -538,7 +582,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
                           child: Text(
-                            'No triggers yet.',
+                            AppLanguage.tr(context, 'No triggers yet.'),
                             key: const ValueKey('host-triggers-empty'),
                             style: TextStyle(
                               fontSize: 12,
@@ -562,7 +606,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
                       XtActionButton(
                         key: const ValueKey('host-trigger-add'),
                         icon: LucideIcons.plus,
-                        label: 'Add trigger',
+                        label: AppLanguage.tr(context, 'Add trigger'),
                         expand: true,
                         onPressed: () => setState(() {
                           _triggers.add(const SessionTriggerRule(expect: ''));
@@ -579,7 +623,7 @@ class _HostDetailsPanelState extends State<HostDetailsPanel> {
             color: XtColors.page(context),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 20),
             child: XtActionButton(
-              label: 'Connect',
+              label: AppLanguage.tr(context, 'Connect'),
               variant: XtActionVariant.primary,
               height: XtMetrics.controlHeight,
               expand: true,
@@ -597,7 +641,7 @@ class _PortRow extends StatelessWidget {
   final TextEditingController controller;
   final String label;
 
-  const _PortRow({required this.controller, this.label = 'SSH on'});
+  const _PortRow({required this.controller, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -627,7 +671,7 @@ class _PortRow extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                'port',
+                AppLanguage.tr(context, 'port'),
                 style: theme.typography.normal.copyWith(
                   fontSize: 16,
                   color: XtColors.textPrimary(context),
@@ -713,7 +757,7 @@ class _TriggerRowState extends State<_TriggerRow> {
           HostPanelField(
             key: const ValueKey('trigger-expect'),
             controller: _expect,
-            placeholder: 'Wait for (e.g. login:)',
+            placeholder: AppLanguage.tr(context, 'Wait for (e.g. login:)'),
             leading: LucideIcons.eye,
             height: 30,
           ),
@@ -721,7 +765,9 @@ class _TriggerRowState extends State<_TriggerRow> {
           HostPanelField(
             key: const ValueKey('trigger-response'),
             controller: _response,
-            placeholder: kept ? 'Saved — leave blank to keep' : 'Response',
+            placeholder: kept
+                ? AppLanguage.tr(context, 'Saved — leave blank to keep')
+                : AppLanguage.tr(context, 'Response'),
             leading: LucideIcons.messageSquare,
             height: 30,
           ),
@@ -738,7 +784,7 @@ class _TriggerRowState extends State<_TriggerRow> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Enter',
+                      AppLanguage.tr(context, 'Enter'),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.textTertiary(context),
@@ -757,7 +803,7 @@ class _TriggerRowState extends State<_TriggerRow> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Repeat',
+                      AppLanguage.tr(context, 'Repeat'),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.textTertiary(context),

@@ -7,6 +7,7 @@ library;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -174,7 +175,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                 child: Row(
                   children: [
                     SplitButton(
-                      label: 'New snippet',
+                      label: AppLanguage.tr(context, 'New snippet'),
                       icon: LucideIcons.plus,
                       onPressed: _openNew,
                     ),
@@ -209,7 +210,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                     controller: _search,
                     autofocus: true,
                     onChanged: (value) => setState(() => _query = value),
-                    placeholder: 'Search snippets',
+                    placeholder: AppLanguage.tr(context, 'Search snippets'),
                   ),
                 ),
               if (_notice != null)
@@ -225,7 +226,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                       borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
-                      _notice!,
+                      AppLanguage.tr(context, _notice!),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.textPrimary(context),
@@ -233,7 +234,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
                     ),
                   ),
                 ),
-              const SectionTitle(text: 'Snippets'),
+              SectionTitle(text: AppLanguage.tr(context, 'Snippets')),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 child: Center(
@@ -277,7 +278,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
         padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
-            'Loading snippets…',
+            AppLanguage.tr(context, 'Loading snippets…'),
             style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
@@ -289,13 +290,13 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
         child: Column(
           children: [
             Text(
-              _error!,
+              AppLanguage.tr(context, _error!),
               textAlign: TextAlign.center,
               style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
             XtActionButton(
-              label: 'Retry',
+              label: AppLanguage.tr(context, 'Retry'),
               variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
             ),
@@ -307,10 +308,16 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
     if (snippets.isEmpty) {
       return XtEmptyState(
         icon: LucideIcons.braces,
-        title: _snippets.isEmpty ? 'No snippets yet' : 'No matches',
-        message: _snippets.isEmpty
-            ? 'Save commands here; the connected terminal sidebar runs them.'
-            : 'Try a different search.',
+        title: AppLanguage.tr(
+          context,
+          _snippets.isEmpty ? 'No snippets yet' : 'No matches',
+        ),
+        message: AppLanguage.tr(
+          context,
+          _snippets.isEmpty
+              ? 'Save commands here; the connected terminal sidebar runs them.'
+              : 'Try a different search.',
+        ),
       );
     }
     return Column(
@@ -418,7 +425,7 @@ class _SnippetCardState extends State<_SnippetCard> {
               if (_hover) ...[
                 XtActionButton(
                   icon: LucideIcons.play,
-                  tooltip: 'Run',
+                  tooltip: AppLanguage.tr(context, 'Run'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: widget.onEdit,
@@ -426,7 +433,7 @@ class _SnippetCardState extends State<_SnippetCard> {
                 const SizedBox(width: 4),
                 XtActionButton(
                   icon: LucideIcons.pencil,
-                  tooltip: 'Edit',
+                  tooltip: AppLanguage.tr(context, 'Edit'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: widget.onEdit,
@@ -435,7 +442,7 @@ class _SnippetCardState extends State<_SnippetCard> {
                 XtActionButton(
                   icon: LucideIcons.trash2,
                   variant: XtActionVariant.danger,
-                  tooltip: 'Delete',
+                  tooltip: AppLanguage.tr(context, 'Delete'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: widget.onDelete,
@@ -548,7 +555,10 @@ class _SnippetEditorState extends State<SnippetEditor> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           XtPanelHeader(
-            title: widget.snippet == null ? 'New snippet' : 'Snippet',
+            title: AppLanguage.tr(
+              context,
+              widget.snippet == null ? 'New snippet' : 'Snippet',
+            ),
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 15),
             actions: [
@@ -561,7 +571,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                   variant: XtActionVariant.danger,
                   height: 28,
                   padding: const EdgeInsets.symmetric(horizontal: 7),
-                  tooltip: 'Delete snippet',
+                  tooltip: AppLanguage.tr(context, 'Delete snippet'),
                   onPressed: _deleting ? null : _delete,
                 ),
               const SizedBox(width: 6),
@@ -571,7 +581,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                 variant: XtActionVariant.secondary,
                 height: 28,
                 padding: const EdgeInsets.symmetric(horizontal: 7),
-                tooltip: 'Save snippet',
+                tooltip: AppLanguage.tr(context, 'Save snippet'),
                 onPressed: _saving ? null : _save,
               ),
               const SizedBox(width: 6),
@@ -579,7 +589,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                 icon: LucideIcons.x,
                 height: 28,
                 padding: const EdgeInsets.symmetric(horizontal: 7),
-                tooltip: 'Close',
+                tooltip: AppLanguage.tr(context, 'Close'),
                 onPressed: widget.onClose,
               ),
             ],
@@ -596,7 +606,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                       borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
-                      _error!,
+                      AppLanguage.tr(context, _error!),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.dangerText(context),
@@ -609,19 +619,19 @@ class _SnippetEditorState extends State<SnippetEditor> {
                   key: const ValueKey('snippet-name'),
                   controller: _name,
                   autofocus: true,
-                  placeholder: 'Name',
+                  placeholder: AppLanguage.tr(context, 'Name'),
                 ),
                 const SizedBox(height: 10),
                 XtField(
                   key: const ValueKey('snippet-group'),
                   controller: _group,
-                  placeholder: 'Group (optional)',
+                  placeholder: AppLanguage.tr(context, 'Group (optional)'),
                 ),
                 const SizedBox(height: 10),
                 XtField(
                   key: const ValueKey('snippet-command'),
                   controller: _command,
-                  placeholder: 'Command',
+                  placeholder: AppLanguage.tr(context, 'Command'),
                   maxLines: 8,
                   minLines: 3,
                 ),
@@ -630,7 +640,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Press Enter after running',
+                        AppLanguage.tr(context, 'Press Enter after running'),
                         style: theme.typography.normal.copyWith(
                           fontSize: 13,
                           color: XtColors.textPrimary(context),
@@ -640,8 +650,7 @@ class _SnippetEditorState extends State<SnippetEditor> {
                     XtSwitch(
                       key: const ValueKey('snippet-send-enter'),
                       value: _sendEnter,
-                      onChanged: (value) =>
-                          setState(() => _sendEnter = value),
+                      onChanged: (value) => setState(() => _sendEnter = value),
                     ),
                   ],
                 ),

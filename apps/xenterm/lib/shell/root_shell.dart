@@ -167,7 +167,8 @@ class _RootShellState extends State<RootShell> {
                 Expanded(
                   // Every open workspace stays mounted (offstage when not in
                   // front), so switching session tabs never reconnects and
-                  // background PTYs keep running.
+                  // background PTYs keep running. Their UI polling is paused
+                  // through `active`, so a hidden tab costs no frames.
                   child: Stack(
                     children: [
                       for (final host in _openHosts)
@@ -182,6 +183,7 @@ class _RootShellState extends State<RootShell> {
                               showSftp:
                                   host.id == _activeHostId && _terminalSftp,
                               commandBus: _commands,
+                              active: host.id == _activeHostId,
                             ),
                           ),
                         ),

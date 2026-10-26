@@ -34,24 +34,29 @@ Map<String, dynamic> _sample() => {
   ],
 };
 
+Widget _panel({
+  TerminalSessionStatus status = TerminalSessionStatus.connected,
+  String? resourceState,
+  Map<String, dynamic>? resource,
+  String search = '',
+  int matchCount = 0,
+}) => TerminalToolsPanel(
+  fonts: AppFonts(),
+  status: status,
+  resourceState: resourceState,
+  resource: resource,
+  search: search,
+  matchCount: matchCount,
+  onSearch: (_) {},
+  onClear: () {},
+  onCopy: () {},
+  onReconnect: () {},
+);
+
 void main() {
   testWidgets('the system panel renders live resource samples', (tester) async {
     await tester.pumpWidget(
-      _app(
-        TerminalToolsPanel(
-          fonts: AppFonts(),
-          screen: {
-            'resourceState': 'available',
-            'resource': _sample(),
-          },
-          search: '',
-          matchCount: 0,
-          onSearch: (_) {},
-          onClear: () {},
-          onCopy: () {},
-          onReconnect: () {},
-        ),
-      ),
+      _app(_panel(resourceState: 'available', resource: _sample())),
     );
     await tester.pumpAndSettle();
 
@@ -67,37 +72,45 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _app(
-        TerminalToolsPanel(
-          fonts: AppFonts(),
-          screen: {'resourceState': 'unsupported', 'resource': null},
-          search: '',
-          matchCount: 0,
-          onSearch: (_) {},
-          onClear: () {},
-          onCopy: () {},
-          onReconnect: () {},
-        ),
-      ),
+      _app(_panel(resourceState: 'unsupported')),
     );
     await tester.pumpAndSettle();
     expect(find.text('Not available on this host'), findsOne);
 
-    await tester.pumpWidget(
-      _app(
-        TerminalToolsPanel(
-          fonts: AppFonts(),
-          screen: {'resourceState': 'waiting', 'resource': null},
-          search: '',
-          matchCount: 0,
-          onSearch: (_) {},
-          onClear: () {},
-          onCopy: () {},
-          onReconnect: () {},
-        ),
-      ),
-    );
+    await tester.pumpWidget(_app(_panel(resourceState: 'waiting')));
     await tester.pumpAndSettle();
     expect(find.text('Measuring…'), findsOne);
+  });
+
+  testWidgets('the panel derives its session status from the enum, not a '
+      'full screen snapshot', (tester) async {
+    await tester.pumpWidget(_app(_panel()));
+    await tester.pumpAndSettle();
+    expect(find.text('Connected'), findsOne);
+
+    await tester.pumpWidget(
+      _app(_panel(status: TerminalSessionStatus.disconnected)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Disconnected'), findsOne);
+    expect(find.text('Connected'), findsNothing);
+  });
+
+  testWidgets('the match counter pluralises and reflects the cached count', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app(_panel(search: 'Err', matchCount: 1)));
+    await tester.pumpAndSettle();
+    expect(find.text('1 match in view'), findsOne);
+
+    await tester.pumpWidget(_app(_panel(search: 'Err', matchCount: 7)));
+    await tester.pumpAndSettle();
+    expect(find.text('7 matches in view'), findsOne);
+
+    // Empty query shows the shortcut hint, never a stale count.
+    await tester.pumpWidget(_app(_panel(matchCount: 7)));
+    await tester.pumpAndSettle();
+    expect(find.text('Ctrl+Shift+F'), findsOne);
+    expect(find.textContaining('in view'), findsNothing);
   });
 }

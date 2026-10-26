@@ -2,20 +2,33 @@
 /// the FFI bridge, painted as styled runs, with real key input, resize, prompt
 /// handling (host key / credentials / MFA) and a reconnect action.
 ///
-/// The bridge exposes a cheap version counter, so the pane polls at 20 fps and
-/// only pays for a snapshot when the screen actually changed.
+/// The bridge exposes a cheap version counter, so the pane only pays for a
+/// snapshot when the screen actually changed. The poll runs while the pane is
+/// the visible foreground workspace of a resumed app; hidden tabs, the Home
+/// screen and a minimised/unfocused window cancel the timer entirely. When
+/// active, the pane starts at a fast cadence for interactive output and backs
+/// off to a slow one while the screen is quiet, pulling immediately again on
+/// key input.
+///
+/// Screen refreshes are published through value notifiers that only the canvas
+/// subscribes to, so a tick repaints the terminal surface without rebuilding
+/// the 300px tools panel (which gets a throttled derived snapshot), the search
+/// field or the snippet list.
 library;
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_fonts.dart';
 import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
@@ -34,11 +47,130 @@ const _terminalFallbacks = <String>[
   'monospace',
 ];
 
+/// Bridge error text used when the FFI library is missing; translated on show.
+const String _bridgeMissing =
+    'xenterm_bridge library not found next to the app';
+
+/// Poll cadence while output is flowing (16 fps: smooth for a shell).
+const _activePoll = Duration(milliseconds: 60);
+
+/// Poll cadence after the screen has been quiet for [_quietTicksBeforeBackoff].
+const _idlePoll = Duration(milliseconds: 240);
+
+/// Consecutive unchanged polls before backing off to [_idlePoll].
+const _quietTicksBeforeBackoff = 10;
+
+/// The tools panel only redraws on this cadence (4 Hz) at most.
+const _panelRefresh = Duration(milliseconds: 250);
+
 String _terminalFontFamily(AppFonts fonts) {
   if (fonts.terminalFamily.isNotEmpty) return fonts.terminalFamily;
   if (Platform.isWindows) return 'Consolas';
   if (Platform.isMacOS) return 'Menlo';
   return 'DejaVu Sans Mono';
+}
+
+/// The live-session surface the pane drives.
+///
+/// Production uses [_NativeTerminalSession] on top of [NativeBridge]; widget
+/// tests inject a fake through [TerminalView.sessionStarter] so polling,
+/// lifecycle pauses and rendering can be exercised without the native core.
+abstract interface class TerminalSession {
+  /// Cheap change counter: the pane only pulls a snapshot when it advances.
+  int get version;
+
+  /// The decoded core snapshot for the current [version], or null.
+  Map<String, dynamic>? snapshot();
+
+  bool send(List<int> bytes);
+
+  bool resize(int cols, int rows);
+
+  bool answerPrompt(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  });
+
+  void close();
+}
+
+class _NativeTerminalSession implements TerminalSession {
+  _NativeTerminalSession(this._bridge, this._handle);
+
+  final NativeBridge _bridge;
+  final int _handle;
+
+  @override
+  int get version => _bridge.sessionVersion(_handle);
+
+  @override
+  Map<String, dynamic>? snapshot() {
+    final raw = _bridge.sessionSnapshot(_handle);
+    if (raw == null) return null;
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  bool send(List<int> bytes) =>
+      _bridge.sendInput(_handle, Uint8List.fromList(bytes));
+
+  @override
+  bool resize(int cols, int rows) => _bridge.resizeSession(_handle, cols, rows);
+
+  @override
+  bool answerPrompt(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  }) => _bridge.answerPrompt(
+    _handle,
+    promptId,
+    accept: accept,
+    username: username,
+    password: password,
+    text: text,
+  );
+
+  @override
+  void close() {
+    _bridge.closeSession(_handle);
+  }
+}
+
+/// The small derived slice of the screen snapshot the tools panel renders.
+///
+/// Comparing by value keeps [ValueNotifier] from notifying when a tick produced
+/// no change the panel can show.
+class TerminalPanelData {
+  final int matchCount;
+  final String? resourceState;
+  final Map<String, dynamic>? resource;
+
+  const TerminalPanelData({
+    this.matchCount = 0,
+    this.resourceState,
+    this.resource,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is TerminalPanelData &&
+      other.matchCount == matchCount &&
+      other.resourceState == resourceState &&
+      identical(other.resource, resource);
+
+  @override
+  int get hashCode =>
+      Object.hash(matchCount, resourceState, identityHashCode(resource));
 }
 
 class TerminalView extends StatefulWidget {
@@ -47,32 +179,58 @@ class TerminalView extends StatefulWidget {
   final TerminalCommandBus? commandBus;
   final CoreSettingsController? settings;
 
+  /// Whether this pane is the visible foreground workspace. Hidden session
+  /// tabs and the offstage Home screen set this to false and stop polling.
+  final bool active;
+
+  /// Test seam that replaces the native bridge with a fake session.
+  final TerminalSession Function()? sessionStarter;
+
   const TerminalView({
     super.key,
     required this.host,
     required this.fonts,
     this.commandBus,
     this.settings,
+    this.active = true,
+    this.sessionStarter,
   });
 
   @override
   State<TerminalView> createState() => _TerminalViewState();
 }
 
-class _TerminalViewState extends State<TerminalView> {
-  NativeBridge? _bridge;
-  int? _handle;
+class _TerminalViewState extends State<TerminalView>
+    with WidgetsBindingObserver {
+  TerminalSession? _session;
   Timer? _poll;
+  bool _pollFast = false;
+
+  /// Whether the app window is foreground/resumed (lifecycle observer).
+  bool _foreground = true;
+
   Map<String, dynamic>? _screen;
+  final ValueNotifier<Map<String, dynamic>?> _frame = ValueNotifier(null);
+  final ValueNotifier<TerminalPanelData> _tools = ValueNotifier(
+    const TerminalPanelData(),
+  );
   String? _error;
   bool _closed = false;
   bool _starting = true;
+  TerminalSessionStatus _status = TerminalSessionStatus.connecting;
   int _lastVersion = 0;
-  int _cols = 0;
-  int _rows = 0;
+  int _quietTicks = 0;
+  DateTime _lastPanelPublish = DateTime.fromMillisecondsSinceEpoch(0);
   String _search = '';
   List<QuickCommand> _snippets = const [];
   int _lastCommand = 0;
+
+  // Cell width measurement is cached until the family/size changes: measuring
+  // a laid-out TextPainter on every build was pure overhead.
+  String? _cellFamily;
+  double? _cellSize;
+  double _cellWidth = 8;
+
   final FocusNode _focus = FocusNode(debugLabel: 'terminal');
   final FocusNode _searchFocus = FocusNode(debugLabel: 'terminal-search');
 
@@ -82,6 +240,10 @@ class _TerminalViewState extends State<TerminalView> {
     HardwareKeyboard.instance.addHandler(_globalKey);
     widget.commandBus?.addListener(_onCommand);
     widget.settings?.addListener(_onSettings);
+    WidgetsBinding.instance.addObserver(this);
+    _foreground =
+        (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
+        AppLifecycleState.resumed;
     _start();
     _loadSnippets();
   }
@@ -95,37 +257,19 @@ class _TerminalViewState extends State<TerminalView> {
     }
   }
 
-  Future<void> _start() async {
-    final bridge = NativeBridge.tryLoad();
-    if (bridge == null) {
-      setState(() {
-        _error = 'xenterm_bridge library not found next to the app';
-        _starting = false;
-      });
-      return;
-    }
-    _bridge = bridge;
+  void _start() {
     try {
-      final handle = widget.host.ephemeral
-          ? bridge.startAdhocSession({
-              ...widget.host.toAdhocPayload(),
-              'cols': 80,
-              'rows': 24,
-            })
-          : bridge.startSession(widget.host.id, 80, 24);
-      if (!mounted) {
-        bridge.closeSession(handle);
-        return;
-      }
+      final session = (widget.sessionStarter ?? _startNative)();
       setState(() {
-        _handle = handle;
+        _session = session;
         _starting = false;
         _error = null;
         _closed = false;
+        _status = TerminalSessionStatus.connecting;
+        _lastVersion = 0;
       });
-      _poll?.cancel();
-      _poll = Timer.periodic(const Duration(milliseconds: 50), (_) => _tick());
-      _tick();
+      _frame.value = null;
+      _syncPolling();
       _focus.requestFocus();
     } catch (error) {
       setState(() {
@@ -135,54 +279,142 @@ class _TerminalViewState extends State<TerminalView> {
     }
   }
 
-  void _tick() {
-    final bridge = _bridge;
-    final handle = _handle;
-    if (bridge == null || handle == null) return;
-    final version = bridge.sessionVersion(handle);
-    if (version == _lastVersion) return;
-    _lastVersion = version;
-    final raw = bridge.sessionSnapshot(handle);
-    if (raw == null) return;
-    final parsed = jsonDecode(raw) as Map<String, dynamic>;
+  TerminalSession _startNative() {
+    final bridge = NativeBridge.tryLoad();
+    if (bridge == null) throw const NativeBridgeError(_bridgeMissing);
+    final handle = widget.host.ephemeral
+        ? bridge.startAdhocSession({
+            ...widget.host.toAdhocPayload(),
+            'cols': 80,
+            'rows': 24,
+          })
+        : bridge.startSession(widget.host.id, 80, 24);
+    return _NativeTerminalSession(bridge, handle);
+  }
+
+  /// The pane polls only while it is visible, the app is resumed and the
+  /// session is still open.
+  bool get _shouldPoll =>
+      widget.active &&
+      _foreground &&
+      _session != null &&
+      !_closed &&
+      _error == null;
+
+  /// Starts/stops the poll timer to match [active] + app lifecycle.
+  ///
+  /// Becoming pollable pulls a snapshot immediately (a hidden tab may have
+  /// missed seconds of output), then continues on the current cadence.
+  void _syncPolling() {
+    if (!_shouldPoll) {
+      _poll?.cancel();
+      _poll = null;
+      _pollFast = false;
+      return;
+    }
+    if (_poll != null) return;
+    _quietTicks = 0;
+    _pollFast = true;
+    // Zero-delay instead of an inline tick: activation can happen mid-build
+    // (didUpdateWidget), where publishing to the value notifiers would
+    // re-enter the build phase.
+    _poll = Timer(Duration.zero, _onPollTimer);
+  }
+
+  void _onPollTimer() {
+    _poll = null;
     if (!mounted) return;
-    setState(() {
-      _screen = parsed;
-      _closed = parsed['closed'] != null;
-    });
-    hostOsRegistry.record(widget.host.id, parsed['remoteOs'] as String?);
+    _tick();
+    if (!_shouldPoll) {
+      _pollFast = false;
+      return;
+    }
+    _scheduleNextPoll();
   }
 
-  void _reconnect() {
-    final bridge = _bridge;
-    final handle = _handle;
-    if (bridge != null && handle != null) bridge.closeSession(handle);
+  void _scheduleNextPoll() {
     _poll?.cancel();
-    setState(() {
-      _handle = null;
-      _screen = null;
-      _closed = false;
-      _starting = true;
-      _lastVersion = 0;
-    });
-    _start();
+    _pollFast = _quietTicks < _quietTicksBeforeBackoff;
+    _poll = Timer(_pollFast ? _activePoll : _idlePoll, _onPollTimer);
   }
 
-  @override
-  void didUpdateWidget(TerminalView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.commandBus != widget.commandBus) {
-      oldWidget.commandBus?.removeListener(_onCommand);
-      widget.commandBus?.addListener(_onCommand);
+  /// Key input can produce output immediately; replace a pending idle wait with
+  /// the fast cadence so echo latency stays low. A pending fast poll is left
+  /// alone (resetting it on every keystroke would starve the timer).
+  void _requestFastPoll() {
+    if (!_shouldPoll || _poll == null) return;
+    _quietTicks = 0;
+    if (!_pollFast) _scheduleNextPoll();
+  }
+
+  void _tick() {
+    final session = _session;
+    if (session == null || _closed) return;
+    final version = session.version;
+    if (version == _lastVersion) {
+      _quietTicks++;
+      return;
     }
-    if (oldWidget.settings != widget.settings) {
-      oldWidget.settings?.removeListener(_onSettings);
-      widget.settings?.addListener(_onSettings);
+    _lastVersion = version;
+    final parsed = session.snapshot();
+    if (parsed == null || !mounted) return;
+    _quietTicks = 0;
+    _screen = parsed;
+    _frame.value = parsed;
+    hostOsRegistry.record(widget.host.id, parsed['remoteOs'] as String?);
+    final closed = parsed['closed'] != null;
+    final nextStatus = closed
+        ? TerminalSessionStatus.disconnected
+        : TerminalSessionStatus.connected;
+    if (closed != _closed || nextStatus != _status) {
+      setState(() {
+        _closed = closed;
+        _status = nextStatus;
+      });
     }
+    _publishPanel();
+  }
+
+  /// Publishes the throttled derived snapshot the tools panel shows (match
+  /// count, resource sample). Full-screen searches are therefore capped at
+  /// [_panelRefresh], never at the poll rate.
+  void _publishPanel({bool force = false}) {
+    final now = DateTime.now();
+    if (!force && now.difference(_lastPanelPublish) < _panelRefresh) return;
+    _lastPanelPublish = now;
+    final query = _search.trim();
+    _tools.value = TerminalPanelData(
+      matchCount: query.isEmpty ? 0 : _matchCount(_screen, query),
+      resourceState: _screen?['resourceState'] as String?,
+      resource: _screen?['resource'] as Map<String, dynamic>?,
+    );
   }
 
   void _onSettings() {
     if (mounted) setState(() {});
+  }
+
+  void _onSearch(String value) {
+    setState(() => _search = value);
+    _publishPanel(force: true);
+  }
+
+  /// Counts non-overlapping matches over the visible rows. Only called from
+  /// [_publishPanel], i.e. at most [_panelRefresh] while a query is active.
+  int _matchCount(Map<String, dynamic>? screen, String query) {
+    final needle = query.toLowerCase();
+    final rows = (screen?['rows'] as List?) ?? const [];
+    var count = 0;
+    for (final entry in rows) {
+      final text = ((entry as Map<String, dynamic>)['text'] as String? ?? '')
+          .toLowerCase();
+      var index = 0;
+      while ((index = text.indexOf(needle, index)) != -1) {
+        count++;
+        index += needle.length;
+      }
+    }
+    return count;
   }
 
   /// Runs a snippet/command link in this PTY. The bus carries the target host
@@ -199,34 +431,93 @@ class _TerminalViewState extends State<TerminalView> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (foreground == _foreground) return;
+    _foreground = foreground;
+    _syncPolling();
+  }
+
+  @override
+  void didUpdateWidget(TerminalView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) _syncPolling();
+    if (oldWidget.commandBus != widget.commandBus) {
+      oldWidget.commandBus?.removeListener(_onCommand);
+      widget.commandBus?.addListener(_onCommand);
+    }
+    if (oldWidget.settings != widget.settings) {
+      oldWidget.settings?.removeListener(_onSettings);
+      widget.settings?.addListener(_onSettings);
+    }
+  }
+
+  @override
   void dispose() {
     widget.commandBus?.removeListener(_onCommand);
     widget.settings?.removeListener(_onSettings);
     HardwareKeyboard.instance.removeHandler(_globalKey);
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
-    final handle = _handle;
-    if (handle != null) _bridge?.closeSession(handle);
+    _session?.close();
+    _frame.dispose();
+    _tools.dispose();
     _focus.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
   void _send(List<int> bytes) {
-    final bridge = _bridge;
-    final handle = _handle;
-    if (bridge != null && handle != null) {
-      bridge.sendInput(handle, Uint8List.fromList(bytes));
-    }
+    final session = _session;
+    if (session == null || bytes.isEmpty) return;
+    session.send(bytes);
+    _requestFastPoll();
   }
 
   void _resize(int cols, int rows) {
     if (cols == _cols && rows == _rows) return;
     _cols = cols;
     _rows = rows;
-    final bridge = _bridge;
-    final handle = _handle;
-    if (bridge != null && handle != null) {
-      bridge.resizeSession(handle, cols, rows);
-    }
+    _session?.resize(cols, rows);
+  }
+
+  int _cols = 0;
+  int _rows = 0;
+
+  void _answerPrompt(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  }) {
+    _session?.answerPrompt(
+      promptId,
+      accept: accept,
+      username: username,
+      password: password,
+      text: text,
+    );
+    _requestFastPoll();
+  }
+
+  void _reconnect() {
+    _poll?.cancel();
+    _poll = null;
+    _pollFast = false;
+    _session?.close();
+    setState(() {
+      _session = null;
+      _screen = null;
+      _closed = false;
+      _starting = true;
+      _status = TerminalSessionStatus.connecting;
+      _lastVersion = 0;
+      _quietTicks = 0;
+    });
+    _frame.value = null;
+    _tools.value = const TerminalPanelData();
+    _start();
   }
 
   /// Terminal input is captured by a global hardware-key handler gated on this
@@ -246,24 +537,35 @@ class _TerminalViewState extends State<TerminalView> {
     return true;
   }
 
+  /// Measures the cell with the SAME style the painter uses. 'monospace' is
+  /// not a real Windows family — Flutter silently falls back to Segoe UI,
+  /// which is proportional and makes cells drift away from the glyphs.
+  double _cellWidthFor(String fontFamily, double fontSize) {
+    if (_cellFamily == fontFamily && _cellSize == fontSize) return _cellWidth;
+    final measure = TextPainter(
+      text: TextSpan(
+        text: 'M' * 10,
+        style: TextStyle(
+          fontFamily: fontFamily,
+          fontFamilyFallback: _terminalFallbacks,
+          fontSize: fontSize,
+          height: 1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    _cellWidth = measure.width / 10;
+    measure.dispose();
+    _cellFamily = fontFamily;
+    _cellSize = fontSize;
+    return _cellWidth;
+  }
+
   @override
   Widget build(BuildContext context) {
     final fontFamily = _terminalFontFamily(widget.fonts);
     final fontSize = widget.fonts.terminalSize;
-    // Measure the cell with the SAME style the painter uses. 'monospace' is
-    // not a real Windows family — Flutter silently falls back to Segoe UI,
-    // which is proportional and makes cells drift away from the glyphs.
-    final cellStyle = TextStyle(
-      fontFamily: fontFamily,
-      fontFamilyFallback: _terminalFallbacks,
-      fontSize: fontSize,
-      height: 1,
-    );
-    final measure = TextPainter(
-      text: TextSpan(text: 'M' * 10, style: cellStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final cellWidth = measure.width / 10;
+    final cellWidth = _cellWidthFor(fontFamily, fontSize);
     final core = widget.settings?.settings ?? const CoreSettings();
     final lineHeight = fontSize * 1.25 * core.lineSpacing;
     final inset = core.padding ? 12.0 : 0.0;
@@ -289,92 +591,20 @@ class _TerminalViewState extends State<TerminalView> {
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _focus.requestFocus,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Padding(
-                            padding: EdgeInsets.all(inset),
-                            child: CustomPaint(
-                              painter: _TerminalPainter(
-                                screen: _screen,
-                                search: _search,
-                                bold: core.bold,
-                                cursorStyle: core.cursorStyle,
-                                fontFamily: fontFamily,
-                                fontSize: fontSize,
-                                cellWidth: cellWidth,
-                                lineHeight: lineHeight,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_starting)
-                          Center(
-                            child: Text(
-                              'Connecting…',
-                              style: TextStyle(
-                                color: XtColors.textSecondary(context),
-                              ),
-                            ),
-                          ),
-                        if (_error != null)
-                          Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Terminal unavailable\n$_error',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: XtColors.dangerText(context),
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  XtActionButton(
-                                    label: 'Retry',
-                                    variant: XtActionVariant.secondary,
-                                    onPressed: _reconnect,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        if (_closed && _error == null)
-                          Center(
-                            child: _StatusCard(
-                              title: 'Disconnected',
-                              detail: '${_screen?['closed'] ?? ''}',
-                              actionLabel: 'Reconnect',
-                              onAction: _reconnect,
-                            ),
-                          ),
-                        if (_screen?['prompt'] != null && !_closed)
-                          Positioned(
-                            left: 12,
-                            right: 12,
-                            top: 12,
-                            child: ConnectionPromptBanner(
-                              prompt:
-                                  _screen!['prompt'] as Map<String, dynamic>,
-                              onAnswer: (accept, {username, password, text}) {
-                                final bridge = _bridge;
-                                final handle = _handle;
-                                if (bridge == null || handle == null) return;
-                                bridge.answerPrompt(
-                                  handle,
-                                  (promptIdOf(_screen!)),
-                                  accept: accept,
-                                  username: username,
-                                  password: password,
-                                  text: text,
-                                );
-                              },
-                            ),
-                          ),
-                      ],
+                    child: _TerminalCanvas(
+                      frame: _frame,
+                      search: _search,
+                      starting: _starting,
+                      error: _error,
+                      bold: core.bold,
+                      cursorStyle: core.cursorStyle,
+                      fontFamily: fontFamily,
+                      fontSize: fontSize,
+                      cellWidth: cellWidth,
+                      lineHeight: lineHeight,
+                      inset: inset,
+                      onReconnect: _reconnect,
+                      onAnswerPrompt: _answerPrompt,
                     ),
                   ),
                 );
@@ -384,53 +614,220 @@ class _TerminalViewState extends State<TerminalView> {
         ),
         SizedBox(
           width: 300,
-          child: TerminalToolsPanel(
-            fonts: widget.fonts,
-            screen: _screen,
-            search: _search,
-            searchFocus: _searchFocus,
-            matchCount: _matchCount(),
-            onSearch: (value) => setState(() => _search = value),
-            onClear: () {
-              _send(const [0x0c]);
-              _focus.requestFocus();
-            },
-            onCopy: () async {
-              await copyScreenText(_screen);
-              _focus.requestFocus();
-            },
-            onReconnect: _reconnect,
-            snippets: _snippets,
-            onRunSnippet: (snippet) {
-              _send([
-                ...utf8.encode(snippet.command),
-                if (snippet.sendEnter) 13,
-              ]);
-              _focus.requestFocus();
-            },
+          child: ValueListenableBuilder<TerminalPanelData>(
+            valueListenable: _tools,
+            builder: (context, data, _) => TerminalToolsPanel(
+              fonts: widget.fonts,
+              status: _status,
+              search: _search,
+              searchFocus: _searchFocus,
+              matchCount: data.matchCount,
+              resourceState: data.resourceState,
+              resource: data.resource,
+              onSearch: _onSearch,
+              onClear: () {
+                _send(const [0x0c]);
+                _focus.requestFocus();
+              },
+              onCopy: () async {
+                await copyScreenText(_screen);
+                _focus.requestFocus();
+              },
+              onReconnect: _reconnect,
+              snippets: _snippets,
+              onRunSnippet: (snippet) {
+                _send([
+                  ...utf8.encode(snippet.command),
+                  if (snippet.sendEnter) 13,
+                ]);
+                _focus.requestFocus();
+              },
+            ),
           ),
         ),
       ],
     );
   }
+}
 
-  int _matchCount() {
-    final query = _search.trim().toLowerCase();
-    if (query.isEmpty) return 0;
-    final rows = (_screen?['rows'] as List?) ?? const [];
-    var count = 0;
-    for (final entry in rows) {
-      final text = ((entry as Map<String, dynamic>)['text'] as String? ?? '')
-          .toLowerCase();
-      var index = 0;
-      while ((index = text.indexOf(query, index)) != -1) {
-        count++;
-        index += query.length;
-      }
+/// The terminal surface plus its connect/error/disconnect overlays and the
+/// blocking connection prompt.
+///
+/// This widget alone subscribes to the 20 fps frame stream: a snapshot tick
+/// rebuilds only this subtree, never the tools panel or the surrounding chrome.
+class _TerminalCanvas extends StatefulWidget {
+  final ValueListenable<Map<String, dynamic>?> frame;
+  final String search;
+  final bool starting;
+  final String? error;
+  final bool bold;
+  final String cursorStyle;
+  final String fontFamily;
+  final double fontSize;
+  final double cellWidth;
+  final double lineHeight;
+  final double inset;
+  final VoidCallback onReconnect;
+  final void Function(
+    int promptId, {
+    required bool accept,
+    String? username,
+    String? password,
+    String? text,
+  })
+  onAnswerPrompt;
+
+  const _TerminalCanvas({
+    required this.frame,
+    required this.search,
+    required this.starting,
+    required this.error,
+    required this.bold,
+    required this.cursorStyle,
+    required this.fontFamily,
+    required this.fontSize,
+    required this.cellWidth,
+    required this.lineHeight,
+    required this.inset,
+    required this.onReconnect,
+    required this.onAnswerPrompt,
+  });
+
+  @override
+  State<_TerminalCanvas> createState() => _TerminalCanvasState();
+}
+
+class _TerminalCanvasState extends State<_TerminalCanvas> {
+  /// Glyph painters survive repaints; they are rebuilt only for new text/style.
+  final TerminalTextCache _textCache = TerminalTextCache();
+
+  @override
+  void didUpdateWidget(_TerminalCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fontFamily != widget.fontFamily ||
+        oldWidget.fontSize != widget.fontSize ||
+        oldWidget.bold != widget.bold) {
+      // Old glyph sizes would never be reused; drop them instead of letting
+      // the bounded cache carry dead entries.
+      _textCache.clear();
     }
-    return count;
+  }
+
+  @override
+  void dispose() {
+    _textCache.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<Map<String, dynamic>?>(
+      valueListenable: widget.frame,
+      builder: (context, screen, _) {
+        final closed = screen?['closed'] != null;
+        final prompt = screen?['prompt'] as Map<String, dynamic>?;
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.all(widget.inset),
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    key: const ValueKey('terminal-canvas'),
+                    painter: TerminalPainter(
+                      screen: screen,
+                      search: widget.search,
+                      bold: widget.bold,
+                      cursorStyle: widget.cursorStyle,
+                      fontFamily: widget.fontFamily,
+                      fontSize: widget.fontSize,
+                      cellWidth: widget.cellWidth,
+                      lineHeight: widget.lineHeight,
+                      textCache: _textCache,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (widget.starting)
+              Center(
+                child: Text(
+                  AppLanguage.tr(context, 'Connecting…'),
+                  style: TextStyle(color: XtColors.textSecondary(context)),
+                ),
+              ),
+            if (widget.error != null)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        AppLanguage.tr(context, 'Terminal unavailable'),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: XtColors.dangerText(context),
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // Core/bridge error text stays verbatim (it names the
+                      // technical cause); only the heading is translated.
+                      Text(
+                        _displayError(context, widget.error!),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: XtColors.dangerText(context),
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      XtActionButton(
+                        label: AppLanguage.tr(context, 'Retry'),
+                        variant: XtActionVariant.secondary,
+                        onPressed: widget.onReconnect,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (closed && widget.error == null)
+              Center(
+                child: _StatusCard(
+                  title: AppLanguage.tr(context, 'Disconnected'),
+                  detail: '${screen?['closed'] ?? ''}',
+                  actionLabel: AppLanguage.tr(context, 'Reconnect'),
+                  onAction: widget.onReconnect,
+                ),
+              ),
+            if (prompt != null && !closed)
+              Positioned(
+                left: 12,
+                right: 12,
+                top: 12,
+                child: ConnectionPromptBanner(
+                  prompt: prompt,
+                  onAnswer: (accept, {username, password, text}) {
+                    widget.onAnswerPrompt(
+                      promptIdOf(screen!),
+                      accept: accept,
+                      username: username,
+                      password: password,
+                      text: text,
+                    );
+                  },
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
+
+String _displayError(BuildContext context, String error) =>
+    error == _bridgeMissing ? AppLanguage.tr(context, error) : error;
 
 int promptIdOf(Map<String, dynamic> screen) {
   final prompt = screen['prompt'] as Map<String, dynamic>?;
@@ -540,7 +937,71 @@ List<int> _encodeKey(KeyEvent event, bool applicationCursor) {
   return bytes ?? const [];
 }
 
-class _TerminalPainter extends CustomPainter {
+/// Bounded LRU cache of laid-out glyph [TextPainter]s.
+///
+/// Repaints (cursor blink aside, every frame while output streams) reuse the
+/// laid-out painter of unchanged runs instead of re-running text layout for the
+/// whole screen. The cache is bounded so a full-screen scroll cannot grow it
+/// without limit; [dispose] releases every cached painter.
+class TerminalTextCache {
+  /// Hard cap on cached painters (a 2500x1300 screen has well under this many
+  /// distinct runs; the cap mostly protects against scroll churn).
+  static const int maxEntries = 512;
+
+  final LinkedHashMap<(String, String, double, Color, bool), TextPainter>
+  _entries =
+      LinkedHashMap<(String, String, double, Color, bool), TextPainter>();
+
+  /// Number of cached entries (test/diagnostic surface).
+  int get length => _entries.length;
+
+  TextPainter obtain({
+    required String text,
+    required String fontFamily,
+    required double fontSize,
+    required Color color,
+    required bool bold,
+  }) {
+    final key = (text, fontFamily, fontSize, color, bold);
+    final cached = _entries.remove(key);
+    if (cached != null) {
+      // Re-insert to mark it most-recently used.
+      _entries[key] = cached;
+      return cached;
+    }
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: fontFamily,
+          fontFamilyFallback: _terminalFallbacks,
+          fontSize: fontSize,
+          height: 1,
+          color: color,
+          fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    _entries[key] = painter;
+    if (_entries.length > maxEntries) {
+      final oldest = _entries.keys.first;
+      _entries.remove(oldest)?.dispose();
+    }
+    return painter;
+  }
+
+  void clear() {
+    for (final painter in _entries.values) {
+      painter.dispose();
+    }
+    _entries.clear();
+  }
+
+  void dispose() => clear();
+}
+
+class TerminalPainter extends CustomPainter {
   final Map<String, dynamic>? screen;
   final String search;
   final bool bold;
@@ -549,8 +1010,9 @@ class _TerminalPainter extends CustomPainter {
   final double fontSize;
   final double cellWidth;
   final double lineHeight;
+  final TerminalTextCache textCache;
 
-  _TerminalPainter({
+  TerminalPainter({
     required this.screen,
     required this.search,
     required this.bold,
@@ -559,6 +1021,7 @@ class _TerminalPainter extends CustomPainter {
     required this.fontSize,
     required this.cellWidth,
     required this.lineHeight,
+    required this.textCache,
   });
 
   // The terminal surface and its default ink stay fixed in both themes: a
@@ -568,10 +1031,18 @@ class _TerminalPainter extends CustomPainter {
   static const _defaultFg = Color(0xFFDDDDDD);
   static const _defaultBg = Color(0xFF0A0A0A);
   static const _cursorColor = Color(0xFFFFFFFF);
+  static const _whiteWash = Color(0x40FFFFFF);
+
+  // Reused across every run/rect in a paint; drawing commands copy the paint
+  // values, so one instance is enough for the whole frame.
+  final Paint _fillPaint = Paint()..color = _defaultBg;
+  final Paint _runPaint = Paint();
+  final Paint _highlightPaint = Paint()..color = _whiteWash;
+  final Paint _cursorPaint = Paint()..color = _cursorColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _defaultBg);
+    canvas.drawRect(Offset.zero & size, _fillPaint);
     final query = search.trim().toLowerCase();
     final rows = (screen?['rows'] as List?) ?? const [];
     for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -586,7 +1057,7 @@ class _TerminalPainter extends CustomPainter {
         final cells = (run['c'] as num?)?.toInt() ?? 0;
         final style = (run['s'] as Map<String, dynamic>?) ?? const {};
         final width = cells * cellWidth;
-        var fg = _color(style['fg'], _defaultFg);
+        var fg = _color(style['fg'], _defaultFg) ?? _defaultFg;
         var bg = _color(style['bg'], null);
         if (style['i'] == true) {
           final previous = fg;
@@ -594,29 +1065,21 @@ class _TerminalPainter extends CustomPainter {
           bg = previous;
         }
         if (bg != null && bg.a > 0) {
+          _runPaint.color = bg;
           canvas.drawRect(
             Rect.fromLTWH(x, rowIndex * lineHeight, width, lineHeight),
-            Paint()..color = bg,
+            _runPaint,
           );
         }
         final text = (run['t'] as String?) ?? '';
         if (text.isNotEmpty) {
-          final painter = TextPainter(
-            text: TextSpan(
-              text: text,
-              style: TextStyle(
-                fontFamily: fontFamily,
-                fontFamilyFallback: _terminalFallbacks,
-                fontSize: fontSize,
-                height: 1,
-                color: fg,
-                fontWeight: style['b'] == true
-                    ? FontWeight.w700
-                    : FontWeight.w400,
-              ),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
+          final painter = textCache.obtain(
+            text: text,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            color: fg,
+            bold: style['b'] == true,
+          );
           painter.paint(
             canvas,
             Offset(
@@ -632,19 +1095,21 @@ class _TerminalPainter extends CustomPainter {
     if (cursor != null && screen?['cursorHidden'] != true) {
       final row = (cursor[0] as num).toInt();
       final col = (cursor[1] as num).toInt();
-      final paint = Paint()..color = _cursorColor;
       final x = col * cellWidth;
       final y = row * lineHeight;
       switch (cursorStyle) {
         case 'bar':
-          canvas.drawRect(Rect.fromLTWH(x, y, 2, lineHeight), paint);
+          canvas.drawRect(Rect.fromLTWH(x, y, 2, lineHeight), _cursorPaint);
         case 'underline':
           canvas.drawRect(
             Rect.fromLTWH(x, y + lineHeight - 2, cellWidth, 2),
-            paint,
+            _cursorPaint,
           );
         default:
-          canvas.drawRect(Rect.fromLTWH(x, y, cellWidth, lineHeight), paint);
+          canvas.drawRect(
+            Rect.fromLTWH(x, y, cellWidth, lineHeight),
+            _cursorPaint,
+          );
       }
     }
   }
@@ -658,7 +1123,6 @@ class _TerminalPainter extends CustomPainter {
     final text = ((row['text'] as String?) ?? '').toLowerCase();
     // Search highlight is painted over terminal content, so it is a fixed
     // translucent wash rather than a theme surface.
-    final paint = Paint()..color = const Color(0x40FFFFFF);
     var index = 0;
     while ((index = text.indexOf(query, index)) != -1) {
       canvas.drawRect(
@@ -668,7 +1132,7 @@ class _TerminalPainter extends CustomPainter {
           query.length * cellWidth,
           lineHeight,
         ),
-        paint,
+        _highlightPaint,
       );
       index += query.length;
     }
@@ -693,13 +1157,15 @@ class _TerminalPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TerminalPainter oldDelegate) =>
-      oldDelegate.screen != screen ||
+  bool shouldRepaint(TerminalPainter oldDelegate) =>
+      !identical(oldDelegate.screen, screen) ||
       oldDelegate.search != search ||
       oldDelegate.bold != bold ||
       oldDelegate.cursorStyle != cursorStyle ||
       oldDelegate.fontFamily != fontFamily ||
-      oldDelegate.fontSize != fontSize;
+      oldDelegate.fontSize != fontSize ||
+      oldDelegate.cellWidth != cellWidth ||
+      oldDelegate.lineHeight != lineHeight;
 
   static final List<Color> _ansiPalette = _buildPalette();
 

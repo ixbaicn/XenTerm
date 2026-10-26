@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
 import '../../widgets/toolbar.dart';
@@ -154,7 +155,7 @@ class _LogsScreenState extends State<LogsScreen> {
                             children: [
                               Flexible(
                                 child: Text(
-                                  'Session logs',
+                                  AppLanguage.tr(context, 'Session logs'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.typography.semiBold.copyWith(
@@ -208,8 +209,16 @@ class _LogsScreenState extends State<LogsScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Delete all ${_logs.length} session logs? This '
-                              'cannot be undone.',
+                              _logs.length == 1
+                                  ? AppLanguage.tr(
+                                      context,
+                                      'Delete the only session log? This cannot be undone.',
+                                    )
+                                  : AppLanguage.tr(
+                                      context,
+                                      'Delete all {count} session logs? This cannot be undone.',
+                                      {'count': _logs.length},
+                                    ),
                               style: TextStyle(
                                 fontSize: 13,
                                 color: XtColors.textPrimary(context),
@@ -218,13 +227,13 @@ class _LogsScreenState extends State<LogsScreen> {
                           ),
                           XtActionButton(
                             key: const ValueKey('logs-clear-confirm'),
-                            label: 'Delete all',
+                            label: AppLanguage.tr(context, 'Delete all'),
                             variant: XtActionVariant.danger,
                             onPressed: _deleteAll,
                           ),
                           const SizedBox(width: 6),
                           XtActionButton(
-                            label: 'Cancel',
+                            label: AppLanguage.tr(context, 'Cancel'),
                             onPressed: () =>
                                 setState(() => _confirmClear = false),
                           ),
@@ -263,7 +272,7 @@ class _LogsScreenState extends State<LogsScreen> {
     if (_loading) {
       return Center(
         child: Text(
-          'Loading session logs…',
+          AppLanguage.tr(context, 'Loading session logs…'),
           style: TextStyle(color: XtColors.textTertiary(context)),
         ),
       );
@@ -274,13 +283,13 @@ class _LogsScreenState extends State<LogsScreen> {
         child: Column(
           children: [
             Text(
-              _error!,
+              AppLanguage.tr(context, _error!),
               textAlign: TextAlign.center,
               style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
             XtActionButton(
-              label: 'Retry',
+              label: AppLanguage.tr(context, 'Retry'),
               variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
             ),
@@ -291,9 +300,11 @@ class _LogsScreenState extends State<LogsScreen> {
     if (_logs.isEmpty) {
       return XtEmptyState(
         icon: LucideIcons.clipboardList,
-        title: 'No session logs yet',
-        message:
-            'Enable “Save session logs” in Settings → Logs to record new sessions.',
+        title: AppLanguage.tr(context, 'No session logs yet'),
+        message: AppLanguage.tr(
+          context,
+          'Enable “Save session logs” in Settings → Logs to record new sessions.',
+        ),
       );
     }
     return ListView(
@@ -390,7 +401,7 @@ class _LogRowState extends State<_LogRow> {
                   key: ValueKey('log-row-delete-${entry.file}'),
                   icon: LucideIcons.trash2,
                   variant: XtActionVariant.danger,
-                  tooltip: 'Delete log',
+                  tooltip: AppLanguage.tr(context, 'Delete log'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: widget.onDelete,
@@ -481,7 +492,7 @@ class _LogViewer extends StatelessWidget {
                 XtActionButton(
                   key: const ValueKey('log-copy'),
                   icon: LucideIcons.copy,
-                  tooltip: 'Copy transcript',
+                  tooltip: AppLanguage.tr(context, 'Copy transcript'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: content == null
@@ -495,7 +506,7 @@ class _LogViewer extends StatelessWidget {
                   key: const ValueKey('log-delete'),
                   icon: LucideIcons.trash2,
                   variant: XtActionVariant.danger,
-                  tooltip: 'Delete log',
+                  tooltip: AppLanguage.tr(context, 'Delete log'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: onDelete,
@@ -503,7 +514,7 @@ class _LogViewer extends StatelessWidget {
                 const SizedBox(width: 4),
                 XtActionButton(
                   icon: LucideIcons.x,
-                  tooltip: 'Close viewer',
+                  tooltip: AppLanguage.tr(context, 'Close viewer'),
                   height: 30,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   onPressed: onClose,
@@ -523,7 +534,7 @@ class _LogViewer extends StatelessWidget {
                 child: reading
                     ? Center(
                         child: Text(
-                          'Opening transcript…',
+                          AppLanguage.tr(context, 'Opening transcript…'),
                           style: TextStyle(
                             color: XtColors.textTertiary(context),
                           ),
@@ -536,8 +547,15 @@ class _LogViewer extends StatelessWidget {
                           child: Text(
                             content?.closeReason == null ||
                                     content!.closeReason!.isEmpty
-                                ? 'This session produced no terminal output.'
-                                : 'Session closed: ${content!.closeReason}',
+                                ? AppLanguage.tr(
+                                    context,
+                                    'This session produced no terminal output.',
+                                  )
+                                : AppLanguage.tr(
+                                    context,
+                                    'Session closed: {reason}',
+                                    {'reason': content!.closeReason!},
+                                  ),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,

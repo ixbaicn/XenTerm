@@ -10,6 +10,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
@@ -78,12 +79,16 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     _reload();
     // Tunnel state lives only in open sessions; a light poll keeps the
     // "Active" section honest while this screen is on screen.
-    _tunnelPoll = Timer.periodic(const Duration(seconds: 2), (_) => _pollTunnels());
+    _tunnelPoll = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollTunnels(),
+    );
   }
 
   Future<void> _pollTunnels() async {
     try {
-      final tunnels = await (widget.loadTunnels ?? loadRuntimeTunnelsFromCore)();
+      final tunnels =
+          await (widget.loadTunnels ?? loadRuntimeTunnelsFromCore)();
       if (!mounted) return;
       setState(() => _tunnels = tunnels);
     } catch (_) {
@@ -233,7 +238,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Tunnels & Jumps',
+                            AppLanguage.tr(context, 'Tunnels & Jumps'),
                             style: theme.typography.bold.copyWith(
                               fontSize: 18,
                               color: XtColors.textPrimary(context),
@@ -241,7 +246,10 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Port forwards and the jump hosts their sessions use.',
+                            AppLanguage.tr(
+                              context,
+                              'Port forwards and the jump hosts their sessions use.',
+                            ),
                             style: theme.typography.normal.copyWith(
                               fontSize: 12,
                               color: XtColors.textSecondary(context),
@@ -253,7 +261,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                     XtActionButton(
                       key: const ValueKey('forward-new'),
                       icon: LucideIcons.plus,
-                      label: 'New rule',
+                      label: AppLanguage.tr(context, 'New rule'),
                       variant: XtActionVariant.primary,
                       onPressed: _openNew,
                     ),
@@ -284,7 +292,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                     controller: _search,
                     autofocus: true,
                     onChanged: (value) => setState(() => _query = value),
-                    placeholder: 'Search rules',
+                    placeholder: AppLanguage.tr(context, 'Search rules'),
                   ),
                 ),
               if (_notice != null)
@@ -300,7 +308,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
                       borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
-                      _notice!,
+                      AppLanguage.tr(context, _notice!),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.textPrimary(context),
@@ -359,7 +367,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
         padding: const EdgeInsets.all(32),
         child: Center(
           child: Text(
-            'Loading port forwards…',
+            AppLanguage.tr(context, 'Loading port forwards…'),
             style: TextStyle(color: XtColors.textTertiary(context)),
           ),
         ),
@@ -371,13 +379,13 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
         child: Column(
           children: [
             Text(
-              _error!,
+              AppLanguage.tr(context, _error!),
               textAlign: TextAlign.center,
               style: TextStyle(color: XtColors.danger(context)),
             ),
             const SizedBox(height: 12),
             XtActionButton(
-              label: 'Retry',
+              label: AppLanguage.tr(context, 'Retry'),
               variant: XtActionVariant.secondary,
               onPressed: () => _reload(),
             ),
@@ -394,7 +402,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
           Row(
             children: [
               Text(
-                'Active tunnels',
+                AppLanguage.tr(context, 'Active tunnels'),
                 style: theme.typography.semiBold.copyWith(
                   fontSize: 15,
                   color: XtColors.textPrimary(context),
@@ -421,7 +429,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
         Row(
           children: [
             Text(
-              'Port forwarding',
+              AppLanguage.tr(context, 'Port forwarding'),
               style: theme.typography.semiBold.copyWith(
                 fontSize: 15,
                 color: XtColors.textPrimary(context),
@@ -441,10 +449,16 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
         if (rules.isEmpty)
           XtEmptyState(
             icon: LucideIcons.arrowLeftRight,
-            title: _rules.isEmpty ? 'No forwarding rules' : 'No matches',
-            message: _rules.isEmpty
-                ? 'Rules open their tunnels when the owning host connects.'
-                : 'Try a different search.',
+            title: AppLanguage.tr(
+              context,
+              _rules.isEmpty ? 'No forwarding rules' : 'No matches',
+            ),
+            message: AppLanguage.tr(
+              context,
+              _rules.isEmpty
+                  ? 'Rules open their tunnels when the owning host connects.'
+                  : 'Try a different search.',
+            ),
           )
         else
           for (final rule in rules)
@@ -461,7 +475,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
           Row(
             children: [
               Text(
-                'Jump chains',
+                AppLanguage.tr(context, 'Jump chains'),
                 style: theme.typography.semiBold.copyWith(
                   fontSize: 15,
                   color: XtColors.textPrimary(context),
@@ -479,12 +493,14 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
           ),
           const SizedBox(height: 8),
           if (_jumps.isEmpty)
-            const XtEmptyState(
+            XtEmptyState(
               icon: LucideIcons.route,
-              title: 'No jump hosts configured',
-              message:
-                  'Pick a jump host under a host\'s SSH details to route it '
-                  'through another server.',
+              title: AppLanguage.tr(context, 'No jump hosts configured'),
+              message: AppLanguage.tr(
+                context,
+                'Pick a jump host under a host\'s SSH details to route it '
+                'through another server.',
+              ),
             )
           else
             for (final jump in _jumps)
@@ -503,10 +519,10 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
     _ => XtColors.textSecondary(context),
   };
 
-  static String kindLabel(String kind) => switch (kind) {
-    'local' => 'Local',
-    'remote' => 'Remote',
-    _ => 'Dynamic',
+  static String kindLabel(BuildContext context, String kind) => switch (kind) {
+    'local' => AppLanguage.tr(context, 'Local'),
+    'remote' => AppLanguage.tr(context, 'Remote'),
+    _ => AppLanguage.tr(context, 'Dynamic'),
   };
 }
 
@@ -567,7 +583,11 @@ class _JumpCard extends StatelessWidget {
               ),
             ),
             Text(
-              'via ${chain.jumps.length} jump${chain.jumps.length == 1 ? '' : 's'}',
+              chain.jumps.length == 1
+                  ? AppLanguage.tr(context, 'via 1 jump')
+                  : AppLanguage.tr(context, 'via {count} jumps', {
+                      'count': chain.jumps.length,
+                    }),
               style: TextStyle(
                 fontSize: 11,
                 color: XtColors.textTertiary(context),
@@ -626,11 +646,7 @@ class _RuleCardState extends State<_RuleCard> {
                   ),
                   borderRadius: BorderRadius.circular(XtRadius.menu),
                 ),
-                child: Icon(
-                  LucideIcons.arrowLeftRight,
-                  size: 20,
-                  color: color,
-                ),
+                child: Icon(LucideIcons.arrowLeftRight, size: 20, color: color),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -652,7 +668,10 @@ class _RuleCardState extends State<_RuleCard> {
                         ),
                         const SizedBox(width: 8),
                         XtBadge(
-                          label: _ForwardsScreenState.kindLabel(rule.kind),
+                          label: _ForwardsScreenState.kindLabel(
+                            context,
+                            rule.kind,
+                          ),
                         ),
                       ],
                     ),
@@ -679,7 +698,7 @@ class _RuleCardState extends State<_RuleCard> {
                       onPressed: widget.onEdit,
                       height: 30,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      tooltip: 'Edit rule',
+                      tooltip: AppLanguage.tr(context, 'Edit rule'),
                     ),
                     const SizedBox(width: 4),
                     XtActionButton(
@@ -688,7 +707,7 @@ class _RuleCardState extends State<_RuleCard> {
                       onPressed: widget.onDelete,
                       height: 30,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      tooltip: 'Delete rule',
+                      tooltip: AppLanguage.tr(context, 'Delete rule'),
                     ),
                   ],
                 ),
@@ -829,7 +848,10 @@ class _ForwardEditorState extends State<ForwardEditor> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           XtPanelHeader(
-            title: widget.rule == null ? 'New rule' : 'Forwarding rule',
+            title: AppLanguage.tr(
+              context,
+              widget.rule == null ? 'New rule' : 'Forwarding rule',
+            ),
             height: 56,
             padding: const EdgeInsets.symmetric(horizontal: 15),
             actions: [
@@ -842,7 +864,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                   variant: XtActionVariant.danger,
                   height: 28,
                   padding: const EdgeInsets.symmetric(horizontal: 7),
-                  tooltip: 'Delete rule',
+                  tooltip: AppLanguage.tr(context, 'Delete rule'),
                   onPressed: _deleting ? null : _delete,
                 ),
               const SizedBox(width: 6),
@@ -852,7 +874,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                 variant: XtActionVariant.secondary,
                 height: 28,
                 padding: const EdgeInsets.symmetric(horizontal: 7),
-                tooltip: 'Save rule',
+                tooltip: AppLanguage.tr(context, 'Save rule'),
                 onPressed: _saving ? null : _save,
               ),
               const SizedBox(width: 6),
@@ -860,7 +882,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                 icon: LucideIcons.x,
                 height: 28,
                 padding: const EdgeInsets.symmetric(horizontal: 7),
-                tooltip: 'Close',
+                tooltip: AppLanguage.tr(context, 'Close'),
                 onPressed: widget.onClose,
               ),
             ],
@@ -877,7 +899,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                       borderRadius: BorderRadius.circular(XtRadius.field),
                     ),
                     child: Text(
-                      _error!,
+                      AppLanguage.tr(context, _error!),
                       style: TextStyle(
                         fontSize: 12,
                         color: XtColors.dangerText(context),
@@ -889,7 +911,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const XtFieldLabel('Host'),
+                    XtFieldLabel(AppLanguage.tr(context, 'Host')),
                     XtSelectField<String>(
                       key: const ValueKey('forward-host'),
                       value: _sessionId,
@@ -905,7 +927,7 @@ class _ForwardEditorState extends State<ForwardEditor> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const XtFieldLabel('Type'),
+                    XtFieldLabel(AppLanguage.tr(context, 'Type')),
                     XtSelectField<String>(
                       key: const ValueKey('forward-kind'),
                       value: _kind,
@@ -922,34 +944,34 @@ class _ForwardEditorState extends State<ForwardEditor> {
                 XtField(
                   key: const ValueKey('forward-name'),
                   controller: _name,
-                  placeholder: 'Name (optional)',
+                  placeholder: AppLanguage.tr(context, 'Name (optional)'),
                 ),
                 const SizedBox(height: 10),
                 XtField(
                   key: const ValueKey('forward-bind-addr'),
                   controller: _bindAddr,
-                  placeholder: 'Listen address',
+                  placeholder: AppLanguage.tr(context, 'Listen address'),
                 ),
                 const SizedBox(height: 10),
                 XtField(
                   key: const ValueKey('forward-bind-port'),
                   controller: _bindPort,
                   keyboardType: TextInputType.number,
-                  placeholder: 'Listen port',
+                  placeholder: AppLanguage.tr(context, 'Listen port'),
                 ),
                 if (_kind != 'dynamic') ...[
                   const SizedBox(height: 10),
                   XtField(
                     key: const ValueKey('forward-target-host'),
                     controller: _host,
-                    placeholder: 'Target host',
+                    placeholder: AppLanguage.tr(context, 'Target host'),
                   ),
                   const SizedBox(height: 10),
                   XtField(
                     key: const ValueKey('forward-target-port'),
                     controller: _hostPort,
                     keyboardType: TextInputType.number,
-                    placeholder: 'Target port',
+                    placeholder: AppLanguage.tr(context, 'Target port'),
                   ),
                 ],
               ],
@@ -991,7 +1013,12 @@ class _TunnelCard extends StatelessWidget {
               children: [
                 Text(
                   tunnel.name.isEmpty
-                      ? '${tunnel.kind} tunnel'
+                      ? AppLanguage.tr(context, '{kind} tunnel', {
+                          'kind': _ForwardsScreenState.kindLabel(
+                            context,
+                            tunnel.kind,
+                          ),
+                        })
                       : tunnel.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
