@@ -266,9 +266,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
 
-  /// About tab: name, real version from the core, project info, credits and
-  /// links. Tapping a link copies it to the clipboard (the app deliberately
-  /// ships without a URL-launcher dependency).
+  /// About tab: the real application icon, the canonical build version exactly
+  /// as the Rust core reports it, a compact feature summary and the project
+  /// links. Credits for people are intentionally not surfaced (that list only
+  /// grows and belongs in the repository docs). Tapping a link copies it to the
+  /// clipboard: the app deliberately ships without a URL-launcher dependency.
   void _copyLink(String label, String url) {
     Clipboard.setData(ClipboardData(text: url));
     _copyReset?.cancel();
@@ -282,75 +284,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     final version = coreVersionSync();
     const repo = 'https://github.com/ixbaicn/XenTerm';
-    final links = <(String, String)>[
-      ('Source code', repo),
-      ('Issue tracker', '$repo/issues'),
-      ('Releases', '$repo/releases'),
-      ('Contribution guide', '$repo/blob/main/CONTRIBUTING.md'),
-      ('Third-party notices', '$repo/blob/main/THIRD_PARTY_NOTICES.md'),
-      ('License', '$repo/blob/main/LICENSE'),
+    final links = <(String, String, IconData)>[
+      ('Source code', repo, LucideIcons.github),
+      ('Issue tracker', '$repo/issues', LucideIcons.bug),
+      ('Releases', '$repo/releases', LucideIcons.tag),
+      ('License', '$repo/blob/main/LICENSE', LucideIcons.scale),
+    ];
+    final features = <(IconData, String, String)>[
+      (LucideIcons.server, 'SSH / SFTP', 'File browsing and transfers'),
+      (
+        LucideIcons.cable,
+        'Telnet / Serial',
+        'Network devices and serial consoles',
+      ),
+      (LucideIcons.arrowLeftRight, 'Port forwarding', 'Tunnels and jump hosts'),
+      (LucideIcons.braces, 'MCP / CLI', 'Automation without a JVM'),
     ];
     return [
       _SectionCard(
-        title: 'About XenTerm',
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: XtColors.accent(context),
-                  borderRadius: BorderRadius.circular(XtRadius.field),
-                ),
-                child: Icon(
-                  LucideIcons.squareTerminal,
-                  size: 28,
-                  color: XtColors.onAccent(context),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.asset(
+                  'assets/app_icon.png',
+                  width: 64,
+                  height: 64,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'XenTerm',
                       style: theme.typography.bold.copyWith(
                         fontSize: 20,
+                        height: 1.2,
                         color: XtColors.textPrimary(context),
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
+                    // The canonical build identity, verbatim from the core
+                    // (`xt-vX.Y.Z` or `xt-<channel>-<hash>-T<timestamp>`).
+                    // Never localised: users paste it into bug reports and MCP
+                    // clients see the same string.
                     Text(
-                      '${AppLanguage.tr(context, 'Version')} '
-                      '${version ?? AppLanguage.tr(context, 'Development build')}',
-                      style: theme.typography.normal.copyWith(
-                        fontSize: 13,
-                        color: XtColors.textTertiary(context),
+                      version ?? '—',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.typography.mono.copyWith(
+                        fontSize: 12,
+                        color: XtColors.textSecondary(context),
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        XtBadge(label: 'Rust'),
+                        XtBadge(label: 'Flutter'),
+                        XtBadge(label: 'MCP'),
+                      ],
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          _SettingsText(
-            'A lightweight SSH / SFTP / Telnet / serial terminal with a Rust '
-            'core and a Flutter desktop UI.',
+          const SizedBox(height: 18),
+          Text(
+            AppLanguage.tr(
+              context,
+              'A lightweight SSH / SFTP / Telnet / serial terminal with a Rust '
+              'core and a Flutter desktop UI.',
+            ),
+            style: theme.typography.normal.copyWith(
+              fontSize: 13,
+              height: 1.6,
+              color: XtColors.textSecondary(context),
+            ),
           ),
         ],
       ),
       _SectionCard(
-        title: 'Developer',
+        title: 'Features',
         children: [
-          _SettingsText('Maintained by 小白 and the XenTerm contributors.'),
+          const SizedBox(height: 2),
+          for (var row = 0; row < features.length; row += 2)
+            Padding(
+              padding: EdgeInsets.only(top: row == 0 ? 10 : 18),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _AboutFeature(
+                      icon: features[row].$1,
+                      title: features[row].$2,
+                      detail: features[row].$3,
+                    ),
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    child: row + 1 < features.length
+                        ? _AboutFeature(
+                            icon: features[row + 1].$1,
+                            title: features[row + 1].$2,
+                            detail: features[row + 1].$3,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
       _SectionCard(
-        title: 'Acknowledgements',
+        title: 'Developer & credits',
         children: [
+          _SettingsText('Maintained by 小白 and the XenTerm contributors.'),
           _SettingsText(
             'Thanks to xue-ding-e and noerror6 for their contributions, and to '
             'the open-source projects this app is built on: Flutter, '
@@ -362,22 +420,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _SectionCard(
         title: 'Links',
         children: [
-          _SettingsText('Tap a link to copy it to the clipboard.'),
-          for (final (label, url) in links)
+          Padding(
+            // Aligned with the link labels below.
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+            child: Text(
+              AppLanguage.tr(context, 'Tap a link to copy it to the clipboard.'),
+              style: theme.typography.normal.copyWith(
+                fontSize: 12,
+                color: XtColors.textTertiary(context),
+              ),
+            ),
+          ),
+          for (final (label, url, icon) in links)
             _LinkRow(
               label: label,
               url: url,
+              icon: icon,
               copied: _copiedLink == label,
               onTap: () => _copyLink(label, url),
             ),
-        ],
-      ),
-      _SectionCard(
-        title: 'License',
-        children: [
-          _SettingsText(
-            'MIT License. Contributions are accepted under the same terms.',
-          ),
         ],
       ),
     ];
@@ -984,16 +1045,80 @@ class _DestinationRow extends StatelessWidget {
 }
 
 
-/// One About link: label + URL, tap to copy (check icon + “Copied” feedback).
+/// One feature summary on the About page: a real icon, a title and a short
+/// detail line. Two of these form a row in the 700px settings column.
+class _AboutFeature extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  const _AboutFeature({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: XtColors.selected(context),
+            borderRadius: BorderRadius.circular(XtRadius.menu),
+          ),
+          child: Icon(icon, size: 15, color: XtColors.textSecondary(context)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                AppLanguage.tr(context, title),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.typography.medium.copyWith(
+                  fontSize: 13,
+                  color: XtColors.textPrimary(context),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                AppLanguage.tr(context, detail),
+                style: theme.typography.normal.copyWith(
+                  fontSize: 12,
+                  height: 1.35,
+                  color: XtColors.textTertiary(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One About link row: a real destination icon, label and copy affordance. The
+/// URL is the clipboard payload, not body copy — raw URLs wrap badly and add
+/// noise to a settings card.
 class _LinkRow extends StatelessWidget {
   final String label;
   final String url;
+  final IconData icon;
   final bool copied;
   final VoidCallback onTap;
 
   const _LinkRow({
     required this.label,
     required this.url,
+    required this.icon,
     required this.copied,
     required this.onTap,
   });
@@ -1001,60 +1126,44 @@ class _LinkRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: 14),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppLanguage.tr(context, label),
-                      style: theme.typography.medium.copyWith(
-                        fontSize: 13,
-                        color: XtColors.textPrimary(context),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      url,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.typography.normal.copyWith(
-                        fontSize: 12,
-                        color: XtColors.textTertiary(context),
-                      ),
-                    ),
-                  ],
-                ),
+    return XtHoverRow(
+      onTap: onTap,
+      height: 38,
+      margin: const EdgeInsets.only(top: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      radius: XtRadius.menu,
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: XtColors.textSecondary(context)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              AppLanguage.tr(context, label),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.typography.medium.copyWith(
+                fontSize: 13,
+                color: XtColors.textPrimary(context),
               ),
-              const SizedBox(width: 10),
-              Icon(
-                copied ? LucideIcons.check : LucideIcons.copy,
-                size: 14,
-                color: copied
-                    ? XtColors.accent(context)
-                    : XtColors.textTertiary(context),
-              ),
-              if (copied) ...[
-                const SizedBox(width: 6),
-                Text(
-                  AppLanguage.tr(context, 'Copied'),
-                  style: theme.typography.normal.copyWith(
-                    fontSize: 12,
-                    color: XtColors.accent(context),
-                  ),
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
+          if (copied)
+            Text(
+              AppLanguage.tr(context, 'Copied'),
+              style: theme.typography.normal.copyWith(
+                fontSize: 12,
+                color: XtColors.accent(context),
+              ),
+            ),
+          const SizedBox(width: 6),
+          Icon(
+            copied ? LucideIcons.check : LucideIcons.copy,
+            size: 14,
+            color: copied
+                ? XtColors.accent(context)
+                : XtColors.textTertiary(context),
+          ),
+        ],
       ),
     );
   }

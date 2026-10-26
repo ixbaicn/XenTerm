@@ -88,27 +88,24 @@ const Map<String, String> zhCommon = <String, String>{
   'Copied': '已复制',
 
   // About tab.
-  'About XenTerm': '关于 XenTerm',
-  'Version': '版本',
-  'Development build': '开发构建',
-  'Project': '项目',
   'A lightweight SSH / SFTP / Telnet / serial terminal with a Rust core and a Flutter desktop UI.':
       '轻量级 SSH / SFTP / Telnet / 串口终端，Rust 核心 + Flutter 桌面界面。',
-  'Developer': '开发者',
-  'Maintained by 小白 and the XenTerm contributors.': '由小白与 XenTerm 贡献者共同维护。',
-  'Acknowledgements': '鸣谢',
-  "Thanks to xue-ding-e and noerror6 for their contributions, and to the open-source projects this app is built on: Flutter, shadcn_flutter, Rust, russh, rio-vt, Lucide, Simple Icons and Twemoji.":
+  'Features': '功能特性',
+  'Developer & credits': '开发者与鸣谢',
+  'Maintained by 小白 and the XenTerm contributors.': '由 小白 与 XenTerm 贡献者共同维护。',
+  'Thanks to xue-ding-e and noerror6 for their contributions, and to the open-source projects this app is built on: Flutter, shadcn_flutter, Rust, russh, rio-vt, Lucide, Simple Icons and Twemoji.':
       '感谢 xue-ding-e 与 noerror6 的贡献，以及本项目所依赖的开源项目：Flutter、shadcn_flutter、Rust、russh、rio-vt、Lucide、Simple Icons 与 Twemoji。',
+  'Telnet / Serial': 'Telnet / 串口',
+  'File browsing and transfers': '文件浏览与传输',
+  'Network devices and serial consoles': '网络设备与串口控制台',
+  'Tunnels and jump hosts': '隧道与多级跳板',
+  'Automation without a JVM': '无需 JVM 的自动化接口',
   'Links': '相关链接',
   'Source code': '源代码',
   'Issue tracker': '问题反馈',
   'Releases': '版本发布',
-  'Contribution guide': '贡献指南',
-  'Third-party notices': '第三方声明',
   'License': '许可证',
   'Tap a link to copy it to the clipboard.': '点击链接即可复制到剪贴板。',
-  'MIT License. Contributions are accepted under the same terms.':
-      'MIT 许可证，贡献代码同样按该协议授权。',
   'Exported 1 session to {file}': '已导出 1 个会话到 {file}',
   'Exported {count} sessions to {file}': '已导出 {count} 个会话到 {file}',
   'Imported 1 session ({skipped} already present, skipped)':
