@@ -122,44 +122,52 @@ class _RootShellState extends State<RootShell> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TitleBar(
-            openHosts: _openHosts,
-            activeHostId: _activeHostId,
-            onSelectHost: (id) => setState(() {
-              _activeHostId = id;
-              _terminalSftp = false;
-            }),
-            onCloseHost: _closeHost,
-            onNewTab: _requestNewHost,
-            showSftp: _terminalSftp,
-            onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
-            onToggleSidebar: () => setState(() => _railOpen = !_railOpen),
+          // The title bar repaints on tab hover/close affordances; keeping it
+          // in its own layer stops those frames from touching the workspace.
+          RepaintBoundary(
+            child: TitleBar(
+              openHosts: _openHosts,
+              activeHostId: _activeHostId,
+              onSelectHost: (id) => setState(() {
+                _activeHostId = id;
+                _terminalSftp = false;
+              }),
+              onCloseHost: _closeHost,
+              onNewTab: _requestNewHost,
+              showSftp: _terminalSftp,
+              onToggleSftp: () => setState(() => _terminalSftp = !_terminalSftp),
+              onToggleSidebar: () => setState(() => _railOpen = !_railOpen),
+            ),
           ),
           Expanded(
             child: Row(
               children: [
                 // Collapsible rail: fixed-width content clipped by an
-                // animated 0⇄182px box (no squashing mid-animation).
-                ClipRect(
-                  child: AnimatedContainer(
-                    duration: XtMotion.micro,
-                    curve: XtMotion.easeOut,
-                    width: _railOpen ? XtMetrics.navRailWidth : 0,
-                    child: OverflowBox(
-                      alignment: Alignment.centerLeft,
-                      minWidth: XtMetrics.navRailWidth,
-                      maxWidth: XtMetrics.navRailWidth,
-                      child: _NavRail(
-                        active: _active,
-                        destinations: _destinations,
-                        onSelect: (d) => setState(() {
-                          _active = d;
-                          // Choosing a screen in the rail parks the session
-                          // tabs; clicking a tab in the title bar brings them
-                          // back.
-                          _activeHostId = null;
-                          _terminalSftp = false;
-                        }),
+                // animated 0⇄182px box (no squashing mid-animation). The rail
+                // is its own layer: hover washes on the entries never repaint
+                // the workspace beside it.
+                RepaintBoundary(
+                  child: ClipRect(
+                    child: AnimatedContainer(
+                      duration: XtMotion.micro,
+                      curve: XtMotion.easeOut,
+                      width: _railOpen ? XtMetrics.navRailWidth : 0,
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        minWidth: XtMetrics.navRailWidth,
+                        maxWidth: XtMetrics.navRailWidth,
+                        child: _NavRail(
+                          active: _active,
+                          destinations: _destinations,
+                          onSelect: (d) => setState(() {
+                            _active = d;
+                            // Choosing a screen in the rail parks the session
+                            // tabs; clicking a tab in the title bar brings them
+                            // back.
+                            _activeHostId = null;
+                            _terminalSftp = false;
+                          }),
+                        ),
                       ),
                     ),
                   ),

@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:simple_icons/simple_icons.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
@@ -519,8 +519,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(saveCalls, 1);
     expect(savedLabel, 'beta');
-    // The drawer slid shut (its content stays mounted at width 0, so look
-    // through it): the saved host now shows as a card on Home.
+    // The drawer slid shut (its content stays mounted while it slides out of
+    // view, so look through it): the saved host now shows as a card on Home.
     expect(find.text('beta'), findsWidgets);
   });
 
@@ -786,7 +786,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    // The drawer reflows the card column beside it rather than overflowing.
+    // The drawer overlays the card column (no reflow) and must not overflow.
     await tester.tap(find.byKey(const ValueKey('edit-a')));
     await tester.pumpAndSettle();
     expect(find.text('Host Details'), findsOneWidget);

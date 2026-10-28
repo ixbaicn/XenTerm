@@ -3,7 +3,9 @@
 /// with monochrome OS glyph tiles plus a hover edit-pencil.
 library;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
@@ -108,6 +110,15 @@ class _HostsScreenState extends State<HostsScreen> {
   Host? _drawerHost;
   bool _drawerOpen = false;
   String _query = '';
+
+  /// Debounced filter query. Typing updates the field itself (no rebuild);
+  /// only the results area listens here, at most once per
+  /// [_searchDebounceTime] — a keystroke burst must not rebuild the header,
+  /// toolbar and group tree every character.
+  final ValueNotifier<String> _filterQuery = ValueNotifier<String>('');
+  Timer? _searchDebounce;
+  static const Duration _searchDebounceTime = Duration(milliseconds: 80);
+
   List<Host> _hosts = const [];
 
   /// Group names already in use — the drawers' Parent group picker options.
@@ -203,13 +214,25 @@ class _HostsScreenState extends State<HostsScreen> {
   void dispose() {
     widget.newHostRequest?.removeListener(_onNewHostRequest);
     hostOsRegistry.removeListener(_onOsDetected);
+    _searchDebounce?.cancel();
+    _filterQuery.dispose();
     _search.dispose();
     _groupName.dispose();
     super.dispose();
   }
 
-  List<Host> get _filtered {
-    final q = _query.trim().toLowerCase();
+  /// The search field's onChanged: keep the raw text for quick-connect and
+  /// publish the debounced filter query that drives the results area.
+  void _onSearchChanged(String value) {
+    _query = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(_searchDebounceTime, () {
+      if (mounted) _filterQuery.value = _query;
+    });
+  }
+
+  List<Host> _filteredFor(String query) {
+    final q = query.trim().toLowerCase();
     if (q.isEmpty) return _hosts;
     return _hosts
         .where(
@@ -721,15 +744,13 @@ class _HostsScreenState extends State<HostsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hosts = _filtered;
 
-    final content = Row(
+    final hostsColumn = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // The hosts content: search row, toolbar, section title, grid. The
-        // drawer is its SIBLING, so it spans the full content height from the
-        // title bar down; its header sits level with the search row instead of
-        // below the toolbar.
+        // drawer overlays the right edge (see the Stack below) so the grid
+        // never reflows while the panel animates.
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -752,16 +773,19 @@ class _HostsScreenState extends State<HostsScreen> {
                           context,
                           'Find a host or ssh user@hostname...',
                         ),
-                        onChanged: (v) => setState(() => _query = v),
+                        onChanged: _onSearchChanged,
                         // Connect lives INSIDE the field and stays quiet; the
                         // drawer's Connect is the screen's primary action.
-                        trailing: XtActionButton(
-                          key: const ValueKey('quick-connect'),
-                          label: AppLanguage.tr(context, 'Connect'),
-                          height: 28,
-                          onPressed: _query.trim().isEmpty
-                              ? null
-                              : _quickConnect,
+                        trailing: ValueListenableBuilder<String>(
+                          valueListenable: _filterQuery,
+                          builder: (context, query, _) => XtActionButton(
+                            key: const ValueKey('quick-connect'),
+                            label: AppLanguage.tr(context, 'Connect'),
+                            height: 28,
+                            onPressed: query.trim().isEmpty
+                                ? null
+                                : _quickConnect,
+                          ),
                         ),
                       ),
                     ),
@@ -820,48 +844,73 @@ class _HostsScreenState extends State<HostsScreen> {
               if (_groupEditorOpen) _groupEditorBar(theme),
               if (_importNotice != null) _importBanner(theme),
               // ── Section titles + cards ──────────────────────────────────
-              if (_groups.isEmpty || _query.trim().isNotEmpty)
-                _sectionTitle('Home'),
+              // Only this subtree listens to the debounced search query: a
+              // keystroke never rebuilds the header band or the drawer.
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-                  child: _loading
-                      ? const Center(
-                          child: CircularProgressIndicator(
-                            size: 20,
-                            strokeWidth: 2,
+                child: ValueListenableBuilder<String>(
+                  valueListenable: _filterQuery,
+                  builder: (context, query, _) {
+                    final hosts = _filteredFor(query);
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_groups.isEmpty || query.trim().isNotEmpty)
+                          _sectionTitle('Home'),
+                        Expanded(
+                          child: RepaintBoundary(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                              child: _loading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(
+                                        size: 20,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : _loadError != null
+                                  ? XtEmptyState(
+                                      icon: LucideIcons.circleAlert,
+                                      title: AppLanguage.tr(
+                                        context,
+                                        'Could not load hosts',
+                                      ),
+                                      message: AppLanguage.tr(
+                                        context,
+                                        _loadError!,
+                                      ),
+                                      danger: true,
+                                      action: XtActionButton(
+                                        label: AppLanguage.tr(context, 'Retry'),
+                                        onPressed: _reload,
+                                      ),
+                                    )
+                                  : hosts.isEmpty && _groups.isEmpty
+                                  ? _emptyState
+                                  : _groups.isEmpty ||
+                                        query.trim().isNotEmpty
+                                  ? (hosts.isEmpty
+                                        ? _emptyState
+                                        : _layout == HostsLayout.cards
+                                        ? _cardGrid(hosts)
+                                        : _rowList(hosts))
+                                  : _groupedList(theme),
+                            ),
                           ),
-                        )
-                      : _loadError != null
-                      ? XtEmptyState(
-                          icon: LucideIcons.circleAlert,
-                          title: AppLanguage.tr(
-                            context,
-                            'Could not load hosts',
-                          ),
-                          message: AppLanguage.tr(context, _loadError!),
-                          danger: true,
-                          action: XtActionButton(
-                            label: AppLanguage.tr(context, 'Retry'),
-                            onPressed: _reload,
-                          ),
-                        )
-                      : hosts.isEmpty && _groups.isEmpty
-                      ? _emptyState
-                      : _groups.isEmpty || _query.trim().isNotEmpty
-                      ? (hosts.isEmpty ? _emptyState : _layout == HostsLayout.cards
-                            ? _cardGrid(hosts)
-                            : _rowList(hosts))
-                      : _groupedList(theme),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ],
           ),
         ),
-        // The details drawer: a 340px panel revealed from the right
-        // (width 0→340, 200ms). It spans the whole content height; the hosts
-        // column reflows beside it.
-        _DrawerSlider(
+      ],
+    );
+    // The details drawer overlays the right edge instead of reflowing the
+    // hosts column: a 340px macOS-inspector-style panel slid in by pure
+    // transform, so neither the grid nor the header relayouts per frame.
+    final drawer = _DrawerSlider(
           open: _drawerOpen,
           child: _serialPanelOpen
               ? SerialDetailsPanel(
@@ -923,10 +972,13 @@ class _HostsScreenState extends State<HostsScreen> {
                   ),
                   onDelete: _deleteHostToCore,
                 ),
-        ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(child: hostsColumn),
+        Positioned(top: 0, bottom: 0, right: 0, child: drawer),
       ],
     );
-    return content;
   }
 
   Widget _groupEditorBar(ThemeData theme) {
@@ -1391,10 +1443,16 @@ class _GroupHeaderState extends State<_GroupHeader> {
   }
 }
 
-/// A relative slider: the panel is laid out at its full width and the
-/// container's width animates 0↔340 with the content anchored right, so the
-/// drawer slides in/out instead of stretching its children (200ms, ease-out).
+/// The host-details / serial drawer: a fixed 340px panel slid in from the
+/// right by a composited transform (200ms, ease-out).
+///
+/// The panel is laid out once at its real size and only its paint offset
+/// changes per frame. Unlike the previous width-based [Align] animation this
+/// never relayouts the host grid behind it — the drawer behaves like a macOS
+/// inspector that the window slides over, and FrameTiming shows the build cost
+/// drop to the cost of an empty animation turned callbacks.
 class _DrawerSlider extends StatefulWidget {
+  static const double width = 340;
   final bool open;
   final Widget child;
 
@@ -1411,6 +1469,10 @@ class _DrawerSliderState extends State<_DrawerSlider>
     duration: XtMotion.micro,
     reverseDuration: XtMotion.micro,
     value: widget.open ? 1 : 0,
+  );
+  late final Animation<double> _slide = CurvedAnimation(
+    parent: _controller,
+    curve: XtMotion.easeOut,
   );
 
   @override
@@ -1429,16 +1491,33 @@ class _DrawerSliderState extends State<_DrawerSlider>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) => ClipRect(
-        child: Align(
-          alignment: Alignment.centerRight,
-          widthFactor: _controller.value,
-          child: child,
-        ),
+    // A hairline on the panel's leading edge reads as 'inspector' and costs one
+    // line of paint.
+    final panel = DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: XtColors.hairline(context))),
       ),
-      child: SizedBox(width: 340, child: widget.child),
+      child: widget.child,
+    );
+    return AnimatedBuilder(
+      animation: _slide,
+      builder: (context, child) {
+        final value = _slide.value;
+        // Fully closed: keep the (still attached) panel out of the hit test so
+        // it can never eat a click meant for the grid under its edge.
+        return IgnorePointer(
+          ignoring: value == 0,
+          child: ClipRect(
+            child: Transform.translate(
+              offset: Offset((1 - value) * _DrawerSlider.width, 0),
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: RepaintBoundary(
+        child: SizedBox(width: _DrawerSlider.width, child: panel),
+      ),
     );
   }
 }

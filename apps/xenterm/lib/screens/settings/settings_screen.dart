@@ -225,33 +225,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _TabSidebar(
-                      width: sidebarWidth,
-                      tabs: _tabs,
-                      active: _tab,
-                      onSelect: (i) => setState(() => _tab = i),
+                    // Sidebar and content are separate layers: hovering a tab
+                    // never repaints the 700px card column and vice versa.
+                    RepaintBoundary(
+                      child: _TabSidebar(
+                        width: sidebarWidth,
+                        tabs: _tabs,
+                        active: _tab,
+                        onSelect: (i) => setState(() => _tab = i),
+                      ),
                     ),
                     Expanded(
-                      child: ColoredBox(
-                        color: XtColors.page(context),
-                        // The content column is capped at 700 and centred; the
-                        // surrounding ListView scrolls so a short window never
-                        // clips the last card, and the horizontal padding keeps
-                        // the card off the window edge at narrow widths.
-                        child: ListView(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 60),
-                          children: [
-                            if (_saveError != null)
-                              _SectionCard(
-                                children: [
-                                  _SettingsText(
-                                    _saveError!,
-                                    color: XtColors.danger(context),
-                                  ),
-                                ],
-                              ),
-                            ..._contentFor(_tab),
-                          ],
+                      child: RepaintBoundary(
+                        child: ColoredBox(
+                          color: XtColors.page(context),
+                          // The content column is capped at 700 and centred;
+                          // the surrounding ListView scrolls so a short window
+                          // never clips the last card, and the horizontal
+                          // padding keeps the card off the window edge at
+                          // narrow widths.
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 60),
+                            children: [
+                              if (_saveError != null)
+                                _SectionCard(
+                                  children: [
+                                    _SettingsText(
+                                      _saveError!,
+                                      color: XtColors.danger(context),
+                                    ),
+                                  ],
+                                ),
+                              ..._contentFor(_tab),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -312,6 +319,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'assets/app_icon.png',
                   width: 64,
                   height: 64,
+                  // Decode at the largest size we can paint (3x for a 1.5x
+                  // window) instead of the 256px source, so opening the About
+                  // tab does not decode a full-size bitmap on its first frame.
+                  cacheWidth: 192,
+                  cacheHeight: 192,
+                  gaplessPlayback: true,
                   filterQuality: FilterQuality.high,
                 ),
               ),

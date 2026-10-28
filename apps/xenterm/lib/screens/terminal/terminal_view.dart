@@ -614,34 +614,39 @@ class _TerminalViewState extends State<TerminalView>
         ),
         SizedBox(
           width: 300,
-          child: ValueListenableBuilder<TerminalPanelData>(
-            valueListenable: _tools,
-            builder: (context, data, _) => TerminalToolsPanel(
-              fonts: widget.fonts,
-              status: _status,
-              search: _search,
-              searchFocus: _searchFocus,
-              matchCount: data.matchCount,
-              resourceState: data.resourceState,
-              resource: data.resource,
-              onSearch: _onSearch,
-              onClear: () {
-                _send(const [0x0c]);
-                _focus.requestFocus();
-              },
-              onCopy: () async {
-                await copyScreenText(_screen);
-                _focus.requestFocus();
-              },
-              onReconnect: _reconnect,
-              snippets: _snippets,
-              onRunSnippet: (snippet) {
-                _send([
-                  ...utf8.encode(snippet.command),
-                  if (snippet.sendEnter) 13,
-                ]);
-                _focus.requestFocus();
-              },
+          // The panel updates on its own 4 Hz throttle; its own layer keeps
+          // those rebuilds from repainting the terminal surface (and vice
+          // versa).
+          child: RepaintBoundary(
+            child: ValueListenableBuilder<TerminalPanelData>(
+              valueListenable: _tools,
+              builder: (context, data, _) => TerminalToolsPanel(
+                fonts: widget.fonts,
+                status: _status,
+                search: _search,
+                searchFocus: _searchFocus,
+                matchCount: data.matchCount,
+                resourceState: data.resourceState,
+                resource: data.resource,
+                onSearch: _onSearch,
+                onClear: () {
+                  _send(const [0x0c]);
+                  _focus.requestFocus();
+                },
+                onCopy: () async {
+                  await copyScreenText(_screen);
+                  _focus.requestFocus();
+                },
+                onReconnect: _reconnect,
+                snippets: _snippets,
+                onRunSnippet: (snippet) {
+                  _send([
+                    ...utf8.encode(snippet.command),
+                    if (snippet.sendEnter) 13,
+                  ]);
+                  _focus.requestFocus();
+                },
+              ),
             ),
           ),
         ),
