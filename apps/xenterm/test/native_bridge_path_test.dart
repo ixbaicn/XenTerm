@@ -60,6 +60,77 @@ void main() {
     ]);
   });
 
+  test('macOS release layout with spaces and non-ASCII keeps priority', () {
+    // The packaged app is `XenTerm.app`; users may unzip it into folders like
+    // "下载 目录/我的 应用". URI resolution must still produce usable paths and
+    // the Frameworks copy must win over a stray file next to the executable.
+    final executable = tempPath([
+      '下载 目录',
+      '我的 应用',
+      'XenTerm.app',
+      'Contents',
+      'MacOS',
+      'xenterm_app',
+    ]);
+    final paths = NativeBridge.librarySearchPaths(
+      executable,
+      'libxenterm_bridge.dylib',
+      isMacOS: true,
+      isLinux: false,
+    );
+
+    expect(paths, [
+      tempPath([
+        '下载 目录',
+        '我的 应用',
+        'XenTerm.app',
+        'Contents',
+        'Frameworks',
+        'libxenterm_bridge.dylib',
+      ]),
+      tempPath([
+        '下载 目录',
+        '我的 应用',
+        'XenTerm.app',
+        'Contents',
+        'MacOS',
+        'libxenterm_bridge.dylib',
+      ]),
+    ]);
+    for (final path in paths) {
+      expect(File(path).uri.scheme, 'file');
+      expect(path.contains('%20'), isFalse);
+    }
+  });
+
+  test('Linux release layout resolves the bundled lib directory', () {
+    final executable = tempPath([
+      '我的 应用',
+      'xenterm-0.7.3-linux-x86_64-desktop',
+      'xenterm',
+    ]);
+    final paths = NativeBridge.librarySearchPaths(
+      executable,
+      'libxenterm_bridge.so',
+      isMacOS: false,
+      isLinux: true,
+    );
+
+    expect(paths, [
+      tempPath([
+        '我的 应用',
+        'xenterm-0.7.3-linux-x86_64-desktop',
+        'libxenterm_bridge.so',
+      ]),
+      tempPath([
+        '我的 应用',
+        'xenterm-0.7.3-linux-x86_64-desktop',
+        'lib',
+        'libxenterm_bridge.so',
+      ]),
+    ]);
+  });
+
   test('Windows only looks next to the executable', () {
     final executable = tempPath(['release', 'xenterm.exe']);
     final paths = NativeBridge.librarySearchPaths(
@@ -72,3 +143,4 @@ void main() {
     expect(paths, [tempPath(['release', 'xenterm_bridge.dll'])]);
   });
 }
+

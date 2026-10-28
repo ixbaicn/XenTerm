@@ -26,10 +26,6 @@ import '../../theme/app_theme.dart';
 import '../../widgets/primitives.dart';
 import 'connection_prompt.dart';
 
-/// Bridge error text used when the FFI library is missing; translated on show.
-const String _bridgeMissing =
-    'xenterm_bridge library not found next to the app';
-
 /// The live SFTP worker the view drives.
 ///
 /// Production uses [_NativeSftpSession] on top of [NativeBridge]; widget tests
@@ -272,7 +268,7 @@ class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
 
   SftpSession _startNative() {
     final bridge = NativeBridge.tryLoad();
-    if (bridge == null) throw const NativeBridgeError(_bridgeMissing);
+    if (bridge == null) throw NativeBridgeError(NativeBridge.unavailableMessage());
     return _NativeSftpSession(bridge, bridge.startSftp(widget.host.id));
   }
 
@@ -335,7 +331,7 @@ class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
   /// Static bridge errors are translated; core-supplied detail text is shown
   /// verbatim because it names the technical cause.
   String _errorText(BuildContext context, String error) {
-    if (error == _bridgeMissing || error == 'SFTP needs an SSH host.') {
+    if (error == NativeBridge.unavailableMessage() || error == 'SFTP needs an SSH host.') {
       return AppLanguage.tr(context, error);
     }
     return error;

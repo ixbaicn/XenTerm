@@ -207,7 +207,27 @@ jobs:
           test -f "$DYLIB"
           codesign --verify --verbose=2 "$DYLIB"
           cd apps/xenterm
-          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_macos_smoke_test.dart
+          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_smoke_test.dart
+
+      - name: Smoke-test the packaged Linux bridge
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eu
+          SO="$PWD/apps/xenterm/build/linux/x64/release/bundle/lib/libxenterm_bridge.so"
+          test -f "$SO"
+          cd apps/xenterm
+          XENTERM_BRIDGE_PATH="$SO" flutter test test/native_bridge_smoke_test.dart
+
+      - name: Smoke-test the packaged Windows bridge
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $dll = Join-Path $env:GITHUB_WORKSPACE 'apps\xenterm\build\windows\x64\runner\Release\xenterm_bridge.dll'
+          if (-not (Test-Path -LiteralPath $dll)) { throw "missing packaged bridge: $dll" }
+          $env:XENTERM_BRIDGE_PATH = $dll
+          Push-Location apps/xenterm
+          try { flutter test test/native_bridge_smoke_test.dart } finally { Pop-Location }
 
       - name: Validate the Windows installer inputs
         if: matrix.platform == 'windows'

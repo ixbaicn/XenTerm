@@ -192,7 +192,7 @@ jobs:
           test -f "$DYLIB"
           codesign --verify --verbose=2 "$DYLIB"
           cd apps/xenterm
-          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_macos_smoke_test.dart
+          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_smoke_test.dart
 
       - name: Package desktop archive
         shell: bash

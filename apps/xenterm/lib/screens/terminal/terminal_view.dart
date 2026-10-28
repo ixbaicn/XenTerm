@@ -49,10 +49,6 @@ const _terminalFallbacks = <String>[
   'monospace',
 ];
 
-/// Bridge error text used when the FFI library is missing; translated on show.
-const String _bridgeMissing =
-    'xenterm_bridge library not found next to the app';
-
 /// Poll cadence while output is flowing (16 fps: smooth for a shell).
 const _activePoll = Duration(milliseconds: 60);
 
@@ -284,7 +280,7 @@ class _TerminalViewState extends State<TerminalView>
 
   TerminalSession _startNative() {
     final bridge = NativeBridge.tryLoad();
-    if (bridge == null) throw const NativeBridgeError(_bridgeMissing);
+    if (bridge == null) throw NativeBridgeError(NativeBridge.unavailableMessage());
     final handle = widget.host.ephemeral
         ? bridge.startAdhocSession({
             ...widget.host.toAdhocPayload(),
@@ -845,7 +841,7 @@ class _TerminalCanvasState extends State<_TerminalCanvas> {
 }
 
 String _displayError(BuildContext context, String error) =>
-    error == _bridgeMissing ? AppLanguage.tr(context, error) : error;
+    error == NativeBridge.unavailableMessage() ? AppLanguage.tr(context, error) : error;
 
 int promptIdOf(Map<String, dynamic> screen) {
   final prompt = screen['prompt'] as Map<String, dynamic>?;

@@ -10,8 +10,8 @@ const Map<String, String> zhTerminal = <String, String>{
   'Disconnected': '已断开',
   'Reconnect': '重新连接',
   'Terminal unavailable': '终端不可用',
-  'xenterm_bridge library not found next to the app':
-      '未在应用旁找到终端核心库（xenterm_bridge）',
+  'xenterm_bridge library not found in the app bundle':
+      '应用包内未找到终端核心库（xenterm_bridge）',
 
   // Tools panel: search and sections.
   'Search terminal': '搜索终端',
