@@ -5,10 +5,11 @@
 /// The bridge exposes a cheap version counter, so the pane only pays for a
 /// snapshot when the screen actually changed. The poll runs while the pane is
 /// the visible foreground workspace of a resumed app; hidden tabs, the Home
-/// screen and a minimised/unfocused window cancel the timer entirely. When
-/// active, the pane starts at a fast cadence for interactive output and backs
-/// off to a slow one while the screen is quiet, pulling immediately again on
-/// key input.
+/// screen, a minimised/unfocused window and the native window's own
+/// resize/zoom/minimize animation ([windowActivity]) cancel the timer entirely.
+/// When active, the pane starts at a fast cadence for interactive output and
+/// backs off to a slow one while the screen is quiet, pulling immediately again
+/// on key input.
 ///
 /// Screen refreshes are published through value notifiers that only the canvas
 /// subscribes to, so a tick repaints the terminal surface without rebuilding
@@ -29,6 +30,7 @@ import '../../bridge/native_bridge.dart';
 import '../../data/host_os_registry.dart';
 import '../../data/hosts.dart';
 import '../../l10n/app_language.dart';
+import '../../shell/window_activity.dart';
 import '../../theme/app_fonts.dart';
 import '../../terminal/core_settings.dart';
 import '../../terminal/terminal_command_bus.dart';
@@ -241,6 +243,7 @@ class _TerminalViewState extends State<TerminalView>
     widget.commandBus?.addListener(_onCommand);
     widget.settings?.addListener(_onSettings);
     WidgetsBinding.instance.addObserver(this);
+    windowActivity.idle.addListener(_onWindowActivity);
     _foreground =
         (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
         AppLifecycleState.resumed;
@@ -292,14 +295,23 @@ class _TerminalViewState extends State<TerminalView>
     return _NativeTerminalSession(bridge, handle);
   }
 
-  /// The pane polls only while it is visible, the app is resumed and the
-  /// session is still open.
+  /// The pane polls only while it is visible, the app is resumed, the native
+  /// window is not mid-resize/zoom/minimize, and the session is still open.
   bool get _shouldPoll =>
       widget.active &&
       _foreground &&
+      windowActivity.isIdle &&
       _session != null &&
       !_closed &&
       _error == null;
+
+  /// The native window started/finished a compositor-driven transition
+  /// (live resize, zoom/maximize, minimize/restore). Re-evaluate polling: the
+  /// animation frames get the whole budget while it lasts, and the first tick
+  /// after it settles catches up immediately.
+  void _onWindowActivity() {
+    _syncPolling();
+  }
 
   /// Starts/stops the poll timer to match [active] + app lifecycle.
   ///
@@ -458,6 +470,7 @@ class _TerminalViewState extends State<TerminalView>
     widget.settings?.removeListener(_onSettings);
     HardwareKeyboard.instance.removeHandler(_globalKey);
     WidgetsBinding.instance.removeObserver(this);
+    windowActivity.idle.removeListener(_onWindowActivity);
     _poll?.cancel();
     _session?.close();
     _frame.dispose();

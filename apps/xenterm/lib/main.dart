@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,9 +9,10 @@ import 'package:window_manager/window_manager.dart';
 import 'data/hosts.dart';
 import 'l10n/app_language.dart';
 import 'shell/root_shell.dart';
+import 'shell/window_activity.dart';
 import 'terminal/core_settings.dart';
-import 'theme/app_theme.dart';
 import 'theme/app_fonts.dart';
+import 'theme/app_theme.dart';
 
 /// Opt-in frame-timing probe for smoothness work. Build with
 /// --dart-define=XENTERM_FRAME_STATS=true --profile; every 60 frames a
@@ -74,21 +78,58 @@ Future<void> main() async {
   await fonts.load();
   await windowManager.ensureInitialized();
 
+  // Pick the opaque window colour before the first frame: a translucent window
+  // is what makes live resize / zoom / minimize cost extra compositor work on
+  // macOS and Windows.
+  final prefs = await SharedPreferences.getInstance();
+  final restoreLight = prefs.getBool('xenterm.theme.light') ?? false;
+  final windowBackground =
+      restoreLight ? XtPalette.paperBase : XtPalette.black900;
+
   // The shell draws its own titlebar (session tabs live in it), so the native
   // frame is hidden; dragging is re-provided by the shell's drag region and
   // the platform's resize borders stay active.
-  const options = WindowOptions(
+  final options = WindowOptions(
     title: 'XenTerm',
     titleBarStyle: TitleBarStyle.hidden,
-    minimumSize: Size(940, 600),
-    backgroundColor: Colors.transparent,
+    minimumSize: const Size(940, 600),
+    backgroundColor: windowBackground,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
     await windowManager.focus();
   });
 
+  // Some platforms (macOS with a hidden titlebar) force the window translucent
+  // when the titlebar style is applied; restore opacity after that.
+  await configureWindowSurface(windowBackground);
+  WindowActivityObserver.install(windowActivity);
+
   runApp(XenTermApp(fonts: fonts));
+}
+
+/// Applies the opaque window colour natively where window_manager cannot:
+/// macOS marks windows with a hidden titlebar as non-opaque, and that flag is
+/// what makes the compositor blend every frame.
+Future<void> configureWindowSurface(Color color) async {
+  try {
+    await windowManager.setBackgroundColor(color);
+  } catch (_) {
+    // Not supported on this host; the Flutter surface still covers the window.
+  }
+  if (!Platform.isMacOS) return;
+  try {
+    await const MethodChannel('xenterm/window').invokeMethod<void>(
+      'setOpaque',
+      <String, int>{
+        'r': (color.r * 255.0).round(),
+        'g': (color.g * 255.0).round(),
+        'b': (color.b * 255.0).round(),
+      },
+    );
+  } catch (_) {
+    // Older builds without the channel keep the platform default.
+  }
 }
 
 class XenTermApp extends StatefulWidget {
@@ -153,6 +194,7 @@ class _XenTermAppState extends State<XenTermApp> {
     SharedPreferences.getInstance().then(
       (prefs) => prefs.setBool(_themeKey, light),
     );
+    configureWindowSurface(light ? XtPalette.paperBase : XtPalette.black900);
   }
 
   void _changed() => setState(() {});

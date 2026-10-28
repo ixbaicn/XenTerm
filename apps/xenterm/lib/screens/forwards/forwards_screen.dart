@@ -10,6 +10,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
+import '../../shell/window_activity.dart';
 import '../../l10n/app_language.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
@@ -77,8 +78,27 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
   void initState() {
     super.initState();
     _reload();
+    windowActivity.idle.addListener(_onWindowActivity);
     // Tunnel state lives only in open sessions; a light poll keeps the
-    // "Active" section honest while this screen is on screen.
+    // "Active" section honest while this screen is on screen. Polling pauses
+    // while the window itself is animating (resize/zoom/minimize) so it never
+    // competes with the compositor for the frame budget.
+    _startTunnelPoll();
+  }
+
+  void _onWindowActivity() {
+    if (windowActivity.isIdle) {
+      _startTunnelPoll();
+      _pollTunnels();
+    } else {
+      _tunnelPoll?.cancel();
+      _tunnelPoll = null;
+    }
+  }
+
+  void _startTunnelPoll() {
+    _tunnelPoll?.cancel();
+    if (!windowActivity.isIdle) return;
     _tunnelPoll = Timer.periodic(
       const Duration(seconds: 2),
       (_) => _pollTunnels(),
@@ -98,6 +118,7 @@ class _ForwardsScreenState extends State<ForwardsScreen> {
 
   @override
   void dispose() {
+    windowActivity.idle.removeListener(_onWindowActivity);
     _tunnelPoll?.cancel();
     _search.dispose();
     super.dispose();

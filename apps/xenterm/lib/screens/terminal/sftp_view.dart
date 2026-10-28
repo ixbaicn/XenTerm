@@ -4,6 +4,10 @@
 /// core's snapshot, and performs real directory navigation, uploads, downloads,
 /// folder creation and deletion. It is not a mock: every action is a command to
 /// the Rust worker and every row comes from a live listing.
+///
+/// Polling pauses while the view is hidden, the app is suspended, or the native
+/// window is mid resize/zoom/minimize ([windowActivity]) so the OS window
+/// animation keeps the whole frame budget.
 library;
 
 import 'dart:async';
@@ -15,6 +19,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../bridge/native_bridge.dart';
 import '../../data/hosts.dart';
 import '../../l10n/app_language.dart';
+import '../../shell/window_activity.dart';
 import '../../terminal/core_settings.dart';
 import '../../theme/app_field.dart';
 import '../../theme/app_theme.dart';
@@ -174,6 +179,7 @@ class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    windowActivity.idle.addListener(_onWindowActivity);
     _foreground =
         (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
         AppLifecycleState.resumed;
@@ -188,16 +194,28 @@ class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
     _syncPolling();
   }
 
+  /// Live resize / zoom / minimize swaps the app into a compositor-driven
+  /// animation where every frame repaints the whole surface; a 10 Hz listing
+  /// poll on top of it only steals budget, so pause until it settles.
+  void _onWindowActivity() {
+    _syncPolling();
+  }
+
   @override
   void didUpdateWidget(SftpView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.active != widget.active) _syncPolling();
   }
 
-  /// Polls only while visible in a resumed window; the hidden terminal/SFTP
-  /// twin and minimized windows stop the timer instead of paying 10 Hz.
+  /// Polls only while visible in a resumed window whose native frame is not
+  /// animating; the hidden terminal/SFTP twin, minimized windows and resize
+  /// transitions stop the timer instead of paying 10 Hz.
   bool get _shouldPoll =>
-      widget.active && _foreground && _session != null && !_starting;
+      widget.active &&
+      _foreground &&
+      windowActivity.isIdle &&
+      _session != null &&
+      !_starting;
 
   void _syncPolling() {
     if (!_shouldPoll) {
@@ -220,6 +238,7 @@ class _SftpViewState extends State<SftpView> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    windowActivity.idle.removeListener(_onWindowActivity);
     _poll?.cancel();
     _session?.close();
     super.dispose();

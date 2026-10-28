@@ -1,4 +1,4 @@
-﻿import 'package:flutter/services.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:xenterm_app/bridge/native_bridge.dart';
@@ -6,6 +6,7 @@ import 'package:xenterm_app/data/hosts.dart';
 import 'package:xenterm_app/screens/terminal/sftp_view.dart';
 import 'package:xenterm_app/screens/terminal/terminal_tools_panel.dart';
 import 'package:xenterm_app/screens/terminal/terminal_view.dart';
+import 'package:xenterm_app/shell/window_activity.dart';
 import 'package:xenterm_app/theme/app_fonts.dart';
 import 'package:xenterm_app/theme/app_theme.dart';
 
@@ -164,6 +165,10 @@ Future<void> _setLifecycle(
 }
 
 void main() {
+  // [windowActivity] is process-wide; each test ends with polling enabled so a
+  // simulated window transition cannot silence the next test.
+  tearDown(windowActivity.wake);
+
   testWidgets('an inactive pane never polls and activating it pulls at once', (
     tester,
   ) async {
@@ -476,6 +481,122 @@ void main() {
     expect(session.versionReads, paused);
 
     await _setLifecycle(tester, AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(session.versionReads, greaterThan(paused));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a native window transition pauses terminal polling until it '
+      'settles', (tester) async {
+    final session = _FakeTerminalSession();
+    final fonts = AppFonts();
+    addTearDown(fonts.dispose);
+    await tester.pumpWidget(
+      _host(
+        TerminalView(
+          host: _hostModel,
+          fonts: fonts,
+          sessionStarter: () => session,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(session.versionReads, greaterThan(1));
+
+    // Live resize / zoom: the whole surface repaints per frame, so polling
+    // must stop for the duration.
+    windowActivity.resize();
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(windowActivity.isIdle, isFalse);
+    final paused = session.versionReads;
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(session.versionReads, paused, reason: 'no poll during the zoom');
+
+    // The settle delay expires by itself and the first tick catches up.
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(windowActivity.isIdle, isTrue);
+    expect(session.versionReads, greaterThan(paused));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a minimized window stays paused until it is restored', (
+    tester,
+  ) async {
+    final session = _FakeTerminalSession();
+    final fonts = AppFonts();
+    addTearDown(fonts.dispose);
+    await tester.pumpWidget(
+      _host(
+        TerminalView(
+          host: _hostModel,
+          fonts: fonts,
+          sessionStarter: () => session,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(session.versionReads, greaterThan(1));
+
+    windowActivity.minimize();
+    await tester.pump(const Duration(milliseconds: 1));
+    final paused = session.versionReads;
+    await tester.pump(const Duration(seconds: 2));
+    expect(
+      session.versionReads,
+      paused,
+      reason: 'minimized windows must not keep polling behind the Dock',
+    );
+
+    // Restore: resume after one settle delay, like any other window animation.
+    windowActivity.restore();
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(windowActivity.isIdle, isTrue);
+    expect(session.versionReads, greaterThan(paused));
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a native window transition pauses SFTP polling too', (
+    tester,
+  ) async {
+    final session = _FakeSftpSession();
+    await tester.pumpWidget(
+      ShadcnApp(
+        theme: ThemeData(colorScheme: xtDarkScheme()),
+        home: Scaffold(
+          child: SizedBox(
+            width: 1000,
+            height: 700,
+            child: SftpView(
+              host: const Host(
+                id: 'sftp-host',
+                label: 'SFTP host',
+                address: 'example.test',
+                protocol: 'ssh',
+              ),
+              sessionStarter: () => session,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(session.versionReads, greaterThan(1));
+
+    windowActivity.minimize();
+    await tester.pump(const Duration(milliseconds: 1));
+    final paused = session.versionReads;
+    await tester.pump(const Duration(seconds: 2));
+    expect(session.versionReads, paused);
+
+    windowActivity.wake();
     await tester.pump(const Duration(milliseconds: 1));
     await tester.pump(const Duration(milliseconds: 300));
     expect(session.versionReads, greaterThan(paused));
