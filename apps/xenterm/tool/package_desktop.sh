@@ -63,10 +63,14 @@ case "$(uname -s)" in
     # Re-sign the whole bundle after adding the bridge (the release build is
     # stripped, so the linker's automatic ad-hoc signature is already invalid).
     codesign --force --deep --sign - "XenTerm.app"
-    codesign --verify --verbose "XenTerm.app"
+    codesign --verify --deep --strict --verbose=2 "XenTerm.app"
     stage="xenterm-${version}-macos-${arch}-desktop"
     rm -f "${stage}.zip"
     ditto -c -k --keepParent "XenTerm.app" "${stage}.zip"
+    # Regression guard: the release zip must carry the bridge inside the
+    # bundle, otherwise users get "xenterm_bridge library not found".
+    unzip -l "${stage}.zip" | grep -q "Contents/Frameworks/libxenterm_bridge.dylib" \
+      || { echo "bridge dylib missing from ${stage}.zip" >&2; exit 1; }
     echo "${stage}.zip"
     ;;
 

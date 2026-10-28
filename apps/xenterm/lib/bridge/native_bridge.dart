@@ -79,26 +79,46 @@ class NativeBridge {
   static NativeBridge? _instance;
   static bool _attempted = false;
 
-  /// Loads the bridge library next to the executable (or from
-  /// `XENTERM_BRIDGE_PATH`). Returns null when it is not present so the UI can
+  /// The last load failure, with the paths that were tried. Cleared on success.
+  /// The UI only reports a generic message, but this makes support reports
+  /// actionable without a debug build.
+  static String? loadError;
+
+  /// Loads the bridge library from the platform's bundle layout (or from
+  /// `XENTERM_BRIDGE_PATH`). Returns null when it cannot be loaded so the UI can
   /// show a clear error instead of crashing at startup.
+  ///
+  /// Candidates are tried in order and the first loadable one wins:
+  /// - Windows: next to `xenterm.exe`.
+  /// - Linux: the bundle root (next to the executable) and the conventional
+  ///   `lib/` directory Flutter places shared libraries in.
+  /// - macOS: `Contents/Frameworks/` (where the release packaging stages the
+  ///   dylib and where macOS tools expect embedded frameworks) and the
+  ///   executable directory itself for hand-copied builds.
+  /// The bare library name is tried last so a launcher-provided search path
+  /// (LD_LIBRARY_PATH / DYLD_LIBRARY_PATH) still works.
   static NativeBridge? tryLoad() {
     if (_attempted) return _instance;
     _attempted = true;
-    try {
-      final override = Platform.environment['XENTERM_BRIDGE_PATH'];
-      final lib = override != null && override.isNotEmpty
-          ? DynamicLibrary.open(override)
-          : DynamicLibrary.open(
-              libraryPathForExecutable(
-                Platform.resolvedExecutable,
-                _defaultName(),
-              ),
-            );
-      _instance = NativeBridge._(lib);
-    } catch (_) {
-      _instance = null;
+    final override = Platform.environment['XENTERM_BRIDGE_PATH'];
+    final name = _defaultName();
+    final candidates = override != null && override.isNotEmpty
+        ? <String>[override]
+        : librarySearchPaths(Platform.resolvedExecutable, name);
+    final errors = <String>[];
+    for (final path in [...candidates, name]) {
+      try {
+        final lib = DynamicLibrary.open(path);
+        _instance = NativeBridge._(lib);
+        loadError = null;
+        return _instance;
+      } catch (error) {
+        errors.add('$path: $error');
+      }
     }
+    _instance = null;
+    loadError = 'xenterm_bridge library not found '
+        '(tried ${errors.join('; ')})';
     return _instance;
   }
 
@@ -106,6 +126,29 @@ class NativeBridge {
     if (Platform.isWindows) return 'xenterm_bridge.dll';
     if (Platform.isMacOS) return 'libxenterm_bridge.dylib';
     return 'libxenterm_bridge.so';
+  }
+
+  /// Absolute paths where the bridge may live for [executable], in lookup
+  /// order. Exposed for tests so the platform bundle layouts stay covered even
+  /// though CI runs on three operating systems.
+  static List<String> librarySearchPaths(
+    String executable,
+    String name, {
+    bool? isMacOS,
+    bool? isLinux,
+  }) {
+    final dir = File(executable).parent;
+    final beside = dir.uri.resolve(name).toFilePath();
+    if (isMacOS ?? Platform.isMacOS) {
+      // xenterm_app.app/Contents/MacOS/<exe> -> Contents/Frameworks/<lib>
+      final frameworks = dir.parent.uri.resolve('Frameworks/$name').toFilePath();
+      return [frameworks, beside];
+    }
+    if (isLinux ?? Platform.isLinux) {
+      // Flutter's Linux bundle: <bundle>/xenterm + <bundle>/lib/<lib>.
+      return [beside, dir.uri.resolve('lib/$name').toFilePath()];
+    }
+    return [beside];
   }
 
   /// Linux's loader does not search the working directory for a bare library

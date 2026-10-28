@@ -198,6 +198,17 @@ jobs:
           ASSET="$(bash apps/xenterm/tool/package_desktop.sh "ci-${{ matrix.name }}")"
           test -f "$ASSET"
           echo "packaged $ASSET"
+      - name: Smoke-test the packaged macOS bridge
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -eu
+          DYLIB="$PWD/apps/xenterm/build/macos/Build/Products/Release/xenterm_app.app/Contents/Frameworks/libxenterm_bridge.dylib"
+          test -f "$DYLIB"
+          codesign --verify --verbose=2 "$DYLIB"
+          cd apps/xenterm
+          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_macos_smoke_test.dart
+
       - name: Validate the Windows installer inputs
         if: matrix.platform == 'windows'
         shell: pwsh

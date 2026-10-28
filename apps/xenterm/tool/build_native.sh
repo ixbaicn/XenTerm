@@ -26,6 +26,19 @@ for cfg in Debug Release; do
   fi
 done
 
+# macOS bundles embed shared libraries in Contents/Frameworks (the release
+# packaging and the app's loader both look there).
+if [ "$(uname -s)" = "Darwin" ]; then
+  for cfg in Debug Release; do
+    dst="$repo/apps/xenterm/build/macos/Build/Products/$cfg/xenterm_app.app/Contents/Frameworks"
+    if [ -d "$dst" ]; then
+      cp -f "$src" "$dst/"
+      codesign --force --sign - "$dst/$lib"
+      echo "copied -> macos/$cfg/Frameworks"
+    fi
+  done
+fi
+
 # Linux desktop builds put the executable in a bundle directory; the bridge has
 # to sit next to it (the loader does not search the working directory).
 if [ "$(uname -s)" = "Linux" ]; then

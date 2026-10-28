@@ -183,6 +183,17 @@ jobs:
         shell: bash
         run: bash apps/xenterm/tool/bundle_native.sh
 
+      - name: Smoke-test the macOS bridge bundle
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -eu
+          DYLIB="$PWD/apps/xenterm/build/macos/Build/Products/Release/xenterm_app.app/Contents/Frameworks/libxenterm_bridge.dylib"
+          test -f "$DYLIB"
+          codesign --verify --verbose=2 "$DYLIB"
+          cd apps/xenterm
+          XENTERM_BRIDGE_PATH="$DYLIB" flutter test test/native_bridge_macos_smoke_test.dart
+
       - name: Package desktop archive
         shell: bash
         run: |
