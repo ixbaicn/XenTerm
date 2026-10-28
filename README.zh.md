@@ -137,11 +137,23 @@ cd xenterm-*-linux-x86_64-desktop
 ./xenterm
 ```
 
+也可以用随包附带的安装器做托管的用户级安装（wrapper 放到 `~/.local/bin`，为新 shell
+管理 PATH，并注册开始菜单与桌面快捷方式）：
+
+```bash
+./install-linux.sh --user              # 不调用 sudo
+./install-linux.sh --user --uninstall  # 只删除未被修改的安装文件
+```
+
+系统级安装为 `sudo ./install-linux.sh --prefix /opt/xenterm`；它不会猜测已登录桌面
+用户，因此 PATH 与桌面集成需要显式搭配 `--user`。布局、选项与卸载保证见
+[docs/release.md](docs/release.md)。
+
 | 发行版 | 命令 |
 | --- | --- |
 | Arch（AUR） | `yay -S xenterm-bin`（安装同一个包到 `/opt/xenterm`） |
 
-包内附带 `xenterm.desktop` 与图标，供发行版注册应用使用。
+包内附带 `install-linux.sh`、`xenterm.desktop` 与图标，供用户和发行版注册应用使用。
 
 ### 平台支持
 

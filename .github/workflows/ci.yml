@@ -9,6 +9,8 @@ name: CI
 #   - flutter:         flutter analyze + widget tests of the desktop UI
 #   - flutter-desktop: real three-platform desktop build + bridge bundling and
 #                      archive packaging smoke (catches "UI missing" releases)
+#   - linux-installer: Linux install/uninstall/upgrade test suite for the
+#                      release bundle installer
 #   - windows-installer: MSI toolchain/packaging/upgrade smoke test
 #
 # The old GPUI desktop jobs (cargo check of the GUI crate, ui::session_editor
@@ -27,6 +29,8 @@ on:
       - "apps/xenterm/**"
       - "scripts/**"
       - "packaging/**"
+      - "tests/**"
+      - "assets/install-linux.sh"
       - "assets/xenterm.ico"
       - "assets/xenterm.desktop"
       - "assets/icon@512.png"
@@ -40,6 +44,8 @@ on:
       - "apps/xenterm/**"
       - "scripts/**"
       - "packaging/**"
+      - "tests/**"
+      - "assets/install-linux.sh"
       - "assets/xenterm.ico"
       - "assets/xenterm.desktop"
       - "assets/icon@512.png"
@@ -326,6 +332,21 @@ jobs:
       - run: python crates/xenterm/tests/ssh_stack_e2e.py --exe target/debug/xenterm.exe
       - run: python crates/xenterm/tests/migration_modes_e2e.py --exe target/debug/xenterm.exe
       - run: python crates/xenterm/tests/migration_preview_e2e.py --exe target/debug/xenterm.exe
+
+  # The release tarball ships assets/install-linux.sh. This suite installs a
+  # fake bundle into a temporary HOME/prefix and checks layout, wrapper
+  # forwarding, PATH/desktop integration, upgrades and manifest-verified
+  # uninstall. Stubbed sudo/xdg/cache tools keep it hermetic.
+  linux-installer:
+    name: Linux installer (bundle + manifest)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check installer syntax
+        run: bash -n assets/install-linux.sh
+      - name: Run isolated installer tests
+        run: python3 tests/install_linux_test.py
 
   # The release workflow builds the MSI for real; this job keeps the toolchain
   # pin, the WiX sources and the packaging script honest on every change.

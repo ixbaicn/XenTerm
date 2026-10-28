@@ -91,6 +91,11 @@ case "$(uname -s)" in
     copy_extras "$stage"
     # Desktop entry + icon so distributions (and users) can register the app.
     cp assets/xenterm.desktop "assets/icon@512.png" "$stage/" 2>/dev/null || true
+    # Linux installer: run it from the extracted folder for a per-user install.
+    # Git on Windows records the file as 0644, so set the mode here instead of
+    # relying on the checkout to make it executable.
+    cp assets/install-linux.sh "$stage/"
+    chmod 755 "$stage/install-linux.sh"
     tar -czf "${stage}.tar.gz" "$stage"
     echo "${stage}.tar.gz"
     ;;

@@ -147,12 +147,25 @@ cd xenterm-*-linux-x86_64-desktop
 ./xenterm
 ```
 
+Or use the bundled installer for a managed per-user installation (wrapper in
+`~/.local/bin`, PATH managed for new shells, Start-menu and desktop entry):
+
+```bash
+./install-linux.sh --user              # never invokes sudo
+./install-linux.sh --user --uninstall  # removes only unchanged installed files
+```
+
+A system-wide install is `sudo ./install-linux.sh --prefix /opt/xenterm`; it
+never guesses the logged-in desktop user, so PATH/desktop integration stays
+opt-in via `--user`. See [docs/release.md](docs/release.md) for the layout,
+options and uninstall guarantees.
+
 | Distribution | Command |
 | --- | --- |
 | Arch (AUR) | `yay -S xenterm-bin` (installs the same bundle to `/opt/xenterm`) |
 
-The `xenterm.desktop` entry and icon ship inside the tarball for distributions
-that want to register the application.
+The tarball also ships `install-linux.sh`, the `xenterm.desktop` entry and the
+icon for distributions that want to register the application.
 
 ### Platform support
 
