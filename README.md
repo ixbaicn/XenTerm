@@ -117,6 +117,13 @@ to be installed separately.
   configuration in a `config/` folder next to the executable, which makes the zip
   suitable for a USB stick.
 
+> **Windows code signing:** XenTerm has applied to the SignPath Foundation
+> open-source program. Until the application is approved and the signing pipeline
+> is enabled, Windows release artifacts are unsigned and SmartScreen may warn
+> about the MSI or zip. Once active, covered Windows releases will use free code
+> signing provided by [SignPath.io](https://signpath.io), with a certificate by
+> the [SignPath Foundation](https://signpath.org).
+
 ### macOS
 
 The download is a `.zip` containing `XenTerm.app`:

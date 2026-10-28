@@ -107,6 +107,12 @@ Flutter 界面和完整的 Rust 核心，无需另装任何组件。
   `xenterm.exe`；如果目录可写，配置会保存在可执行文件旁的 `config/` 目录中，适合放在
   U 盘里使用。
 
+> **Windows 代码签名：** XenTerm 已申请 [SignPath Foundation](https://signpath.org)
+> 开源项目。在申请获批并启用签名流水线之前，Windows 发布产物暂未签名，SmartScreen
+> 可能对 MSI 或 zip 给出未知发布者提示。获批后，符合条件（covered）的 Windows 发布
+> 将使用 [SignPath.io](https://signpath.io) 提供的免费代码签名，证书由 SignPath
+> Foundation 颁发。
+
 ### macOS
 
 下载得到的是包含 `XenTerm.app` 的 `.zip`：
