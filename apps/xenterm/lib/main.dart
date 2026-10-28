@@ -1,4 +1,5 @@
 import 'package:shadcn_flutter/shadcn_flutter.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -9,8 +10,66 @@ import 'terminal/core_settings.dart';
 import 'theme/app_theme.dart';
 import 'theme/app_fonts.dart';
 
+/// Opt-in frame-timing probe for smoothness work. Build with
+/// --dart-define=XENTERM_FRAME_STATS=true --profile; every 60 frames a
+/// FRAMESTATS ... line goes to stdout and frames over 32ms are logged
+/// individually, so a scripted UI run can be diffed before/after a change.
+const bool _frameStatsEnabled = bool.fromEnvironment('XENTERM_FRAME_STATS');
+
+void _installFrameStats() {
+  final started = DateTime.now();
+  final pending = <FrameTiming>[];
+  String pct(List<double> sorted, double q) {
+    if (sorted.isEmpty) return '0.0';
+    final index = ((sorted.length - 1) * q).round();
+    return sorted[index].toStringAsFixed(1);
+  }
+
+  void flush() {
+    if (pending.isEmpty) return;
+    final builds = [
+      for (final frame in pending) frame.buildDuration.inMicroseconds / 1000.0,
+    ]..sort();
+    final rasters = [
+      for (final frame in pending) frame.rasterDuration.inMicroseconds / 1000.0,
+    ]..sort();
+    final totals = <double>[
+      for (var i = 0; i < pending.length; i++) builds[i] + rasters[i],
+    ];
+    final dropped = totals.where((total) => total > 16.7).length;
+    final slow = totals.where((total) => total > 32).length;
+    // ignore: avoid_print
+    print(
+      'FRAMESTATS t=${DateTime.now().difference(started).inMilliseconds} '
+      'n=${pending.length} build_p50=${pct(builds, 0.5)} '
+      'build_p90=${pct(builds, 0.9)} build_max=${builds.last.toStringAsFixed(1)} '
+      'raster_p50=${pct(rasters, 0.5)} raster_p90=${pct(rasters, 0.9)} '
+      'raster_max=${rasters.last.toStringAsFixed(1)} '
+      'over16=$dropped over32=$slow',
+    );
+    pending.clear();
+  }
+
+  SchedulerBinding.instance.addTimingsCallback((batch) {
+    for (final frame in batch) {
+      final total = frame.buildDuration + frame.rasterDuration;
+      if (total > const Duration(milliseconds: 32)) {
+        // ignore: avoid_print
+        print(
+          'FRAMESTATS_SLOW t=${DateTime.now().difference(started).inMilliseconds} '
+          'build=${(frame.buildDuration.inMicroseconds / 1000.0).toStringAsFixed(1)} '
+          'raster=${(frame.rasterDuration.inMicroseconds / 1000.0).toStringAsFixed(1)}',
+        );
+      }
+    }
+    pending.addAll(batch);
+    if (pending.length >= 60) flush();
+  });
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_frameStatsEnabled) _installFrameStats();
   final fonts = AppFonts();
   await fonts.load();
   await windowManager.ensureInitialized();
