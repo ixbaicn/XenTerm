@@ -51,7 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
 async-trait = "0.1"
 futures = "0.3"
-rio-vt = { version = "=0.5.28", default-features = false }
+rio-vt = { version = "=0.5.29", default-features = false }
 portable-pty = "0.8"
 # Rendering, selection and find share the terminal engine's grapheme-width
 # table so their columns agree with the native grid (#132).
