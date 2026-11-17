@@ -7,6 +7,7 @@
 /// timeout.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -15,7 +16,7 @@ import '../l10n/app_language.dart';
 import '../theme/app_theme.dart';
 import '../widgets/primitives.dart';
 
-class TitleBar extends StatelessWidget {
+class TitleBar extends StatefulWidget {
   /// Open terminal sessions, rendered as tabs in the ONE title bar — the shell
   /// never stacks a second tab strip inside the terminal.
   final List<Host> openHosts;
@@ -27,6 +28,10 @@ class TitleBar extends StatelessWidget {
   final VoidCallback? onToggleSftp;
   final VoidCallback? onToggleSidebar;
 
+  /// Overrides the platform chrome for tests. Production leaves this null and
+  /// follows [defaultTargetPlatform] (macOS keeps its native traffic lights).
+  final bool? macOS;
+
   const TitleBar({
     super.key,
     this.openHosts = const [],
@@ -37,10 +42,67 @@ class TitleBar extends StatelessWidget {
     this.showSftp = false,
     this.onToggleSftp,
     this.onToggleSidebar,
+    this.macOS,
   });
 
   @override
+  State<TitleBar> createState() => _TitleBarState();
+}
+
+class _TitleBarState extends State<TitleBar> with WindowListener {
+  /// macOS renders the native traffic-light buttons above our content and they
+  /// cannot be removed. Keep their footprint clear instead of drawing the
+  /// hamburger on top of them.
+  static const double _trafficLightInset = 80;
+
+  /// Fullscreen hides the traffic lights, so the inset goes away with them.
+  bool _macFullScreen = false;
+
+  bool get _isMacOS =>
+      widget.macOS ?? (defaultTargetPlatform == TargetPlatform.macOS);
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isMacOS) {
+      windowManager.addListener(this);
+      _readFullScreenState();
+    }
+  }
+
+  Future<void> _readFullScreenState() async {
+    try {
+      final full = await windowManager.isFullScreen();
+      if (mounted && full != _macFullScreen) {
+        setState(() => _macFullScreen = full);
+      }
+    } catch (_) {
+      // Platform channel unavailable (widget tests): the default layout stays.
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_isMacOS) windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowEnterFullScreen() {
+    if (mounted) setState(() => _macFullScreen = true);
+  }
+
+  @override
+  void onWindowLeaveFullScreen() {
+    if (mounted) setState(() => _macFullScreen = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Linux and Windows draw their own min/max/close trio because the native
+    // frame is hidden. macOS keeps its native buttons on the left, so the
+    // content starts after them and the custom trio is left out.
+    final macChrome = _isMacOS && !_macFullScreen;
     return SizedBox(
       height: 50,
       child: Stack(
@@ -63,7 +125,7 @@ class TitleBar extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(left: 10),
+            padding: EdgeInsets.only(left: macChrome ? _trafficLightInset : 10),
             child: Row(
               children: [
                 XtIconButton(
@@ -71,14 +133,16 @@ class TitleBar extends StatelessWidget {
                   icon: LucideIcons.list,
                   iconSize: 14,
                   size: 30,
-                  onPressed: onToggleSidebar,
+                  onPressed: widget.onToggleSidebar,
                 ),
                 const SizedBox(width: 5),
                 _SftpPill(
-                  active: showSftp,
-                  onTap: openHosts.isEmpty ? null : onToggleSftp,
+                  active: widget.showSftp,
+                  onTap: widget.openHosts.isEmpty
+                      ? null
+                      : widget.onToggleSftp,
                 ),
-                if (openHosts.isNotEmpty) ...[
+                if (widget.openHosts.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Container(
                     width: 1,
@@ -86,13 +150,13 @@ class TitleBar extends StatelessWidget {
                     color: XtColors.hairline(context),
                   ),
                 ],
-                for (final host in openHosts) ...[
+                for (final host in widget.openHosts) ...[
                   const SizedBox(width: 5),
                   _SessionTab(
                     host: host,
-                    active: host.id == activeHostId,
-                    onSelect: () => onSelectHost?.call(host.id),
-                    onClose: () => onCloseHost?.call(host.id),
+                    active: host.id == widget.activeHostId,
+                    onSelect: () => widget.onSelectHost?.call(host.id),
+                    onClose: () => widget.onCloseHost?.call(host.id),
                   ),
                 ],
                 const SizedBox(width: 5),
@@ -100,10 +164,10 @@ class TitleBar extends StatelessWidget {
                   icon: LucideIcons.plus,
                   iconSize: 14,
                   size: 30,
-                  onPressed: onNewTab ?? () {},
+                  onPressed: widget.onNewTab ?? () {},
                 ),
                 const Spacer(),
-                const _WindowControls(),
+                if (!_isMacOS) const _WindowControls(),
               ],
             ),
           ),
@@ -268,8 +332,13 @@ class _WindowControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _ControlButton(icon: LucideIcons.minus, onTap: windowManager.minimize),
         _ControlButton(
+          key: const ValueKey('window-minimize'),
+          icon: LucideIcons.minus,
+          onTap: windowManager.minimize,
+        ),
+        _ControlButton(
+          key: const ValueKey('window-maximize'),
           icon: LucideIcons.square,
           onTap: () async {
             if (await windowManager.isMaximized()) {
@@ -280,6 +349,7 @@ class _WindowControls extends StatelessWidget {
           },
         ),
         _ControlButton(
+          key: const ValueKey('window-close'),
           icon: LucideIcons.x,
           // Windows' own close-button red, kept as the platform convention.
           hoverColor: const Color(0xFFE81123),
@@ -296,6 +366,7 @@ class _ControlButton extends StatefulWidget {
   final Color? hoverColor;
 
   const _ControlButton({
+    super.key,
     required this.icon,
     required this.onTap,
     this.hoverColor,

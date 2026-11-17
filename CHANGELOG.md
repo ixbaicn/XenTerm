@@ -37,6 +37,7 @@ rewrite and are kept for reference only.
 ### Fixed / 修复
 - **串口连接可删除** / Saved serial connections now offer the same "Remove host" action as SSH, Telnet and local sessions, from a shared drawer menu.
 - **Linux 启动找不到桥接库** / The Flutter bundle now loads `libxenterm_bridge.so` from the executable's directory instead of relying on the working directory.
+- **macOS 标题栏避让系统按钮** / The macOS titlebar now reserves the native close/minimize/zoom buttons instead of drawing the hamburger underneath them, drops the duplicate Windows-style window controls, and reclaims the inset in fullscreen.
 
 ## [0.7.3] - 2026-09-07
 
