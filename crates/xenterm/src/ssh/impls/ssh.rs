@@ -1335,6 +1335,23 @@ pub(crate) const COMPAT_KEX: &[russh::kex::Name] = &[
     russh::kex::EXTENSION_OPENSSH_STRICT_KEX_AS_SERVER,
 ];
 
+// MACs offered to the server, strongest first. This is russh's safe set
+// (SHA-256/SHA-512, encrypt-then-MAC variants first) PLUS the SHA-1 MACs appended
+// as last-resort fallbacks, mirroring OpenSSH's client defaults. Some older
+// switches, NAS boxes and network gear only advertise hmac-sha1 (and sometimes
+// only hmac-sha1-etm@openssh.com), so without this tail every connection to them
+// dies during negotiation with "No common MAC algorithm" even though the KEX
+// and cipher fallbacks already exist (#172). SHA-1 is never preferred: a server
+// that offers a modern MAC still gets one.
+pub(crate) const COMPAT_MAC: &[russh::mac::Name] = &[
+    russh::mac::HMAC_SHA512_ETM,
+    russh::mac::HMAC_SHA256_ETM,
+    russh::mac::HMAC_SHA512,
+    russh::mac::HMAC_SHA256,
+    russh::mac::HMAC_SHA1_ETM, // legacy fallback
+    russh::mac::HMAC_SHA1,     // legacy fallback
+];
+
 // Ciphers offered to the server, strongest first: russh's AEAD/CTR defaults plus
 // the legacy CBC ciphers appended for old servers that only support CBC (#172).
 pub(crate) const COMPAT_CIPHER: &[russh::cipher::Name] = &[
@@ -1362,6 +1379,7 @@ fn ssh_client_config() -> Arc<client::Config> {
         preferred: russh::Preferred {
             kex: std::borrow::Cow::Borrowed(COMPAT_KEX),
             cipher: std::borrow::Cow::Borrowed(COMPAT_CIPHER),
+            mac: std::borrow::Cow::Borrowed(COMPAT_MAC),
             ..russh::Preferred::DEFAULT
         },
         ..<_>::default()
@@ -3983,5 +4001,54 @@ mod mfa_tests {
         ] {
             assert!(looks_like_mfa(p), "missed an MFA prompt: {p:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod compat_mac_tests {
+    use super::*;
+
+    fn names(list: &[russh::mac::Name]) -> Vec<String> {
+        list.iter().map(|name| name.as_ref().to_string()).collect()
+    }
+
+    #[test]
+    fn compat_macs_keep_modern_first_and_sha1_last() {
+        let macs = names(COMPAT_MAC);
+        assert_eq!(
+            macs.first().map(String::as_str),
+            Some("hmac-sha2-512-etm@openssh.com"),
+            "the strongest MAC must stay first so modern servers never downgrade"
+        );
+        assert_eq!(
+            macs.get(macs.len() - 2).map(String::as_str),
+            Some("hmac-sha1-etm@openssh.com"),
+            "etm sha1 is the safer of the two legacy fallbacks"
+        );
+        assert_eq!(
+            macs.last().map(String::as_str),
+            Some("hmac-sha1"),
+            "plain sha1 must stay last; it exists only for old network gear"
+        );
+        assert!(macs.contains(&"hmac-sha2-256".to_string()));
+        assert!(macs.contains(&"hmac-sha2-512".to_string()));
+    }
+
+    #[test]
+    fn client_config_offers_sha1_fallbacks_for_legacy_servers() {
+        let config = ssh_client_config();
+        let macs: Vec<String> = config
+            .preferred
+            .mac
+            .iter()
+            .map(|name| name.as_ref().to_string())
+            .collect();
+        // The reported failure (#172 follow-up) was a server offering only
+        // hmac-md5/hmac-sha1; offering sha1 restores the handshake.
+        assert!(macs.contains(&"hmac-sha1".to_string()), "macs: {macs:?}");
+        assert!(
+            macs.contains(&"hmac-sha1-etm@openssh.com".to_string()),
+            "macs: {macs:?}"
+        );
     }
 }

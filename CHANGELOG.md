@@ -38,6 +38,7 @@ rewrite and are kept for reference only.
 - **串口连接可删除** / Saved serial connections now offer the same "Remove host" action as SSH, Telnet and local sessions, from a shared drawer menu.
 - **Linux 启动找不到桥接库** / The Flutter bundle now loads `libxenterm_bridge.so` from the executable's directory instead of relying on the working directory.
 - **macOS 标题栏避让系统按钮** / The macOS titlebar now reserves the native close/minimize/zoom buttons instead of drawing the hamburger underneath them, drops the duplicate Windows-style window controls, and reclaims the inset in fullscreen.
+- **老旧 SSH 服务器 MAC 协商** / Servers that only advertise `hmac-sha1`/`hmac-sha1-etm@openssh.com` no longer fail with "No common MAC algorithm": both the shell and SFTP connections now offer those SHA-1 MACs as last-resort fallbacks after the SHA-2 set, matching OpenSSH's client defaults while keeping modern algorithms first.
 
 ## [0.7.3] - 2026-09-07
 
