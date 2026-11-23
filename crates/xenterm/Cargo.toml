@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 # CSS/HSV parsing and conversion; the desktop side supplies the picker UI.
-csscolorparser = "=0.9.0"
+csscolorparser = "=0.9.2"
 glob = "0.3"
 encoding_rs = "0.8"
 anyhow = "1"
@@ -51,7 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
 async-trait = "0.1"
 futures = "0.3"
-rio-vt = { version = "=0.5.28", default-features = false }
+rio-vt = { version = "=0.5.32", default-features = false }
 portable-pty = "0.8"
 # Rendering, selection and find share the terminal engine's grapheme-width
 # table so their columns agree with the native grid (#132).
